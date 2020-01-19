@@ -36,10 +36,10 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * Reads data from CSV files as the data source.
+ * Reads data from CSV files on DFS as the data source.
  *
  * You can set the CSV-specific configs in the format of hoodie.deltastreamer.csv.*
- * that are Spark compatible to deal with CSV files in Hudi.  The supported configs are:
+ * that are Spark compatible to deal with CSV files in Hudi.  The supported options are:
  *
  *       "sep", "encoding", "quote", "escape", "charToEscapeQuoteEscaping", "comment",
  *       "header", "enforceSchema", "inferSchema", "samplingRatio", "ignoreLeadingWhiteSpace",
@@ -47,8 +47,8 @@ import java.util.List;
  *       "negativeInf", "dateFormat", "timestampFormat", "maxColumns", "maxCharsPerColumn",
  *       "mode", "columnNameOfCorruptRecord", "multiLine"
  *
- * Detailed information of these configs can be found at:
- * https://spark.apache.org/docs/latest/api/java/org/apache/spark/sql/DataFrameReader.html
+ * Detailed information of these CSV options can be found at:
+ * https://spark.apache.org/docs/latest/api/java/org/apache/spark/sql/DataFrameReader.html#csv-scala.collection.Seq-
  *
  * If the source Avro schema is provided through the {@link org.apache.hudi.utilities.schema.FilebasedSchemaProvider}
  * using "hoodie.deltastreamer.schemaprovider.source.schema.file" config, the schema is
