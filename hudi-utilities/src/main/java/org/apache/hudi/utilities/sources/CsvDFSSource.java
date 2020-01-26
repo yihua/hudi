@@ -38,6 +38,9 @@ import java.util.List;
 /**
  * Reads data from CSV files on DFS as the data source.
  *
+ * Internally, we use Spark to read CSV files thus any limitation of Spark CSV also applies here
+ * (e.g., limited support for nested schema).
+ *
  * You can set the CSV-specific configs in the format of hoodie.deltastreamer.csv.*
  * that are Spark compatible to deal with CSV files in Hudi.  The supported options are:
  *
