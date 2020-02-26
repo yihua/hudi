@@ -774,7 +774,7 @@ public class TestHoodieDeltaStreamer extends UtilitiesTestBase {
   public void testCsvDFSSourceWithHeaderAndSepWithSchemaProviderAndNoTransformer() throws Exception {
     // The CSV files have header, the columns are separated by '\t'
     // File schema provider is used, no transformer is applied
-    // In this case, the source schema comes from the source Arvo schema file
+    // In this case, the source schema comes from the source Avro schema file
     testCsvDFSSource(true, '\t', true, null);
   }
 
@@ -790,8 +790,8 @@ public class TestHoodieDeltaStreamer extends UtilitiesTestBase {
   @Test
   public void testCsvDFSSourceWithHeaderAndSepWithSchemaProviderAndTransformer() throws Exception {
     // The CSV files have header, the columns are separated by '\t'
-    // File schema provider is used, no transformer is applied
-    // In this case, the source and target schema come from the Arvo schema files
+    // File schema provider is used, transformer is applied
+    // In this case, the source and target schema come from the Avro schema files
     testCsvDFSSource(true, '\t', true, TripsWithDistanceTransformer.class.getName());
   }
 
@@ -810,7 +810,7 @@ public class TestHoodieDeltaStreamer extends UtilitiesTestBase {
   public void testCsvDFSSourceNoHeaderWithSchemaProviderAndNoTransformer() throws Exception {
     // The CSV files do not have header, the columns are separated by '\t'
     // File schema provider is used, no transformer is applied
-    // In this case, the source schema comes from the source Arvo schema file
+    // In this case, the source schema comes from the source Avro schema file
     testCsvDFSSource(false, '\t', true, null);
   }
 
@@ -834,8 +834,8 @@ public class TestHoodieDeltaStreamer extends UtilitiesTestBase {
   @Test
   public void testCsvDFSSourceNoHeaderWithSchemaProviderAndTransformer() throws Exception {
     // The CSV files do not have header, the columns are separated by '\t'
-    // File schema provider is used, no transformer is applied
-    // In this case, the source and target schema come from the Arvo schema files
+    // File schema provider is used, transformer is applied
+    // In this case, the source and target schema come from the Avro schema files
     testCsvDFSSource(false, '\t', true, TripsWithDistanceTransformer.class.getName());
   }
 

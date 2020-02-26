@@ -82,6 +82,7 @@ public class UtilitiesTestBase {
   protected transient SparkSession sparkSession = null;
   protected transient SQLContext sqlContext;
   protected static HiveServer2 hiveServer;
+  private static ObjectMapper mapper = new ObjectMapper();
 
   @BeforeClass
   public static void initClass() throws Exception {
@@ -217,7 +218,6 @@ public class UtilitiesTestBase {
         boolean hasHeader, char sep,
         String[] lines, FileSystem fs, String targetPath) throws IOException {
       Builder csvSchemaBuilder = CsvSchema.builder();
-      ObjectMapper mapper = new ObjectMapper();
 
       ArrayNode arrayNode = mapper.createArrayNode();
       Arrays.stream(lines).forEachOrdered(
