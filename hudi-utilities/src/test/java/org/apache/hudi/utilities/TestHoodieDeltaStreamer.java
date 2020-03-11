@@ -19,7 +19,6 @@
 package org.apache.hudi.utilities;
 
 import org.apache.hudi.DataSourceWriteOptions;
-import org.apache.hudi.keygen.SimpleKeyGenerator;
 import org.apache.hudi.common.HoodieTestDataGenerator;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieTableType;
@@ -33,11 +32,12 @@ import org.apache.hudi.common.util.FSUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.TypedProperties;
 import org.apache.hudi.config.HoodieCompactionConfig;
-import org.apache.hudi.exception.TableNotFoundException;
 import org.apache.hudi.exception.HoodieException;
+import org.apache.hudi.exception.TableNotFoundException;
 import org.apache.hudi.hive.HiveSyncConfig;
 import org.apache.hudi.hive.HoodieHiveClient;
 import org.apache.hudi.hive.MultiPartKeysValueExtractor;
+import org.apache.hudi.keygen.SimpleKeyGenerator;
 import org.apache.hudi.utilities.deltastreamer.HoodieDeltaStreamer;
 import org.apache.hudi.utilities.deltastreamer.HoodieDeltaStreamer.Operation;
 import org.apache.hudi.utilities.schema.FilebasedSchemaProvider;
@@ -101,6 +101,7 @@ public class TestHoodieDeltaStreamer extends UtilitiesTestBase {
   private static final String PROPS_FILENAME_TEST_SOURCE = "test-source.properties";
   private static final String PROPS_FILENAME_TEST_INVALID = "test-invalid.properties";
   private static final String PROPS_FILENAME_TEST_CSV = "test-csv-dfs-source.properties";
+  private static final String PROPS_FILENAME_TEST_CSV_NESTED = "test-csv-dfs-source-nested.properties";
   private static final String PROPS_FILENAME_TEST_PARQUET = "test-parquet-dfs-source.properties";
   private static final String PARQUET_SOURCE_ROOT = dfsBasePath + "/parquetFiles";
   private static final int PARQUET_NUM_RECORDS = 5;
@@ -728,7 +729,51 @@ public class TestHoodieDeltaStreamer extends UtilitiesTestBase {
       csvProps.setProperty("hoodie.deltastreamer.csv.header", Boolean.toString(hasHeader));
     }
 
-    UtilitiesTestBase.Helpers.savePropsToDFS(csvProps, dfs, dfsBasePath + "/" + PROPS_FILENAME_TEST_CSV);
+    UtilitiesTestBase.Helpers
+        .savePropsToDFS(csvProps, dfs, dfsBasePath + "/" + PROPS_FILENAME_TEST_CSV);
+
+    String path = sourceRoot + "/1.csv";
+    HoodieTestDataGenerator dataGenerator = new HoodieTestDataGenerator();
+    UtilitiesTestBase.Helpers.saveCsvToDFS(
+        hasHeader, sep,
+        Helpers.jsonifyRecords(dataGenerator.generateInserts("000", CSV_NUM_RECORDS, true)),
+        dfs, path);
+  }
+
+  private void prepareCsvDFSSourceNested(
+      boolean hasHeader, char sep, boolean useSchemaProvider, boolean hasTransformer)
+      throws IOException {
+    String sourceRoot = dfsBasePath + "/csvFiles";
+    String recordKeyField = (hasHeader || useSchemaProvider) ? "_row_key" : "_c0";
+
+    // Properties used for testing delta-streamer with CSV source
+    TypedProperties csvProps = new TypedProperties();
+    csvProps.setProperty("include", "base.properties");
+    csvProps.setProperty("hoodie.datasource.write.recordkey.field", recordKeyField);
+    csvProps.setProperty("hoodie.datasource.write.partitionpath.field", "not_there");
+    if (useSchemaProvider) {
+      csvProps.setProperty("hoodie.deltastreamer.schemaprovider.source.schema.file",
+          dfsBasePath + "/source.avsc");
+      if (hasTransformer) {
+        csvProps.setProperty("hoodie.deltastreamer.schemaprovider.target.schema.file",
+            dfsBasePath + "/target.avsc");
+      }
+    }
+    csvProps.setProperty("hoodie.deltastreamer.source.dfs.root", sourceRoot);
+
+    if (sep != ',') {
+      if (sep == '\t') {
+        csvProps.setProperty("hoodie.deltastreamer.csv.sep", "\\t");
+      } else {
+        csvProps.setProperty("hoodie.deltastreamer.csv.sep", Character.toString(sep));
+      }
+    }
+    if (hasHeader) {
+      csvProps.setProperty("hoodie.deltastreamer.csv.header", Boolean.toString(hasHeader));
+    }
+
+    UtilitiesTestBase.Helpers
+        .savePropsToDFS(csvProps, dfs, dfsBasePath + "/" + PROPS_FILENAME_TEST_CSV_NESTED);
 
     String path = sourceRoot + "/1.csv";
     HoodieTestDataGenerator dataGenerator = new HoodieTestDataGenerator();
@@ -739,7 +784,8 @@ public class TestHoodieDeltaStreamer extends UtilitiesTestBase {
   }
 
   private void testCsvDFSSource(
-      boolean hasHeader, char sep, boolean useSchemaProvider, String transformerClassName) throws Exception {
+      boolean hasHeader, char sep, boolean useSchemaProvider, String transformerClassName)
+      throws Exception {
     prepareCsvDFSSource(hasHeader, sep, useSchemaProvider, transformerClassName != null);
     String tableBasePath = dfsBasePath + "/test_csv_table" + testNum;
     String sourceOrderingField = (hasHeader || useSchemaProvider) ? "timestamp" : "_c0";
@@ -749,6 +795,25 @@ public class TestHoodieDeltaStreamer extends UtilitiesTestBase {
             transformerClassName, PROPS_FILENAME_TEST_CSV, false,
             useSchemaProvider, 1000, false, null, null, sourceOrderingField), jsc);
     deltaStreamer.sync();
+    TestHelpers.assertRecordCount(CSV_NUM_RECORDS, tableBasePath + "/*/*.parquet", sqlContext);
+    testNum++;
+  }
+
+  @Test
+  public void testCsvDFSSourceWithNestedSchema() throws Exception {
+    prepareCsvDFSSourceNested(true, ',', true, false);
+    String tableBasePath = dfsBasePath + "/test_csv_table" + testNum;
+    String sourceOrderingField = "timestamp";
+    HoodieDeltaStreamer deltaStreamer =
+        new HoodieDeltaStreamer(TestHelpers.makeConfig(
+            tableBasePath, Operation.INSERT, CsvDFSSource.class.getName(),
+            null, PROPS_FILENAME_TEST_CSV_NESTED, false,
+            true, 1000, false, null, null, sourceOrderingField), jsc);
+    deltaStreamer.sync();
+
+    Row[] x = (Row[]) sqlContext.read().format("org.apache.hudi")
+        .load(tableBasePath + "/*/*.parquet")
+        .collect();
     TestHelpers.assertRecordCount(CSV_NUM_RECORDS, tableBasePath + "/*/*.parquet", sqlContext);
     testNum++;
   }

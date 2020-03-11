@@ -41,6 +41,7 @@ public abstract class RowSource extends Source<Dataset<Row>> {
   @Override
   protected final InputBatch<Dataset<Row>> fetchNewData(Option<String> lastCkptStr, long sourceLimit) {
     Pair<Option<Dataset<Row>>, String> res = fetchNextBatch(lastCkptStr, sourceLimit);
+    Row[] x = (Row[]) res.getKey().get().collect();
     return res.getKey().map(dsr -> {
       SchemaProvider rowSchemaProvider = new RowBasedSchemaProvider(dsr.schema());
       return new InputBatch<>(res.getKey(), res.getValue(), rowSchemaProvider);
