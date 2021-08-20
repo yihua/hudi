@@ -20,8 +20,10 @@ package org.apache.hudi.timeline.service.handlers.marker;
 
 import org.apache.hudi.common.config.SerializableConfiguration;
 import org.apache.hudi.common.engine.HoodieEngineContext;
+import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.metrics.Registry;
 import org.apache.hudi.common.table.marker.MarkerType;
+import org.apache.hudi.common.util.FileIOUtils;
 import org.apache.hudi.common.util.HoodieTimer;
 import org.apache.hudi.common.util.MarkerUtils;
 import org.apache.hudi.common.util.Option;
@@ -30,8 +32,8 @@ import org.apache.hudi.exception.HoodieIOException;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
-import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.util.StringUtils;
@@ -44,7 +46,6 @@ import java.io.OutputStreamWriter;
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -237,31 +238,7 @@ public class MarkerDirState implements Serializable {
    * @return {@code true} if successful; {@code false} otherwise.
    */
   public boolean deleteAllMarkers() {
-    Path dirPath = new Path(markerDirPath);
-    boolean result = false;
-    try {
-      if (fileSystem.exists(dirPath)) {
-        FileStatus[] fileStatuses = fileSystem.listStatus(dirPath);
-        List<String> markerDirSubPaths = Arrays.stream(fileStatuses)
-            .map(fileStatus -> fileStatus.getPath().toString())
-            .collect(Collectors.toList());
-
-        if (markerDirSubPaths.size() > 0) {
-          SerializableConfiguration conf = new SerializableConfiguration(fileSystem.getConf());
-          int actualParallelism = Math.min(markerDirSubPaths.size(), parallelism);
-          hoodieEngineContext.foreach(markerDirSubPaths, subPathStr -> {
-            Path subPath = new Path(subPathStr);
-            FileSystem fileSystem = subPath.getFileSystem(conf.get());
-            fileSystem.delete(subPath, true);
-          }, actualParallelism);
-        }
-
-        result = fileSystem.delete(dirPath, false);
-        LOG.info("Removing marker directory at " + dirPath);
-      }
-    } catch (IOException ioe) {
-      throw new HoodieIOException(ioe.getMessage(), ioe);
-    }
+    boolean result = FSUtils.deleteDir(hoodieEngineContext, fileSystem, new Path(markerDirPath), parallelism);
     allMarkers.clear();
     fileMarkersMap.clear();
     return result;
@@ -271,6 +248,7 @@ public class MarkerDirState implements Serializable {
    * Syncs all markers maintained in the underlying files under the marker directory in the file system.
    */
   private void syncMarkersFromFileSystem() {
+    /*
     Map<String, Set<String>> fileMarkersSetMap = MarkerUtils.readTimelineServerBasedMarkersFromFileSystem(
         markerDirPath, fileSystem, hoodieEngineContext, parallelism);
     for (String markersFilePathStr : fileMarkersSetMap.keySet()) {
@@ -291,6 +269,48 @@ public class MarkerDirState implements Serializable {
     } catch (IOException e) {
       throw new HoodieIOException(e.getMessage(), e);
     }
+     */
+    Map<String, Set<String>> fileMarkersSetMap = FSUtils.parallelizeSubPathProcess(
+        hoodieEngineContext, fileSystem, new Path(markerDirPath), parallelism,
+        pathStr -> pathStr.contains(MARKERS_FILENAME_PREFIX),
+        pairOfSubPathAndConf -> {
+          String markersFilePathStr = pairOfSubPathAndConf.getKey();
+          SerializableConfiguration conf = pairOfSubPathAndConf.getValue();
+          return readMarkersFromFile(new Path(markersFilePathStr), conf);
+        });
+    for (String markersFilePathStr: fileMarkersSetMap.keySet()) {
+      Set<String> fileMarkers = fileMarkersSetMap.get(markersFilePathStr);
+      if (!fileMarkers.isEmpty()) {
+        int index = parseMarkerFileIndex(markersFilePathStr);
+        if (index >= 0) {
+          fileMarkersMap.put(index, new StringBuilder(StringUtils.join(",", fileMarkers)));
+          allMarkers.addAll(fileMarkers);
+        }
+      }
+    }
+  }
+
+  /**
+   * Reads the markers stored in the underlying file.
+   *
+   * @param markersFilePath file path for the markers
+   * @param conf serializable config
+   * @return markers in a {@code Set} of String.
+   */
+  private static Set<String> readMarkersFromFile(Path markersFilePath, SerializableConfiguration conf) {
+    FSDataInputStream fsDataInputStream = null;
+    Set<String> markers = new HashSet<>();
+    try {
+      LOG.debug("Read marker file: " + markersFilePath);
+      FileSystem fs = markersFilePath.getFileSystem(conf.get());
+      fsDataInputStream = fs.open(markersFilePath);
+      markers = new HashSet<>(FileIOUtils.readAsUTFStringLines(fsDataInputStream));
+    } catch (IOException e) {
+      throw new HoodieIOException("Failed to read MARKERS file " + markersFilePath, e);
+    } finally {
+      closeQuietly(fsDataInputStream);
+    }
+    return markers;
   }
 
   /**
