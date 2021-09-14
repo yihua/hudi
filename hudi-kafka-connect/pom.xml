@@ -195,6 +195,18 @@
             <version>${hadoop.version}</version>
         </dependency>
 
+        <!-- Hive -->
+        <dependency>
+            <groupId>org.apache.hive</groupId>
+            <artifactId>hive-common</artifactId>
+            <version>${hive.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${hive.groupid}</groupId>
+            <artifactId>hive-metastore</artifactId>
+            <version>${hive.version}</version>
+        </dependency>
+
         <!-- Hudi - Test -->
         <dependency>
             <groupId>org.apache.hudi</groupId>

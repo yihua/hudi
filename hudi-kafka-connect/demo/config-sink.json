@@ -14,6 +14,11 @@
 		"hoodie.datasource.write.recordkey.field": "volume",
 		"hoodie.datasource.write.partitionpath.field": "date",
 		"hoodie.schemaprovider.class": "org.apache.hudi.schema.SchemaRegistryProvider",
-		"hoodie.deltastreamer.schemaprovider.registry.url": "http://localhost:8081/subjects/hudi-test-topic/versions/latest"
-	}
+		"hoodie.deltastreamer.schemaprovider.registry.url": "http://localhost:8081/subjects/hudi-test-topic/versions/latest",
+		"hoodie.kafka.commit.interval.secs": 12,
+		"hoodie.meta.sync.enable": "true",
+		"hoodie.meta.sync.classes": "org.apache.hudi.hive.HiveSyncTool",
+		"hoodie.datasource.hive_sync.table": "sample-table",
+		"hoodie.datasource.hive_sync.jdbcurl": "jdbc:mysql://localhost:3306/metastore?allowPublicKeyRetrieval=true&useSSL=false"
+    }
 }
