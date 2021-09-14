@@ -10,10 +10,16 @@
 		"topics": "hudi-test-topic",
 		"hoodie.table.name": "hudi-test-topic",
 		"hoodie.table.type": "MERGE_ON_READ",
+		"hoodie.metadata.enable": "false",
 		"hoodie.base.path": "file:///tmp/hoodie/hudi-test-topic",
 		"hoodie.datasource.write.recordkey.field": "volume",
 		"hoodie.datasource.write.partitionpath.field": "date",
 		"hoodie.schemaprovider.class": "org.apache.hudi.schema.SchemaRegistryProvider",
-		"hoodie.deltastreamer.schemaprovider.registry.url": "http://localhost:8081/subjects/hudi-test-topic/versions/latest"
+		"hoodie.deltastreamer.schemaprovider.registry.url": "http://localhost:8081/subjects/hudi-test-topic/versions/latest",
+		"hoodie.kafka.commit.interval.secs": 60,
+		"hoodie.meta.sync.enable": "true",
+		"hoodie.meta.sync.classes": "org.apache.hudi.hive.HiveSyncTool",
+		"hoodie.datasource.hive_sync.table": "sample_table",
+		"hoodie.datasource.hive_sync.jdbcurl": "jdbc:hive2://localhost:10000"
 	}
 }
