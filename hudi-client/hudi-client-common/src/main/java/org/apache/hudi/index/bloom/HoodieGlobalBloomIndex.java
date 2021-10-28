@@ -26,6 +26,7 @@ import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.EmptyHoodieRecordPayload;
 import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieRecord;
+import org.apache.hudi.common.model.HoodieRecordDelegate;
 import org.apache.hudi.common.model.HoodieRecordLocation;
 import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
@@ -94,13 +95,14 @@ public class HoodieGlobalBloomIndex<T extends HoodieRecordPayload<T>> extends Ho
 
   /**
    * Tagging for global index should only consider the record key.
+   * @return
    */
   @Override
-  protected HoodieData<HoodieRecord<T>> tagLocationBacktoRecords(
+  protected HoodieData<? extends HoodieRecordDelegate> tagLocationBacktoRecords(
       HoodiePairData<HoodieKey, HoodieRecordLocation> keyLocationPairs,
-      HoodieData<HoodieRecord<T>> records) {
+      HoodieData<? extends HoodieRecordDelegate> records) {
 
-    HoodiePairData<String, HoodieRecord<T>> incomingRowKeyRecordPairs =
+    HoodiePairData<String, HoodieRecordDelegate> incomingRowKeyRecordPairs =
         records.mapToPair(record -> new ImmutablePair<>(record.getRecordKey(), record));
 
     HoodiePairData<String, Pair<HoodieRecordLocation, HoodieKey>> existingRecordKeyToRecordLocationHoodieKeyMap =
@@ -109,7 +111,7 @@ public class HoodieGlobalBloomIndex<T extends HoodieRecordPayload<T>> extends Ho
 
     // Here as the records might have more data than rowKeys (some rowKeys' fileId is null), so we do left outer join.
     return incomingRowKeyRecordPairs.leftOuterJoin(existingRecordKeyToRecordLocationHoodieKeyMap).values().flatMap(record -> {
-      final HoodieRecord<T> hoodieRecord = record.getLeft();
+      final HoodieRecordDelegate hoodieRecord = record.getLeft();
       final Option<Pair<HoodieRecordLocation, HoodieKey>> recordLocationHoodieKeyPair = record.getRight();
       if (recordLocationHoodieKeyPair.isPresent()) {
         // Record key matched to file
@@ -121,7 +123,7 @@ public class HoodieGlobalBloomIndex<T extends HoodieRecordPayload<T>> extends Ho
           deleteRecord.setCurrentLocation(recordLocationHoodieKeyPair.get().getLeft());
           deleteRecord.seal();
           // Tag the incoming record for inserting to the new partition
-          HoodieRecord<T> insertRecord = HoodieIndexUtils.getTaggedRecord(hoodieRecord, Option.empty());
+          HoodieRecordDelegate insertRecord = HoodieIndexUtils.getTaggedRecord(hoodieRecord, Option.empty());
           return Arrays.asList(deleteRecord, insertRecord).iterator();
         } else {
           // Ignore the incoming record's partition, regardless of whether it differs from its old partition or not.

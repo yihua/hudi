@@ -27,6 +27,7 @@ import org.apache.hudi.common.model.EmptyHoodieRecordPayload;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieRecord;
+import org.apache.hudi.common.model.HoodieRecordDelegate;
 import org.apache.hudi.common.model.HoodieRecordLocation;
 import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
@@ -56,8 +57,8 @@ public class HoodieGlobalSimpleIndex<T extends HoodieRecordPayload<T>> extends H
   }
 
   @Override
-  public HoodieData<HoodieRecord<T>> tagLocation(
-      HoodieData<HoodieRecord<T>> records, HoodieEngineContext context,
+  public HoodieData<? extends HoodieRecordDelegate> tagLocation(
+      HoodieData<? extends HoodieRecordDelegate> records, HoodieEngineContext context,
       HoodieTable hoodieTable) {
     return tagLocationInternal(records, context, hoodieTable);
   }

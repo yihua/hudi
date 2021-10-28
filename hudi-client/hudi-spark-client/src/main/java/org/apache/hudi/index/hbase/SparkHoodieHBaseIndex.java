@@ -26,6 +26,7 @@ import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.model.EmptyHoodieRecordPayload;
 import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieRecord;
+import org.apache.hudi.common.model.HoodieRecordDelegate;
 import org.apache.hudi.common.model.HoodieRecordLocation;
 import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
@@ -67,6 +68,7 @@ import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.Function2;
+import org.apache.spark.api.java.function.MapPartitionsFunction;
 import org.joda.time.DateTime;
 
 import java.io.IOException;
@@ -203,13 +205,13 @@ public class SparkHoodieHBaseIndex<T extends HoodieRecordPayload<T>>
   /**
    * Function that tags each HoodieRecord with an existing location, if known.
    */
-  private Function2<Integer, Iterator<HoodieRecord<T>>, Iterator<HoodieRecord<T>>> locationTagFunction(
+  private Function2<Integer, Iterator<? extends HoodieRecordDelegate>, Iterator<HoodieRecord>> locationTagFunction(
       HoodieTableMetaClient metaClient) {
 
     // `multiGetBatchSize` is intended to be a batch per 100ms. To create a rate limiter that measures
     // operations per second, we need to multiply `multiGetBatchSize` by 10.
     Integer multiGetBatchSize = config.getHbaseIndexGetBatchSize();
-    return (Function2<Integer, Iterator<HoodieRecord<T>>, Iterator<HoodieRecord<T>>>) (partitionNum,
+    return  (partitionNum,
         hoodieRecordIterator) -> {
 
       boolean updatePartitionPath = config.getHbaseIndexUpdatePartitionPath();
@@ -220,13 +222,13 @@ public class SparkHoodieHBaseIndex<T extends HoodieRecordPayload<T>>
           hbaseConnection = getHBaseConnection();
         }
       }
-      List<HoodieRecord<T>> taggedRecords = new ArrayList<>();
+      List<HoodieRecord> taggedRecords = new ArrayList<>();
       try (HTable hTable = (HTable) hbaseConnection.getTable(TableName.valueOf(tableName))) {
         List<Get> statements = new ArrayList<>();
         List<HoodieRecord> currentBatchOfRecords = new LinkedList<>();
         // Do the tagging.
         while (hoodieRecordIterator.hasNext()) {
-          HoodieRecord rec = hoodieRecordIterator.next();
+          HoodieRecord rec = (HoodieRecord) hoodieRecordIterator.next();
           statements.add(generateStatement(rec.getRecordKey()));
           currentBatchOfRecords.add(rec);
           // iterator till we reach batch size
@@ -294,11 +296,11 @@ public class SparkHoodieHBaseIndex<T extends HoodieRecordPayload<T>>
   }
 
   @Override
-  public HoodieData<HoodieRecord<T>> tagLocation(
-      HoodieData<HoodieRecord<T>> records, HoodieEngineContext context,
+  public HoodieData<? extends HoodieRecordDelegate> tagLocation(
+      HoodieData<? extends HoodieRecordDelegate> records, HoodieEngineContext context,
       HoodieTable hoodieTable) {
     return HoodieJavaRDD.of(HoodieJavaRDD.getJavaRDD(records)
-        .mapPartitionsWithIndex(locationTagFunction(hoodieTable.getMetaClient()), true));
+        .<HoodieRecord>mapPartitionsWithIndex((Function2<Integer, Iterator<? extends HoodieRecordDelegate>, Iterator<HoodieRecord>>) locationTagFunction(hoodieTable.getMetaClient()), true));
   }
 
   private Function2<Integer, Iterator<WriteStatus>, Iterator<WriteStatus>> updateLocationFunction() {

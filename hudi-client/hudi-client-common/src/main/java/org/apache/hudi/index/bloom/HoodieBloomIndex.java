@@ -26,6 +26,7 @@ import org.apache.hudi.common.data.HoodiePairData;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieRecord;
+import org.apache.hudi.common.model.HoodieRecordDelegate;
 import org.apache.hudi.common.model.HoodieRecordLocation;
 import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.common.util.Option;
@@ -67,8 +68,8 @@ public class HoodieBloomIndex<T extends HoodieRecordPayload<T>>
   }
 
   @Override
-  public HoodieData<HoodieRecord<T>> tagLocation(
-      HoodieData<HoodieRecord<T>> records, HoodieEngineContext context,
+  public HoodieData<? extends HoodieRecordDelegate> tagLocation(
+      HoodieData<? extends HoodieRecordDelegate> records, HoodieEngineContext context,
       HoodieTable hoodieTable) {
     // Step 0: cache the input records if needed
     if (config.getBloomIndexUseCaching()) {
@@ -218,10 +219,10 @@ public class HoodieBloomIndex<T extends HoodieRecordPayload<T>>
   /**
    * Tag the <rowKey, filename> back to the original HoodieRecord List.
    */
-  protected HoodieData<HoodieRecord<T>> tagLocationBacktoRecords(
+  protected HoodieData<? extends HoodieRecordDelegate> tagLocationBacktoRecords(
       HoodiePairData<HoodieKey, HoodieRecordLocation> keyFilenamePair,
-      HoodieData<HoodieRecord<T>> records) {
-    HoodiePairData<HoodieKey, HoodieRecord<T>> keyRecordPairs =
+      HoodieData<? extends HoodieRecordDelegate> records) {
+    HoodiePairData<HoodieKey, HoodieRecordDelegate> keyRecordPairs =
         records.mapToPair(record -> new ImmutablePair<>(record.getKey(), record));
     // Here as the records might have more data than keyFilenamePairs (some row keys' fileId is null),
     // so we do left outer join.

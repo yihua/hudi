@@ -18,21 +18,20 @@
 
 package org.apache.hudi.common.model;
 
-import java.util.Map;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import org.apache.hudi.common.util.CollectionUtils;
 import org.apache.hudi.common.util.Option;
-
-import java.io.Serializable;
-import java.util.List;
-import java.util.Objects;
 import org.apache.hudi.common.util.collection.Pair;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * A Single Record managed by Hoodie.
  */
-public class HoodieRecord<T extends HoodieRecordPayload> implements Serializable {
+public class HoodieRecord<T extends HoodieRecordPayload> implements HoodieRecordDelegate {
 
   public static final String COMMIT_TIME_METADATA_FIELD = "_hoodie_commit_time";
   public static final String COMMIT_SEQNO_METADATA_FIELD = "_hoodie_commit_seqno";
@@ -141,6 +140,11 @@ public class HoodieRecord<T extends HoodieRecordPayload> implements Serializable
     assert currentLocation == null;
     this.currentLocation = location;
     return this;
+  }
+
+  @Override
+  public HoodieRecordDelegate createNew(HoodieRecordDelegate r) {
+    return new HoodieRecord<>((HoodieRecord)r);
   }
 
   public HoodieRecordLocation getCurrentLocation() {

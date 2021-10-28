@@ -26,7 +26,7 @@ import org.apache.hudi.common.data.HoodieData;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieKey;
-import org.apache.hudi.common.model.HoodieRecord;
+import org.apache.hudi.common.model.HoodieRecordDelegate;
 import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieIndexException;
@@ -78,8 +78,8 @@ public abstract class HoodieIndex<T extends HoodieRecordPayload, I, K, O> implem
    * the row (if it is actually present).
    */
   @PublicAPIMethod(maturity = ApiMaturityLevel.EVOLVING)
-  public abstract HoodieData<HoodieRecord<T>> tagLocation(
-      HoodieData<HoodieRecord<T>> records, HoodieEngineContext context,
+  public abstract HoodieData<? extends HoodieRecordDelegate> tagLocation(
+      HoodieData<? extends HoodieRecordDelegate> records, HoodieEngineContext context,
       HoodieTable hoodieTable) throws HoodieIndexException;
 
   /**

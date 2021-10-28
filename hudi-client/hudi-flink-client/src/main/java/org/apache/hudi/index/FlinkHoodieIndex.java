@@ -27,6 +27,7 @@ import org.apache.hudi.common.data.HoodieList;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieRecord;
+import org.apache.hudi.common.model.HoodieRecordDelegate;
 import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieIndexException;
@@ -60,8 +61,8 @@ public abstract class FlinkHoodieIndex<T extends HoodieRecordPayload> extends Ho
 
   @Override
   @PublicAPIMethod(maturity = ApiMaturityLevel.EVOLVING)
-  public HoodieData<HoodieRecord<T>> tagLocation(
-      HoodieData<HoodieRecord<T>> records, HoodieEngineContext context,
+  public HoodieData<? extends HoodieRecordDelegate> tagLocation(
+      HoodieData<? extends HoodieRecordDelegate> records, HoodieEngineContext context,
       HoodieTable hoodieTable) throws HoodieIndexException {
     return HoodieList.of(tagLocation(HoodieList.getList(records), context, hoodieTable));
   }

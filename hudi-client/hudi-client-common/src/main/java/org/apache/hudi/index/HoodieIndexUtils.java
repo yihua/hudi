@@ -21,6 +21,7 @@ package org.apache.hudi.index;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieRecord;
+import org.apache.hudi.common.model.HoodieRecordDelegate;
 import org.apache.hudi.common.model.HoodieRecordLocation;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.util.Option;
@@ -86,15 +87,15 @@ public class HoodieIndexUtils {
    * @param location    {@link HoodieRecordLocation} for the passed in {@link HoodieRecord}
    * @return the tagged {@link HoodieRecord}
    */
-  public static HoodieRecord getTaggedRecord(HoodieRecord inputRecord, Option<HoodieRecordLocation> location) {
-    HoodieRecord record = inputRecord;
+  public static HoodieRecordDelegate getTaggedRecord(HoodieRecordDelegate inputRecord, Option<HoodieRecordLocation> location) {
+    HoodieRecordDelegate record = inputRecord;
     if (location.isPresent()) {
       // When you have a record in multiple files in the same partition, then <row key, record> collection
       // will have 2 entries with the same exact in memory copy of the HoodieRecord and the 2
       // separate filenames that the record is found in. This will result in setting
       // currentLocation 2 times and it will fail the second time. So creating a new in memory
       // copy of the hoodie record.
-      record = new HoodieRecord<>(inputRecord);
+      record = record.createNew(inputRecord);
       record.unseal();
       record.setCurrentLocation(location.get());
       record.seal();
