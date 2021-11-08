@@ -119,28 +119,45 @@ recordValue=0
 num_records=$((num_records + 0))
 
 for (( ; ; )); do
-  while IFS= read line; do
-    for partitionValue in "${partitions[@]}"; do
-      echo $line | jq --arg recordKey $recordKey --arg recordValue $recordValue --arg partitionField $partitionField --arg partitionValue $partitionValue -c '.[$recordKey] = $recordValue | .[$partitionField] = $partitionValue' >>${events_file}
-      ((recordValue = recordValue + 1))
+  rm -f ${events_file}
+  date
+  echo "Start batch ..."
+  for (( ; ; )); do
+    while IFS= read line; do
+      for partitionValue in "${partitions[@]}"; do
+        echo $line | jq --arg recordKey $recordKey --arg recordValue $recordValue --arg partitionField $partitionField --arg partitionValue $partitionValue -c '.[$recordKey] = $recordValue | .[$partitionField] = $partitionValue' >>${events_file}
+        ((recordValue = recordValue + 1))
+
+        if [ $(($recordValue % 1000)) -eq 0 ]; then
+          break
+        fi
+      done
 
       if [ $recordValue -gt $num_records ]; then
         break
       fi
-    done
 
-    if [ $recordValue -gt $num_records ]; then
-      break
-    fi
+      if [ $(($recordValue % 1000)) -eq 0 ]; then
+        date
+        echo $recordValue
+        sleep 20
+        break
+      fi
+    done <"$rawDataFile"
 
     if [ $(($recordValue % 1000)) -eq 0 ]; then
-      sleep 1
+      break
     fi
-  done <"$rawDataFile"
+  done
+
+  echo "publish to Kafka ..."
+  grep -v '^$' ${events_file} | kcat -P -b localhost:9092 -t hudi-test-topic
+
+  if [ $recordValue -eq $num_records ]; then
+    break
+  fi
 
   if [ $recordValue -gt $num_records ]; then
     break
   fi
 done
-
-grep -v '^$' ${events_file} | kcat -P -b localhost:9092 -t hudi-test-topic
