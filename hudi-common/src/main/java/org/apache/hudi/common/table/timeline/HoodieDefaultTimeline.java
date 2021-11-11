@@ -275,6 +275,16 @@ public class HoodieDefaultTimeline implements HoodieTimeline {
   }
 
   @Override
+  public Option<HoodieInstant> firstInstant(String action, State state) {
+    for (HoodieInstant instant : instants) {
+      if (action.equals(instant.getAction()) && state.equals(instant.getState())) {
+        return Option.of(instant);
+      }
+    }
+    return Option.empty();
+  }
+
+  @Override
   public Option<HoodieInstant> nthInstant(int n) {
     if (empty() || n >= countInstants()) {
       return Option.empty();
