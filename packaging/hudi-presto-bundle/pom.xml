@@ -189,14 +189,14 @@
     <dependency>
       <groupId>org.apache.hbase</groupId>
       <artifactId>hbase-shaded-client</artifactId>
-      <version>${hbase.version}</version>
+      <version>${hbase.shaded.version}</version>
       <scope>test</scope>
     </dependency>
 
     <dependency>
       <groupId>org.apache.hbase</groupId>
       <artifactId>hbase-shaded-server</artifactId>
-      <version>${hbase.version}</version>
+      <version>${hbase.shaded.version}</version>
       <!-- Unfortunately, HFile is packaged ONLY under hbase-server -->
       <scope>compile</scope>
       <exclusions>

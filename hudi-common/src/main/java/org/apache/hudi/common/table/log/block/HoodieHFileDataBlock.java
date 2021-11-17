@@ -95,6 +95,7 @@ public class HoodieHFileDataBlock extends HoodieDataBlock {
   @Override
   protected byte[] serializeRecords() throws IOException {
     HFileContext context = new HFileContextBuilder().withBlockSize(blockSize).withCompression(compressionAlgorithm)
+        .withCellComparator(new HoodieHBaseKVComparator())
         .build();
     Configuration conf = new Configuration();
     CacheConfig cacheConfig = new CacheConfig(conf);
@@ -102,7 +103,7 @@ public class HoodieHFileDataBlock extends HoodieDataBlock {
     FSDataOutputStream ostream = new FSDataOutputStream(baos, null);
 
     HFile.Writer writer = HFile.getWriterFactory(conf, cacheConfig)
-        .withOutputStream(ostream).withFileContext(context).withComparator(new HoodieHBaseKVComparator()).create();
+        .withOutputStream(ostream).withFileContext(context).create();
 
     // Serialize records into bytes
     Map<String, byte[]> sortedRecordsMap = new TreeMap<>();
