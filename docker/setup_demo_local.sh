@@ -16,18 +16,14 @@
 #  See the License for the specific language governing permissions and
 # limitations under the License.
 
-. "/spark/sbin/spark-config.sh"
+SCRIPT_PATH=$(cd `dirname $0`; pwd)
+WS_ROOT=`dirname $SCRIPT_PATH`
+DS_ROOT=/Users/ethan/Work/data/hudi
+# restart cluster
+HUDI_WS=${WS_ROOT} DATA_DIR=${DS_ROOT} docker-compose -f ${SCRIPT_PATH}/compose/docker-compose_hadoop284_hive233_spark244.yml down
+sleep 5
+HUDI_WS=${WS_ROOT} DATA_DIR=${DS_ROOT} docker-compose -f ${SCRIPT_PATH}/compose/docker-compose_hadoop284_hive233_spark244.yml up -d
+sleep 15
 
-. "/spark/bin/load-spark-env.sh"
-
-
-export SPARK_HOME=/opt/spark
-export PRESTO_CLI_CMD="/usr/local/bin/presto --server presto-coordinator-1:8090"
-export TRINO_CLI_CMD="/usr/local/bin/trino --server trino-coordinator-1:8091"
-
-date
-echo "SPARK HOME is : $SPARK_HOME"
-echo "PRESTO CLI CMD is : $PRESTO_CLI_CMD"
-echo "TRINO CLI CMD is : $TRINO_CLI_CMD"
-
-tail -f /dev/null
+docker exec -it adhoc-1 /bin/bash /var/hoodie/ws/docker/demo/setup_demo_container.sh
+docker exec -it adhoc-2 /bin/bash /var/hoodie/ws/docker/demo/setup_demo_container.sh
