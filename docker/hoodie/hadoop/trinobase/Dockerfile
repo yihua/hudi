@@ -56,11 +56,6 @@ RUN ln -s /usr/local/trino-server-${TRINO_VERSION} $TRINO_HOME
 ENV TRINO_BASE_WS /var/hoodie/ws/docker/hoodie/hadoop/trinobase
 RUN mkdir -p ${TRINO_BASE_WS}/target/
 ADD target/ ${TRINO_BASE_WS}/target/
-ENV HUDI_TRINO_BUNDLE ${TRINO_BASE_WS}/target/hudi-trino-bundle.jar
-RUN cp ${HUDI_TRINO_BUNDLE} ${TRINO_HOME}/plugin/hive/
-RUN cp ${TRINO_BASE_WS}/target/hbase-common-1.2.3.jar ${TRINO_HOME}/plugin/hudi/
-RUN cp ${TRINO_BASE_WS}/target/hbase-server-1.2.3.jar ${TRINO_HOME}/plugin/hudi/
-RUN cp ${TRINO_BASE_WS}/target/hbase-server-1.2.3.jar ${TRINO_HOME}/plugin/hive/
 
 ADD scripts ${TRINO_HOME}/scripts
 RUN chmod +x ${TRINO_HOME}/scripts/trino.sh
