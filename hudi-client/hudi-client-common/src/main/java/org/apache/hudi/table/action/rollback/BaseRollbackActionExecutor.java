@@ -50,6 +50,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
+import static org.apache.hudi.common.util.FileIOUtils.killJVMIfDesired;
+
 public abstract class BaseRollbackActionExecutor<T extends HoodieRecordPayload, I, K, O> extends BaseActionExecutor<T, I, K, O, HoodieRollbackMetadata> {
 
   private static final Logger LOG = LogManager.getLogger(BaseRollbackActionExecutor.class);
@@ -249,6 +251,12 @@ public abstract class BaseRollbackActionExecutor<T extends HoodieRecordPayload, 
         this.txnManager.beginTransaction(Option.empty(), Option.empty());
       }
 
+      if (config.getBasePath().contains(".hoodie/metadata")) {
+        killJVMIfDesired("/tmp/fail32_mt_clean.txt", "Fail metadata rollback for " + instantToRollback.toString(), 8);
+      } else {
+        killJVMIfDesired("/tmp/fail62_dt_clean.txt", "Fail data table rollback just before writing to MDT " + instantToRollback.toString(), 8);
+      }
+
       // If publish the rollback to the timeline, we first write the rollback metadata
       // to metadata table
       if (!skipTimelinePublish) {
@@ -257,6 +265,11 @@ public abstract class BaseRollbackActionExecutor<T extends HoodieRecordPayload, 
 
       // Then we delete the inflight instant in the data table timeline if enabled
       deleteInflightAndRequestedInstant(deleteInstants, table.getActiveTimeline(), resolvedInstant);
+
+      if (!config.getBasePath().contains(".hoodie/metadata")) {
+        killJVMIfDesired("/tmp/fail32_mt_clean.txt", "Fail data table rollback after writing to MDT, before completing in DT "
+            + instantToRollback.toString(), 8);
+      }
 
       // If publish the rollback to the timeline, we finally transition the inflight rollback
       // to complete in the data table timeline

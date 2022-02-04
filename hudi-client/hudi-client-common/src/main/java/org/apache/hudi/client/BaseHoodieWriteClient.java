@@ -114,6 +114,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static org.apache.hudi.common.model.HoodieCommitMetadata.SCHEMA_KEY;
+import static org.apache.hudi.common.util.FileIOUtils.killJVMIfDesired;
 
 /**
  * Abstract Write Client providing functionality for performing commit, index updates and rollback
@@ -241,6 +242,7 @@ public abstract class BaseHoodieWriteClient<T extends HoodieRecordPayload, I, K,
     } finally {
       this.txnManager.endTransaction(Option.of(inflightInstant));
     }
+
     // do this outside of lock since compaction, clustering can be time taking and we don't need a lock for the entire execution period
     runTableServicesInline(table, metadata, extraMetadata);
     emitCommitMetrics(instantTime, metadata, commitActionType);
@@ -334,9 +336,21 @@ public abstract class BaseHoodieWriteClient<T extends HoodieRecordPayload, I, K,
    * @param metadata instance of {@link HoodieCommitMetadata}.
    */
   protected void writeTableMetadata(HoodieTable table, String instantTime, String actionType, HoodieCommitMetadata metadata) {
+
+    if (config.getBasePath().contains(".hoodie/metadata")) {
+      killJVMIfDesired("/tmp/fail32_mt_clean.txt", "Fail metadata table commit for " + instantTime + " " + actionType, 16);
+    } else {
+      killJVMIfDesired("/tmp/fail62_dt_clean.txt", "Fail after metadata table commit/services before data table commit "
+          + instantTime + " " + actionType, 16);
+    }
+
     context.setJobStatus(this.getClass().getSimpleName(), "Committing to metadata table");
     table.getMetadataWriter(instantTime).ifPresent(w -> ((HoodieTableMetadataWriter) w).update(metadata, instantTime,
         table.isTableServiceAction(actionType)));
+    if (!config.getBasePath().contains(".hoodie/metadata")) {
+      killJVMIfDesired("/tmp/fail4_mt_post_commit.txt",
+          "Fail after metadata table commit/services before data table commit " + instantTime + " " + actionType, 16);
+    }
   }
 
   /**
