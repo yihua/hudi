@@ -29,11 +29,11 @@ import java.io.InputStream;
  */
 public class SchemeAwareFSDataInputStream extends FSDataInputStream {
 
-  private final boolean isGCSFileSystem;
+  private final boolean shouldSeekLastByteUponEOF;
 
-  public SchemeAwareFSDataInputStream(InputStream in, boolean isGCSFileSystem) {
+  public SchemeAwareFSDataInputStream(InputStream in, boolean shouldSeekLastByteUponEOF) {
     super(in);
-    this.isGCSFileSystem = isGCSFileSystem;
+    this.shouldSeekLastByteUponEOF = shouldSeekLastByteUponEOF;
   }
 
   @Override
@@ -41,8 +41,9 @@ public class SchemeAwareFSDataInputStream extends FSDataInputStream {
     try {
       super.seek(desired);
     } catch (EOFException e) {
-      // with GCSFileSystem, accessing the last byte might throw EOFException and hence this fix.
-      if (isGCSFileSystem) {
+      // with GCSFileSystem (HUDI-140) or older S3 FileSystem API (HUDI-3341),
+      // seeking the position of the file size might throw EOFException and hence this fix.
+      if (shouldSeekLastByteUponEOF) {
         super.seek(desired - 1);
       } else {
         throw e;

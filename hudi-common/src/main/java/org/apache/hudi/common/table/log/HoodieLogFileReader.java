@@ -18,13 +18,6 @@
 
 package org.apache.hudi.common.table.log;
 
-import org.apache.avro.Schema;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.BufferedFSInputStream;
-import org.apache.hadoop.fs.FSDataInputStream;
-import org.apache.hadoop.fs.FSInputStream;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.fs.SchemeAwareFSDataInputStream;
 import org.apache.hudi.common.fs.TimedFSDataInputStream;
@@ -43,10 +36,19 @@ import org.apache.hudi.common.util.Option;
 import org.apache.hudi.exception.CorruptedLogFileException;
 import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.exception.HoodieNotSupportedException;
+
+import org.apache.avro.Schema;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.BufferedFSInputStream;
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FSInputStream;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
 import javax.annotation.Nullable;
+
 import java.io.EOFException;
 import java.io.IOException;
 import java.util.Arrays;
@@ -463,6 +465,19 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
       return new SchemeAwareFSDataInputStream(getFSDataInputStreamForGCS(fsDataInputStream, logFile, bufferSize), true);
     }
 
+    FSDataInputStream fsDataInputStreamToUse =
+        getGeneralFSDataInputStream(fsDataInputStream, logFile, bufferSize);
+
+    if (FSUtils.isS3FileSystem(fs)) {
+      return new SchemeAwareFSDataInputStream(fsDataInputStreamToUse, true);
+    }
+
+    return fsDataInputStreamToUse;
+  }
+
+  private static FSDataInputStream getGeneralFSDataInputStream(FSDataInputStream fsDataInputStream,
+                                                               HoodieLogFile logFile,
+                                                               int bufferSize) {
     if (fsDataInputStream.getWrappedStream() instanceof FSInputStream) {
       return new TimedFSDataInputStream(logFile.getPath(), new FSDataInputStream(
           new BufferedFSInputStream((FSInputStream) fsDataInputStream.getWrappedStream(), bufferSize)));
@@ -476,8 +491,9 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
   /**
    * GCS FileSystem needs some special handling for seek and hence this method assists to fetch the right {@link FSDataInputStream} to be
    * used by wrapping with required input streams.
+   *
    * @param fsDataInputStream original instance of {@link FSDataInputStream}.
-   * @param bufferSize buffer size to be used.
+   * @param bufferSize        buffer size to be used.
    * @return the right {@link FSDataInputStream} as required.
    */
   private static FSDataInputStream getFSDataInputStreamForGCS(FSDataInputStream fsDataInputStream,

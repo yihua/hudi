@@ -610,6 +610,15 @@ public class FSUtils {
     return fs.getScheme().equals(StorageSchemes.GCS.getScheme());
   }
 
+  /**
+   * @param fs fileSystem instance.
+   * @return true if the file system is S3 or S3A.
+   */
+  public static boolean isS3FileSystem(FileSystem fs) {
+    return fs.getScheme().equals(StorageSchemes.S3.getScheme())
+        || fs.getScheme().equals(StorageSchemes.S3A.getScheme());
+  }
+
   public static Configuration registerFileSystem(Path file, Configuration conf) {
     Configuration returnConf = new Configuration(conf);
     String scheme = FSUtils.getFs(file.toString(), conf).getScheme();
