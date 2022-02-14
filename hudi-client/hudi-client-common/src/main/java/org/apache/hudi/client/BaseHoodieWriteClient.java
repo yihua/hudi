@@ -775,8 +775,8 @@ public abstract class BaseHoodieWriteClient<T extends HoodieRecordPayload, I, K,
     LOG.info("Cleaned failed attempts if any");
     CleanerUtils.rollbackFailedWrites(config.getFailedWritesCleanPolicy(),
         HoodieTimeline.CLEAN_ACTION, () -> rollbackFailedWrites(skipLocking));
-    throw new IllegalMonitorStateException("Simulate lock exception");
-    /*
+    //throw new IllegalMonitorStateException("Simulate lock exception");
+
     HoodieCleanMetadata metadata = createTable(config, hadoopConf).clean(context, cleanInstantTime, skipLocking);
     if (timerContext != null && metadata != null) {
       long durationMs = metrics.getDurationInMs(timerContext.stop());
@@ -786,7 +786,6 @@ public abstract class BaseHoodieWriteClient<T extends HoodieRecordPayload, I, K,
           + " cleanerElapsedMs" + durationMs);
     }
     return metadata;
-     */
   }
 
   public HoodieCleanMetadata clean() {

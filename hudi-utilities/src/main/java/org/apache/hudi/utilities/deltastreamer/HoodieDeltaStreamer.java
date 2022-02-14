@@ -177,14 +177,11 @@ public class HoodieDeltaStreamer implements Serializable {
     } else {
       if (cfg.continuousMode) {
         deltaSyncService.ifPresent(ds -> {
-          ds.start(null);
+          ds.start(this::onDeltaSyncShutdown);
           try {
             ds.waitForShutdown();
           } catch (Exception e) {
             throw new HoodieException(e.getMessage(), e);
-          } finally {
-            ds.close();
-            LOG.info("Shut down delta streamer");
           }
         });
         LOG.info("Delta Sync shutting down");
@@ -533,7 +530,6 @@ public class HoodieDeltaStreamer implements Serializable {
       new HoodieDeltaStreamer(cfg, jssc).sync();
     } finally {
       jssc.stop();
-      LOG.info("Deltastreamer Spark context done");
     }
   }
 
@@ -742,11 +738,7 @@ public class HoodieDeltaStreamer implements Serializable {
               HoodieTableMetaClient.builder().setConf(new Configuration(jssc.hadoopConfiguration())).setBasePath(cfg.targetBasePath).setLoadActiveTimelineOnLoad(true).build();
           List<HoodieInstant> pending = CompactionUtils.getPendingCompactionInstantTimes(meta);
           pending.forEach(hoodieInstant -> asyncCompactService.get().enqueuePendingAsyncServiceInstant(hoodieInstant));
-          asyncCompactService.get().start((error) -> {
-            // Shutdown DeltaSync
-            // shutdown(false);
-            return true;
-          });
+          asyncCompactService.get().start((error) -> true);
           try {
             asyncCompactService.get().waitTillPendingAsyncServiceInstantsReducesTo(cfg.maxPendingCompactions);
           } catch (InterruptedException ie) {
@@ -767,10 +759,7 @@ public class HoodieDeltaStreamer implements Serializable {
           List<HoodieInstant> pending = ClusteringUtils.getPendingClusteringInstantTimes(meta);
           LOG.info(String.format("Found %d pending clustering instants ", pending.size()));
           pending.forEach(hoodieInstant -> asyncClusteringService.get().enqueuePendingAsyncServiceInstant(hoodieInstant));
-          asyncClusteringService.get().start((error) -> {
-            //shutdown(false);
-            return true;
-          });
+          asyncClusteringService.get().start((error) -> true);
           try {
             asyncClusteringService.get().waitTillPendingAsyncServiceInstantsReducesTo(cfg.maxPendingClustering);
           } catch (InterruptedException e) {
@@ -787,7 +776,6 @@ public class HoodieDeltaStreamer implements Serializable {
     public void close() {
       if (null != deltaSync) {
         deltaSync.close();
-        deltaSync = null;
       }
     }
 

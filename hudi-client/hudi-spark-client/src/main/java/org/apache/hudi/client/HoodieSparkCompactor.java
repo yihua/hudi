@@ -24,7 +24,6 @@ import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.common.model.HoodieWriteStat;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
-import org.apache.hudi.common.util.Option;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.table.action.HoodieWriteMetadata;
 
@@ -59,6 +58,7 @@ public class HoodieSparkCompactor<T extends HoodieRecordPayload> extends BaseCom
           "Compaction for instant (" + instant + ") failed with write errors. Errors :" + numWriteErrors);
     }
     // Commit compaction
-    writeClient.commitCompaction(instant.getTimestamp(), compactionMetadata.getCommitMetadata().get(), Option.empty());
+    throw new HoodieException("Simulate compaction error");
+    // writeClient.commitCompaction(instant.getTimestamp(), compactionMetadata.getCommitMetadata().get(), Option.empty());
   }
 }
