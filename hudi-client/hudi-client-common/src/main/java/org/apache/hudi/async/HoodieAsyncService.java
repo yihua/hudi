@@ -109,6 +109,7 @@ public abstract class HoodieAsyncService implements Serializable {
   public void shutdown(boolean force) {
     if (!shutdownRequested || force) {
       shutdownRequested = true;
+      shutdown = true;
       if (executor != null) {
         if (force) {
           executor.shutdownNow();
@@ -119,6 +120,8 @@ public abstract class HoodieAsyncService implements Serializable {
             executor.awaitTermination(24, TimeUnit.HOURS);
           } catch (InterruptedException ie) {
             LOG.error("Interrupted while waiting for shutdown", ie);
+          } finally {
+            LOG.info("Termination done");
           }
         }
       }

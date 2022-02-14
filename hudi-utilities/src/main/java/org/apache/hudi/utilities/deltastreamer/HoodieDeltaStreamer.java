@@ -177,11 +177,14 @@ public class HoodieDeltaStreamer implements Serializable {
     } else {
       if (cfg.continuousMode) {
         deltaSyncService.ifPresent(ds -> {
-          ds.start(this::onDeltaSyncShutdown);
+          ds.start(null);
           try {
             ds.waitForShutdown();
           } catch (Exception e) {
             throw new HoodieException(e.getMessage(), e);
+          } finally {
+            ds.close();
+            LOG.info("Shut down delta streamer");
           }
         });
         LOG.info("Delta Sync shutting down");
@@ -530,6 +533,7 @@ public class HoodieDeltaStreamer implements Serializable {
       new HoodieDeltaStreamer(cfg, jssc).sync();
     } finally {
       jssc.stop();
+      LOG.info("Deltastreamer Spark context done");
     }
   }
 
@@ -684,6 +688,7 @@ public class HoodieDeltaStreamer implements Serializable {
           }
         } finally {
           shutdownAsyncServices(error);
+          executor.shutdownNow();
         }
         return true;
       }, executor), executor);
@@ -739,7 +744,7 @@ public class HoodieDeltaStreamer implements Serializable {
           pending.forEach(hoodieInstant -> asyncCompactService.get().enqueuePendingAsyncServiceInstant(hoodieInstant));
           asyncCompactService.get().start((error) -> {
             // Shutdown DeltaSync
-            shutdown(false);
+            // shutdown(false);
             return true;
           });
           try {
@@ -763,7 +768,7 @@ public class HoodieDeltaStreamer implements Serializable {
           LOG.info(String.format("Found %d pending clustering instants ", pending.size()));
           pending.forEach(hoodieInstant -> asyncClusteringService.get().enqueuePendingAsyncServiceInstant(hoodieInstant));
           asyncClusteringService.get().start((error) -> {
-            shutdown(false);
+            //shutdown(false);
             return true;
           });
           try {
@@ -782,6 +787,7 @@ public class HoodieDeltaStreamer implements Serializable {
     public void close() {
       if (null != deltaSync) {
         deltaSync.close();
+        deltaSync = null;
       }
     }
 
