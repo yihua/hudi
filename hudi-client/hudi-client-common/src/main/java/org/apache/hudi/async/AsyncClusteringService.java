@@ -82,10 +82,17 @@ public abstract class AsyncClusteringService extends HoodieAsyncTableService {
         }
         LOG.info("Clustering executor shutting down properly");
       } catch (InterruptedException ie) {
+        hasError = true;
         LOG.warn("Clustering executor got interrupted exception! Stopping", ie);
       } catch (IOException e) {
+        hasError = true;
         LOG.error("Clustering executor failed", e);
         throw new HoodieIOException(e.getMessage(), e);
+      } catch (Exception e) {
+        hasError = true;
+      } finally {
+        executor.shutdownNow();
+        LOG.error("Exception in clustering");
       }
       return true;
     }, executor)).toArray(CompletableFuture[]::new)), executor);

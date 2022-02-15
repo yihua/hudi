@@ -24,7 +24,6 @@ import org.apache.hudi.avro.model.HoodieClusteringPlan;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.client.clustering.run.strategy.SparkSingleFileSortExecutionStrategy;
 import org.apache.hudi.common.engine.HoodieEngineContext;
-import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieFileGroupId;
 import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieRecord;
@@ -33,12 +32,12 @@ import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.util.ClusteringUtils;
-import org.apache.hudi.common.util.CommitUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.ReflectionUtils;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieClusteringException;
+import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.table.action.HoodieWriteMetadata;
 import org.apache.hudi.table.action.cluster.strategy.ClusteringExecutionStrategy;
@@ -81,6 +80,8 @@ public class SparkExecuteClusteringCommitActionExecutor<T extends HoodieRecordPa
             new Class<?>[] {HoodieTable.class, HoodieEngineContext.class, HoodieWriteConfig.class}, table, context, config))
         .performClustering(clusteringPlan, schema, instantTime);
     JavaRDD<WriteStatus> writeStatusRDD = writeMetadata.getWriteStatuses();
+    throw new HoodieException("Simulate clustering error");
+    /*
     JavaRDD<WriteStatus> statuses = updateIndex(writeStatusRDD, writeMetadata);
     writeMetadata.setWriteStats(statuses.map(WriteStatus::getStat).collect());
     writeMetadata.setPartitionToReplaceFileIds(getPartitionToReplacedFileIds(writeMetadata));
@@ -91,6 +92,7 @@ public class SparkExecuteClusteringCommitActionExecutor<T extends HoodieRecordPa
       writeMetadata.setCommitMetadata(Option.of(commitMetadata));
     }
     return writeMetadata;
+     */
   }
 
   /**

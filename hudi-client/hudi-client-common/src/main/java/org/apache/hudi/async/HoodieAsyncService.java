@@ -42,6 +42,8 @@ public abstract class HoodieAsyncService implements Serializable {
 
   private static final Logger LOG = LogManager.getLogger(HoodieAsyncService.class);
 
+  // Flag indicating whether an error is incurred in the service
+  protected boolean hasError;
   // Flag to track if the service is started.
   private boolean started;
   // Flag indicating shutdown is externally requested
@@ -82,9 +84,13 @@ public abstract class HoodieAsyncService implements Serializable {
     return shutdown;
   }
 
+  public boolean hasError() {
+    return hasError;
+  }
+
   /**
    * Wait till the service shutdown. If the service shutdown with exception, it will be thrown
-   * 
+   *
    * @throws ExecutionException
    * @throws InterruptedException
    */
@@ -181,8 +187,8 @@ public abstract class HoodieAsyncService implements Serializable {
   public void waitTillPendingAsyncServiceInstantsReducesTo(int numPending) throws InterruptedException {
     try {
       queueLock.lock();
-      while (!isShutdown() && (pendingInstants.size() > numPending)) {
-        consumed.await();
+      while (!isShutdown() && !hasError() && (pendingInstants.size() > numPending)) {
+        consumed.await(10, TimeUnit.SECONDS);
       }
     } finally {
       queueLock.unlock();
