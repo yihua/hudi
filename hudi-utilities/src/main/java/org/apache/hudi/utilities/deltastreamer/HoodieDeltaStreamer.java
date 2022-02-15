@@ -659,6 +659,9 @@ public class HoodieDeltaStreamer implements Serializable {
                 asyncCompactService.get().enqueuePendingAsyncServiceInstant(new HoodieInstant(State.REQUESTED,
                     HoodieTimeline.COMPACTION_ACTION, scheduledCompactionInstantAndRDD.get().getLeft().get()));
                 asyncCompactService.get().waitTillPendingAsyncServiceInstantsReducesTo(cfg.maxPendingCompactions);
+                if (asyncCompactService.get().hasError()) {
+                  throw new HoodieException("Async compaction failed.  Shutting down Delta Sync...");
+                }
               }
               if (clusteringConfig.isAsyncClusteringEnabled()) {
                 Option<String> clusteringInstant = deltaSync.getClusteringInstantOpt();
@@ -745,6 +748,9 @@ public class HoodieDeltaStreamer implements Serializable {
           asyncCompactService.get().start((error) -> true);
           try {
             asyncCompactService.get().waitTillPendingAsyncServiceInstantsReducesTo(cfg.maxPendingCompactions);
+            if (asyncCompactService.get().hasError()) {
+              throw new HoodieException("Async compaction failed during write client initialization.");
+            }
           } catch (InterruptedException ie) {
             throw new HoodieException(ie);
           }
@@ -763,10 +769,7 @@ public class HoodieDeltaStreamer implements Serializable {
           List<HoodieInstant> pending = ClusteringUtils.getPendingClusteringInstantTimes(meta);
           LOG.info(String.format("Found %d pending clustering instants ", pending.size()));
           pending.forEach(hoodieInstant -> asyncClusteringService.get().enqueuePendingAsyncServiceInstant(hoodieInstant));
-          asyncClusteringService.get().start((error) -> {
-            asyncClusteringService.get().shutdown(false);
-            return true;
-          });
+          asyncClusteringService.get().start((error) -> true);
           try {
             asyncClusteringService.get().waitTillPendingAsyncServiceInstantsReducesTo(cfg.maxPendingClustering);
             if (asyncClusteringService.get().hasError()) {

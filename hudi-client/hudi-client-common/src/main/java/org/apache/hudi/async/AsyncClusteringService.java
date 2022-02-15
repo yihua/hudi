@@ -90,9 +90,6 @@ public abstract class AsyncClusteringService extends HoodieAsyncTableService {
         throw new HoodieIOException(e.getMessage(), e);
       } catch (Exception e) {
         hasError = true;
-      } finally {
-        executor.shutdownNow();
-        LOG.error("Exception in clustering");
       }
       return true;
     }, executor)).toArray(CompletableFuture[]::new)), executor);

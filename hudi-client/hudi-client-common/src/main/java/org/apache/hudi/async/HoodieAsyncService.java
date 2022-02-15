@@ -41,6 +41,7 @@ import java.util.function.Function;
 public abstract class HoodieAsyncService implements Serializable {
 
   private static final Logger LOG = LogManager.getLogger(HoodieAsyncService.class);
+  private static final long POLLING_SECONDS = 10;
 
   // Flag indicating whether an error is incurred in the service
   protected boolean hasError;
@@ -188,7 +189,7 @@ public abstract class HoodieAsyncService implements Serializable {
     try {
       queueLock.lock();
       while (!isShutdown() && !hasError() && (pendingInstants.size() > numPending)) {
-        consumed.await(10, TimeUnit.SECONDS);
+        consumed.await(POLLING_SECONDS, TimeUnit.SECONDS);
       }
     } finally {
       queueLock.unlock();
@@ -212,7 +213,7 @@ public abstract class HoodieAsyncService implements Serializable {
    */
   HoodieInstant fetchNextAsyncServiceInstant() throws InterruptedException {
     LOG.info("Waiting for next instant upto 10 seconds");
-    HoodieInstant instant = pendingInstants.poll(10, TimeUnit.SECONDS);
+    HoodieInstant instant = pendingInstants.poll(POLLING_SECONDS, TimeUnit.SECONDS);
     if (instant != null) {
       try {
         queueLock.lock();
