@@ -96,10 +96,12 @@ public abstract class AsyncCompactService extends HoodieAsyncTableService {
         LOG.warn("Compactor executor thread got interrupted exception. Stopping", ie);
       } catch (IOException e) {
         hasError = true;
-        LOG.error("Compactor executor failed", e);
+        LOG.error("Compactor executor failed due to IOException", e);
         throw new HoodieIOException(e.getMessage(), e);
       } catch (Exception e) {
         hasError = true;
+        LOG.error("Compactor executor failed", e);
+        throw e;
       }
       return true;
     }, executor)).toArray(CompletableFuture[]::new)), executor);

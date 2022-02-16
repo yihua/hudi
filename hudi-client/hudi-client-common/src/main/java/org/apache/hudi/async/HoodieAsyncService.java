@@ -127,8 +127,6 @@ public abstract class HoodieAsyncService implements Serializable {
             executor.awaitTermination(24, TimeUnit.HOURS);
           } catch (InterruptedException ie) {
             LOG.error("Interrupted while waiting for shutdown", ie);
-          } finally {
-            LOG.info("Termination done");
           }
         }
       }
