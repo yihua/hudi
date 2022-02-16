@@ -29,8 +29,6 @@ import org.apache.hudi.avro.model.HoodieRestorePlan;
 import org.apache.hudi.avro.model.HoodieRollbackMetadata;
 import org.apache.hudi.avro.model.HoodieRollbackPlan;
 import org.apache.hudi.callback.HoodieWriteCommitCallback;
-import org.apache.hudi.callback.common.HoodieWriteCommitCallbackMessage;
-import org.apache.hudi.callback.util.HoodieCommitCallbackFactory;
 import org.apache.hudi.client.embedded.EmbeddedTimelineService;
 import org.apache.hudi.client.heartbeat.HeartbeatUtils;
 import org.apache.hudi.client.transaction.TransactionManager;
@@ -198,16 +196,19 @@ public abstract class BaseHoodieWriteClient<T extends HoodieRecordPayload, I, K,
         lastCompletedTxnAndMetadata.isPresent() ? Option.of(lastCompletedTxnAndMetadata.get().getLeft()) : Option.empty());
     try {
       preCommit(inflightInstant, metadata);
+      throw new IOException("Simulate IOException");
+      /*
       commit(table, commitActionType, instantTime, metadata, stats);
       postCommit(table, metadata, instantTime, extraMetadata);
       LOG.info("Committed " + instantTime);
-      releaseResources();
+      releaseResources();*/
     } catch (IOException e) {
       throw new HoodieCommitException("Failed to complete commit " + config.getBasePath() + " at time " + instantTime, e);
     } finally {
       this.txnManager.endTransaction(Option.of(inflightInstant));
     }
     // do this outside of lock since compaction, clustering can be time taking and we don't need a lock for the entire execution period
+    /*
     runTableServicesInline(table, metadata, extraMetadata);
     emitCommitMetrics(instantTime, metadata, commitActionType);
     // callback if needed.
@@ -218,6 +219,8 @@ public abstract class BaseHoodieWriteClient<T extends HoodieRecordPayload, I, K,
       commitCallback.call(new HoodieWriteCommitCallbackMessage(instantTime, config.getTableName(), config.getBasePath(), stats));
     }
     return true;
+
+     */
   }
 
   protected void commit(HoodieTable table, String commitActionType, String instantTime, HoodieCommitMetadata metadata,
