@@ -18,8 +18,6 @@
 
 package org.apache.hudi.metadata;
 
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.Path;
 import org.apache.hudi.avro.model.HoodieMetadataColumnStats;
 import org.apache.hudi.common.bloom.BloomFilter;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
@@ -27,8 +25,12 @@ import org.apache.hudi.common.config.SerializableConfiguration;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.ValidationUtils;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.exception.HoodieMetadataException;
+
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.Path;
 
 import java.io.IOException;
 import java.io.Serializable;
@@ -64,6 +66,17 @@ public interface HoodieTableMetadata extends Serializable, AutoCloseable {
    */
   static String getMetadataTableBasePath(String dataTableBasePath) {
     return dataTableBasePath + Path.SEPARATOR + METADATA_TABLE_REL_PATH;
+  }
+
+  /**
+   * Return the base path of the dataset.
+   *
+   * @param metadataTableBasePath The base path of the metadata table
+   */
+  static String getDatasetBasePath(String metadataTableBasePath) {
+    int endPos = metadataTableBasePath.lastIndexOf(Path.SEPARATOR + METADATA_TABLE_REL_PATH);
+    ValidationUtils.checkState(endPos != -1, metadataTableBasePath + " should be base path of the metadata table");
+    return metadataTableBasePath.substring(0, endPos);
   }
 
   /**
