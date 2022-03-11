@@ -31,12 +31,13 @@ import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.exception.HoodieWriteConflictException;
 import org.apache.hudi.table.HoodieTable;
-
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
 public class TransactionUtils {
@@ -136,5 +137,15 @@ public class TransactionUtils {
     } catch (IOException io) {
       throw new HoodieIOException("Unable to read metadata for instant " + hoodieInstantOption.get(), io);
     }
+  }
+
+  public static boolean hasConflict(Set<String> fileIds, Set<String> otherFileIds) {
+    Set<String> intersection = new HashSet<>(fileIds);
+    intersection.retainAll(otherFileIds);
+    if (!intersection.isEmpty()) {
+      LOG.info("Found overlapping file IDs: " + intersection);
+      return true;
+    }
+    return false;
   }
 }

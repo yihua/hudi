@@ -213,4 +213,46 @@ public class MarkerUtils {
     }
     return markers;
   }
+
+  public static void writeFileIdsToFile(FileSystem fileSystem, String dir, String instantTime, Set<String> fileIds) {
+    Path filePath = new Path(dir, instantTime + ".fileids");
+    FSDataOutputStream fsDataOutputStream = null;
+    BufferedWriter bufferedWriter = null;
+    try {
+      LOG.info("Write file ID file: " + filePath);
+      fsDataOutputStream = fileSystem.create(filePath, false);
+      bufferedWriter = new BufferedWriter(new OutputStreamWriter(fsDataOutputStream, StandardCharsets.UTF_8));
+      StringBuilder stringBuilder = new StringBuilder();
+      for (String id : fileIds) {
+        stringBuilder.append(id);
+        stringBuilder.append('\n');
+      }
+      bufferedWriter.write(stringBuilder.toString());
+    } catch (IOException e) {
+      throw new HoodieException("Failed to create file ID file " + filePath.toString()
+              + "; " + e.getMessage(), e);
+    } finally {
+      closeQuietly(bufferedWriter);
+      closeQuietly(fsDataOutputStream);
+    }
+  }
+
+  public static Set<String> readFileIdsFromFile(Path filePath, SerializableConfiguration conf) {
+    FSDataInputStream fsDataInputStream = null;
+    Set<String> fileIds = new HashSet<>();
+    try {
+      LOG.info("Read file ID file: " + filePath);
+      FileSystem fs = filePath.getFileSystem(conf.get());
+      if (!fs.exists(filePath)) {
+        return new HashSet<>();
+      }
+      fsDataInputStream = fs.open(filePath);
+      fileIds = new HashSet<>(FileIOUtils.readAsUTFStringLines(fsDataInputStream));
+    } catch (IOException e) {
+      throw new HoodieIOException("Failed to read file ID file " + filePath, e);
+    } finally {
+      closeQuietly(fsDataInputStream);
+    }
+    return fileIds;
+  }
 }
