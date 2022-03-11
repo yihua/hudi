@@ -19,8 +19,11 @@
 package org.apache.hudi.table.action.commit;
 
 import org.apache.hudi.client.WriteStatus;
+import org.apache.hudi.client.transaction.ConflictResolutionStrategy;
 import org.apache.hudi.client.utils.SparkMemoryUtils;
 import org.apache.hudi.client.utils.SparkValidatorUtils;
+import org.apache.hudi.client.utils.TransactionUtils;
+import org.apache.hudi.common.config.SerializableConfiguration;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieFileGroupId;
@@ -32,7 +35,9 @@ import org.apache.hudi.common.model.HoodieWriteStat;
 import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
+import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.util.CommitUtils;
+import org.apache.hudi.common.util.MarkerUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.ReflectionUtils;
 import org.apache.hudi.common.util.collection.Pair;
@@ -41,6 +46,7 @@ import org.apache.hudi.data.HoodieJavaRDD;
 import org.apache.hudi.exception.HoodieCommitException;
 import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.exception.HoodieUpsertException;
+import org.apache.hudi.exception.HoodieWriteConflictException;
 import org.apache.hudi.execution.SparkLazyInsertIterable;
 import org.apache.hudi.io.CreateHandleFactory;
 import org.apache.hudi.io.HoodieConcatHandle;
@@ -54,13 +60,14 @@ import org.apache.hudi.table.WorkloadProfile;
 import org.apache.hudi.table.WorkloadStat;
 import org.apache.hudi.table.action.HoodieWriteMetadata;
 import org.apache.hudi.table.action.cluster.strategy.UpdateStrategy;
+
+import org.apache.hadoop.fs.Path;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.apache.spark.Partitioner;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.storage.StorageLevel;
-import scala.Tuple2;
 
 import java.io.IOException;
 import java.io.Serializable;
@@ -69,12 +76,16 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.ConcurrentModificationException;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+
+import scala.Tuple2;
 
 import static org.apache.hudi.common.util.ClusteringUtils.getAllFileGroupsInPendingClusteringPlans;
 
@@ -146,6 +157,49 @@ public abstract class BaseSparkCommitActionExecutor<T extends HoodieRecordPayloa
       inputRecordsRDD.persist(StorageLevel.MEMORY_AND_DISK_SER());
     } else {
       LOG.info("RDD PreppedRecords was persisted at: " + inputRecordsRDD.getStorageLevel());
+    }
+
+    // Early conflict detection
+    if (config.getWriteConcurrencyMode().supportsOptimisticConcurrencyControl()
+        && config.isWriteEarlyConflictDetectionEnabled()) {
+      boolean hasConflict = false;
+      Set<String> fileIds = new HashSet<>(inputRecordsRDD.filter(HoodieRecord::isCurrentLocationKnown)
+          .map(record -> new StringBuilder().append(record.getPartitionPath())
+              .append('/')
+              .append(record.getCurrentLocation().getFileId())
+              .toString())
+          .distinct().collect());
+
+      txnManager.beginTransaction();
+      LOG.info("Early conflict detection for instant " + instantTime);
+      ConflictResolutionStrategy resolutionStrategy = config.getWriteConflictResolutionStrategy();
+      Option<HoodieInstant> lastCompletedInstant = table.getCompletedCommitsTimeline().lastInstant();
+      HoodieActiveTimeline reloadedActiveTimeline = table.getMetaClient().reloadActiveTimeline();
+      List<HoodieInstant> instants = reloadedActiveTimeline
+          .getCommitsTimeline()
+          .findInstantsAfter(lastCompletedInstant.isPresent()
+              ? lastCompletedInstant.get().getTimestamp() : HoodieTimeline.INIT_INSTANT_TS)
+          .filter(instant -> !instant.getTimestamp().equals(instantTime))
+          .getInstants().collect(Collectors.toList());
+      for (HoodieInstant instant : instants) {
+        Set<String> instantFileIds = MarkerUtils.readFileIdsFromFile(
+            new Path(table.getMetaClient().getMetaPath(), instant.getTimestamp() + ".fileids"),
+            new SerializableConfiguration(table.getHadoopConf()));
+        if (TransactionUtils.hasConflict(fileIds, instantFileIds)) {
+          hasConflict = true;
+        }
+      }
+      if (!hasConflict) {
+        LOG.info("No conflict for instant " + instantTime);
+        MarkerUtils.writeFileIdsToFile(
+            table.getMetaClient().getFs(), table.getMetaClient().getMetaPath(), instantTime, fileIds);
+      }
+      txnManager.endTransaction();
+
+      if (hasConflict) {
+        throw new HoodieWriteConflictException(new ConcurrentModificationException(
+            String.format("Early conflict detection finds that the current write (%d) overlaps with other writes.", instantTime)));
+      }
     }
 
     WorkloadProfile workloadProfile = null;

@@ -396,6 +396,12 @@ public class HoodieWriteConfig extends HoodieConfig {
           + "OPTIMISTIC_CONCURRENCY_CONTROL: Multiple writers can operate on the table and exactly one of them succeed "
           + "if a conflict (writes affect the same file group) is detected.");
 
+  public static final ConfigProperty<Boolean> WRITE_EARLY_CONFLICT_DETECTION = ConfigProperty
+      .key("hoodie.write.early.conflict.detection")
+      .defaultValue(false)
+      .withDocumentation("Enable early conflict detection to abort write after indexing if "
+          + "conflict is found based on record current location / file IDs.");
+
   /**
    * Currently the  use this to specify the write schema.
    */
@@ -1915,6 +1921,10 @@ public class HoodieWriteConfig extends HoodieConfig {
     return WriteConcurrencyMode.fromValue(getString(WRITE_CONCURRENCY_MODE));
   }
 
+  public boolean isWriteEarlyConflictDetectionEnabled() {
+    return getBoolean(WRITE_EARLY_CONFLICT_DETECTION);
+  }
+
   /**
    * Are any table services configured to run inline for both scheduling and execution?
    *
@@ -2320,6 +2330,11 @@ public class HoodieWriteConfig extends HoodieConfig {
 
     public Builder withWriteConcurrencyMode(WriteConcurrencyMode concurrencyMode) {
       writeConfig.setValue(WRITE_CONCURRENCY_MODE, concurrencyMode.value());
+      return this;
+    }
+
+    public Builder withWriteEarlyConflictDetection(boolean writeEarlyConflictDetection) {
+      writeConfig.setValue(WRITE_EARLY_CONFLICT_DETECTION, String.valueOf(writeEarlyConflictDetection));
       return this;
     }
 
