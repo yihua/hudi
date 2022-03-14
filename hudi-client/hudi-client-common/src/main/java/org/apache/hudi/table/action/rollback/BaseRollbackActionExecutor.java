@@ -252,9 +252,9 @@ public abstract class BaseRollbackActionExecutor<T extends HoodieRecordPayload, 
       }
 
       if (config.getBasePath().contains(".hoodie/metadata")) {
-        killJVMIfDesired("/tmp/fail32_mt_clean.txt", "Fail metadata rollback for " + instantToRollback.toString(), 8);
+        killJVMIfDesired("/tmp/fail72_mt_rollback.txt", "Fail metadata rollback for " + instantToRollback.toString(), 8);
       } else {
-        killJVMIfDesired("/tmp/fail62_dt_clean.txt", "Fail data table rollback just before writing to MDT " + instantToRollback.toString(), 8);
+        killJVMIfDesired("/tmp/fail72_dt_rollback.txt", "Fail data table rollback just before writing to MDT " + instantToRollback.toString(), 8);
       }
 
       // If publish the rollback to the timeline, we first write the rollback metadata
@@ -267,7 +267,7 @@ public abstract class BaseRollbackActionExecutor<T extends HoodieRecordPayload, 
       deleteInflightAndRequestedInstant(deleteInstants, table.getActiveTimeline(), resolvedInstant);
 
       if (!config.getBasePath().contains(".hoodie/metadata")) {
-        killJVMIfDesired("/tmp/fail32_mt_clean.txt", "Fail data table rollback after writing to MDT, before completing in DT "
+        killJVMIfDesired("/tmp/fail72_dt_rollback.txt", "Fail data table rollback after writing to MDT, before completing in DT "
             + instantToRollback.toString(), 8);
       }
 
