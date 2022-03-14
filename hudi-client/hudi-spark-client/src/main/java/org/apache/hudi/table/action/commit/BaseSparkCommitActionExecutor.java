@@ -77,6 +77,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.apache.hudi.common.util.ClusteringUtils.getAllFileGroupsInPendingClusteringPlans;
+import static org.apache.hudi.common.util.FileIOUtils.killJVMIfDesired;
 
 public abstract class BaseSparkCommitActionExecutor<T extends HoodieRecordPayload> extends
     BaseCommitActionExecutor<T, JavaRDD<HoodieRecord<T>>, JavaRDD<HoodieKey>, JavaRDD<WriteStatus>, HoodieWriteMetadata> {
@@ -262,6 +263,11 @@ public abstract class BaseSparkCommitActionExecutor<T extends HoodieRecordPayloa
   protected void updateIndexAndCommitIfNeeded(JavaRDD<WriteStatus> writeStatusRDD, HoodieWriteMetadata result) {
     updateIndex(writeStatusRDD, result);
     result.setPartitionToReplaceFileIds(getPartitionToReplacedFileIds(result));
+    if (config.getBasePath().contains(".hoodie/metadata")) {
+      killJVMIfDesired("/tmp/fail2_mt_write.txt", "Fail metadata table writing before commit", 6);
+    } else {
+      killJVMIfDesired("/tmp/fail1_dt_write.txt", "Fail data table writing before commit", 6);
+    }
     commitOnAutoCommit(result);
   }
 

@@ -18,8 +18,6 @@
 
 package org.apache.hudi.client;
 
-import com.codahale.metrics.Timer;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.async.AsyncArchiveService;
 import org.apache.hudi.async.AsyncCleanerService;
 import org.apache.hudi.avro.model.HoodieCleanMetadata;
@@ -78,6 +76,9 @@ import org.apache.hudi.table.action.savepoint.SavepointHelpers;
 import org.apache.hudi.table.marker.WriteMarkersFactory;
 import org.apache.hudi.table.upgrade.SupportsUpgradeDowngrade;
 import org.apache.hudi.table.upgrade.UpgradeDowngrade;
+
+import com.codahale.metrics.Timer;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -92,6 +93,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
+import static org.apache.hudi.common.util.FileIOUtils.killJVMIfDesired;
 
 /**
  * Abstract Write Client providing functionality for performing commit, index updates and rollback
@@ -217,6 +220,7 @@ public abstract class BaseHoodieWriteClient<T extends HoodieRecordPayload, I, K,
     } finally {
       this.txnManager.endTransaction(Option.of(inflightInstant));
     }
+
     // do this outside of lock since compaction, clustering can be time taking and we don't need a lock for the entire execution period
     runTableServicesInline(table, metadata, extraMetadata);
     emitCommitMetrics(instantTime, metadata, commitActionType);
@@ -283,6 +287,10 @@ public abstract class BaseHoodieWriteClient<T extends HoodieRecordPayload, I, K,
     context.setJobStatus(this.getClass().getSimpleName(), "Committing to metadata table");
     table.getMetadataWriter(instantTime).ifPresent(w -> ((HoodieTableMetadataWriter) w).update(metadata, instantTime,
         table.isTableServiceAction(actionType)));
+    if (!config.getBasePath().contains(".hoodie/metadata")) {
+      killJVMIfDesired("/tmp/fail4_mt_post_commit.txt",
+          "Fail after metadata table commit/services before data table commit " + instantTime + " " + actionType, 6);
+    }
   }
 
   /**
