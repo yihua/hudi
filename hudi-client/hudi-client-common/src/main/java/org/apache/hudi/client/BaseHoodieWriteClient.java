@@ -286,9 +286,9 @@ public abstract class BaseHoodieWriteClient<T extends HoodieRecordPayload, I, K,
   protected void writeTableMetadata(HoodieTable table, String instantTime, String actionType, HoodieCommitMetadata metadata) {
 
     if (config.getBasePath().contains(".hoodie/metadata")) {
-      killJVMIfDesired("/tmp/fail32_mt_clean.txt", "Fail metadata table commit for " + instantTime + " " + actionType, 16);
+      killJVMIfDesired("/tmp/fail4_mt_pre_commit.txt", "Fail metadata table commit for " + instantTime + " " + actionType, 16);
     } else {
-      killJVMIfDesired("/tmp/fail62_dt_clean.txt", "Fail after metadata table commit/services before data table commit "
+      killJVMIfDesired("/tmp/fail4_dt_pre_commit.txt", "Fail after metadata table commit/services before data table commit "
           + instantTime + " " + actionType, 16);
     }
 
@@ -296,7 +296,7 @@ public abstract class BaseHoodieWriteClient<T extends HoodieRecordPayload, I, K,
     table.getMetadataWriter(instantTime).ifPresent(w -> ((HoodieTableMetadataWriter) w).update(metadata, instantTime,
         table.isTableServiceAction(actionType)));
     if (!config.getBasePath().contains(".hoodie/metadata")) {
-      killJVMIfDesired("/tmp/fail4_mt_post_commit.txt",
+      killJVMIfDesired("/tmp/fail4_dt_post_commit.txt",
           "Fail after metadata table commit/services before data table commit " + instantTime + " " + actionType, 16);
     }
   }
