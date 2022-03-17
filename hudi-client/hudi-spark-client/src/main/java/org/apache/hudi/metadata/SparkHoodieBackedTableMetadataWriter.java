@@ -44,6 +44,8 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
+import static org.apache.hudi.common.util.FileIOUtils.killJVMIfDesired;
+
 public class SparkHoodieBackedTableMetadataWriter extends HoodieBackedTableMetadataWriter {
 
   private static final Logger LOG = LogManager.getLogger(SparkHoodieBackedTableMetadataWriter.class);
@@ -162,6 +164,7 @@ public class SparkHoodieBackedTableMetadataWriter extends HoodieBackedTableMetad
       metadataMetaClient.reloadActiveTimeline();
       if (canTriggerTableService) {
         cleanIfNecessary(writeClient, instantTime);
+        killJVMIfDesired("/tmp/fail112_mt_write.txt", "Fail metadata table just before archival " + instantTime, 12);
         writeClient.archive();
       }
     }
