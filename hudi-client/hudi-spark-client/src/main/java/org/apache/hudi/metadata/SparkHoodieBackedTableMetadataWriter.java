@@ -176,7 +176,7 @@ public class SparkHoodieBackedTableMetadataWriter extends HoodieBackedTableMetad
       metadataMetaClient.reloadActiveTimeline();
       if (canTriggerTableService) {
         cleanIfNecessary(writeClient, instantTime);
-        killJVMIfDesired("/tmp/fail112_mt_write.txt", "Fail metadata table just before archival " + instantTime, 12);
+        killJVMIfDesired("/tmp/fail112_mt_write.txt", "Fail metadata table just before archival " + instantTime, 8);
         writeClient.archive();
       }
     }
