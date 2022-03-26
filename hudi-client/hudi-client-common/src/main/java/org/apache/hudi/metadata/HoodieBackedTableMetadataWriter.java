@@ -976,7 +976,7 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
     final String compactionInstantTime = latestDeltacommitTime + "001";
     if (writeClient.scheduleCompactionAtInstant(compactionInstantTime, Option.empty())) {
       writeClient.compact(compactionInstantTime);
-      killJVMIfDesired("/tmp/fail92_mt_write.txt", "Fail metadata table just after compaction " + compactionInstantTime, 3);
+      killJVMIfDesired("/tmp/fail92_mt_write.txt", "Fail metadata table just after compaction " + compactionInstantTime, 5);
     }
   }
 
@@ -995,7 +995,7 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
       return;
     }
 
-    killJVMIfDesired("/tmp/fail102_mt_write.txt", "Fail metadata table just before cleaning " + instantTime, 6);
+    killJVMIfDesired("/tmp/fail102_mt_write.txt", "Fail metadata table just before cleaning " + instantTime, 10);
     // Trigger cleaning with suffixes based on the same instant time. This ensures that any future
     // delta commits synced over will not have an instant time lesser than the last completed instant on the
     // metadata table.

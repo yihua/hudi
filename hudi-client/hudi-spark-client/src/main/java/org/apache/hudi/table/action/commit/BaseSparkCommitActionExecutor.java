@@ -265,9 +265,9 @@ public abstract class BaseSparkCommitActionExecutor<T extends HoodieRecordPayloa
     updateIndex(writeStatusRDD, result);
     result.setPartitionToReplaceFileIds(getPartitionToReplacedFileIds(result));
     if (config.getBasePath().contains(".hoodie/metadata")) {
-      killJVMIfDesired("/tmp/fail2_mt_write.txt", "Fail metadata table writing before commit " + instantTime, 6);
+      killJVMIfDesired("/tmp/fail2_mt_write.txt", "Fail metadata table writing before commit " + instantTime, 10);
     } else {
-      killJVMIfDesired("/tmp/fail1_dt_write.txt", "Fail data table writing before commit " + instantTime, 6);
+      killJVMIfDesired("/tmp/fail1_dt_write.txt", "Fail data table writing before commit " + instantTime, 10);
     }
     commitOnAutoCommit(result);
   }
