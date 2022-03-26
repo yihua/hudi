@@ -234,6 +234,10 @@ public class FileIOUtils {
       if (kill) {
         System.out.println("Killing the jvm at " + signalFilePath + " Reason: " + msg);
         System.exit(1);
+      } else {
+        System.out.println(
+            String.format("Decide to continue the job without failure injection (%s, %s)",
+                signalFilePath, msg));
       }
     } catch (Exception e) {
       System.err.println(">>> error killing the jvm at " + signalFilePath + " ...");
