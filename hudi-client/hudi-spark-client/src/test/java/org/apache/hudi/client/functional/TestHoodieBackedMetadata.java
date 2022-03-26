@@ -104,7 +104,6 @@ import org.apache.log4j.Logger;
 import org.apache.parquet.avro.AvroSchemaConverter;
 import org.apache.parquet.schema.MessageType;
 import org.apache.spark.api.java.JavaRDD;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -1452,7 +1451,7 @@ public class TestHoodieBackedMetadata extends TestHoodieMetadataBase {
    * <p>
    * Metadata Table should be automatically compacted as per config.
    */
-  @Disabled
+  @Test
   public void testCleaningArchivingAndCompaction() throws Exception {
     init(HoodieTableType.COPY_ON_WRITE, false);
     HoodieSparkEngineContext engineContext = new HoodieSparkEngineContext(jsc);

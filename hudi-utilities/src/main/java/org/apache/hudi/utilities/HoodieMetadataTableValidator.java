@@ -78,6 +78,9 @@ import java.util.stream.Collectors;
 /**
  * A validator with spark-submit to compare information, such as partitions, file listing, index, etc.,
  * between metadata table and filesystem.
+ *
+ * Base path
+ *
  * <p>
  * There are five validation tasks, that can be enabled independently through the following CLI options:
  * - `--validate-latest-file-slices`: validate latest file slices for all partitions.
