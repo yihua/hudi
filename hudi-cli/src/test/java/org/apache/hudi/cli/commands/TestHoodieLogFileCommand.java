@@ -21,7 +21,7 @@ package org.apache.hudi.cli.commands;
 import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.cli.HoodieCLI;
 import org.apache.hudi.cli.HoodiePrintHelper;
-import org.apache.hudi.cli.HoodieTableHeaderFields;
+import org.apache.hudi.cli.HoodieTableHeaderField;
 import org.apache.hudi.cli.TableHeader;
 import org.apache.hudi.cli.functional.CLIFunctionalTestHarness;
 import org.apache.hudi.cli.testutils.HoodieTestCommitMetadataGenerator;
@@ -127,18 +127,18 @@ public class TestHoodieLogFileCommand extends CLIFunctionalTestHarness {
     CommandResult cr = shell().executeCommand("show logfile metadata --logFilePathPattern " + partitionPath + "/*");
     assertTrue(cr.isSuccess());
 
-    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderFields.HEADER_INSTANT_TIME)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_RECORD_COUNT)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_BLOCK_TYPE)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_HEADER_METADATA)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_FOOTER_METADATA);
+    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderField.HEADER_INSTANT_TIME)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_RECORD_COUNT)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_BLOCK_TYPE)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_HEADER_METADATA)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_FOOTER_METADATA);
 
     // construct expect result, there is only 1 line.
     List<Comparable[]> rows = new ArrayList<>();
     ObjectMapper objectMapper = new ObjectMapper();
     String headerStr = objectMapper.writeValueAsString(dataBlock.getLogBlockHeader());
     String footerStr = objectMapper.writeValueAsString(dataBlock.getLogBlockFooter());
-    Comparable[] output = new Comparable[]{INSTANT_TIME, 100, dataBlock.getBlockType(), headerStr, footerStr};
+    Comparable[] output = new Comparable[] {INSTANT_TIME, 100, dataBlock.getBlockType(), headerStr, footerStr};
     rows.add(output);
 
     String expected = HoodiePrintHelper.print(header, new HashMap<>(), "", false, -1, false, rows);
@@ -157,8 +157,8 @@ public class TestHoodieLogFileCommand extends CLIFunctionalTestHarness {
 
     // construct expect result, get 10 records.
     List<IndexedRecord> records = SchemaTestUtil.generateTestRecords(0, 10);
-    String[][] rows = records.stream().map(r -> new String[]{r.toString()}).toArray(String[][]::new);
-    String expected = HoodiePrintHelper.print(new String[] {HoodieTableHeaderFields.HEADER_RECORDS}, rows);
+    String[][] rows = records.stream().map(r -> new String[] {r.toString()}).toArray(String[][]::new);
+    String expected = HoodiePrintHelper.print(new String[] {HoodieTableHeaderField.HEADER_RECORDS}, rows);
     expected = removeNonWordAndStripSpace(expected);
     String got = removeNonWordAndStripSpace(cr.getResult().toString());
     assertEquals(expected, got);
@@ -238,7 +238,7 @@ public class TestHoodieLogFileCommand extends CLIFunctionalTestHarness {
     String[][] rows = indexRecords.stream().map(r -> new String[]{r.toString()}).toArray(String[][]::new);
     assertNotNull(rows);
 
-    String expected = HoodiePrintHelper.print(new String[] {HoodieTableHeaderFields.HEADER_RECORDS}, rows);
+    String expected = HoodiePrintHelper.print(new String[] {HoodieTableHeaderField.HEADER_RECORDS}, rows);
     expected = removeNonWordAndStripSpace(expected);
     String got = removeNonWordAndStripSpace(cr.getResult().toString());
     assertEquals(expected, got);

@@ -21,7 +21,7 @@ package org.apache.hudi.cli.commands;
 import org.apache.hudi.avro.model.HoodieRollbackMetadata;
 import org.apache.hudi.cli.HoodieCLI;
 import org.apache.hudi.cli.HoodiePrintHelper;
-import org.apache.hudi.cli.HoodieTableHeaderFields;
+import org.apache.hudi.cli.HoodieTableHeaderField;
 import org.apache.hudi.cli.TableHeader;
 import org.apache.hudi.cli.functional.CLIFunctionalTestHarness;
 import org.apache.hudi.client.BaseHoodieWriteClient;
@@ -144,11 +144,11 @@ public class TestRollbacksCommand extends CLIFunctionalTestHarness {
       }
     });
 
-    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderFields.HEADER_INSTANT)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_ROLLBACK_INSTANT)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_FILES_DELETED)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TIME_TOKEN_MILLIS)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_PARTITIONS);
+    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderField.HEADER_INSTANT)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_ROLLBACK_INSTANT)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_FILES_DELETED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TIME_TOKEN_MILLIS)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_PARTITIONS);
     String expected = HoodiePrintHelper.print(header, new HashMap<>(), "", false, -1, false, rows);
     expected = removeNonWordAndStripSpace(expected);
     String got = removeNonWordAndStripSpace(cr.getResult().toString());
@@ -187,11 +187,11 @@ public class TestRollbacksCommand extends CLIFunctionalTestHarness {
           rows.add(row);
         }));
 
-    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderFields.HEADER_INSTANT)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_ROLLBACK_INSTANT)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_PARTITION)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_DELETED_FILE)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_SUCCEEDED);
+    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderField.HEADER_INSTANT)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_ROLLBACK_INSTANT)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_PARTITION)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_DELETED_FILE)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_SUCCEEDED);
     String expected = HoodiePrintHelper.print(header, new HashMap<>(), "", false, -1, false, rows);
     expected = removeNonWordAndStripSpace(expected);
     String got = removeNonWordAndStripSpace(cr.getResult().toString());

@@ -20,11 +20,12 @@ package org.apache.hudi.cli.commands;
 
 import org.apache.hudi.cli.HoodieCLI;
 import org.apache.hudi.cli.HoodiePrintHelper;
-import org.apache.hudi.cli.HoodieTableHeaderFields;
+import org.apache.hudi.cli.HoodieTableHeaderField;
 import org.apache.hudi.cli.TableHeader;
 import org.apache.hudi.cli.functional.CLIFunctionalTestHarness;
 import org.apache.hudi.cli.testutils.HoodieTestCommitMetadataGenerator;
 import org.apache.hudi.cli.testutils.HoodieTestReplaceCommitMetadataGenerator;
+import org.apache.hudi.client.HoodieTimelineArchiver;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.HoodieTableType;
@@ -40,7 +41,6 @@ import org.apache.hudi.common.util.Option;
 import org.apache.hudi.config.HoodieCompactionConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.table.HoodieSparkTable;
-import org.apache.hudi.client.HoodieTimelineArchiver;
 
 import org.apache.hadoop.fs.FileSystem;
 import org.junit.jupiter.api.BeforeEach;
@@ -169,19 +169,19 @@ public class TestCommitsCommand extends CLIFunctionalTestHarness {
     });
 
     final Map<String, Function<Object, String>> fieldNameToConverterMap = new HashMap<>();
-    fieldNameToConverterMap.put(HoodieTableHeaderFields.HEADER_TOTAL_BYTES_WRITTEN, entry -> {
+    fieldNameToConverterMap.put(HoodieTableHeaderField.HEADER_TOTAL_BYTES_WRITTEN, entry -> {
       return NumericUtils.humanReadableByteCount((Double.valueOf(entry.toString())));
     });
 
     final TableHeader header = new TableHeader()
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_COMMIT_TIME)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_BYTES_WRITTEN)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_FILES_ADDED)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_FILES_UPDATED)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_PARTITIONS_WRITTEN)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_RECORDS_WRITTEN)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_UPDATE_RECORDS_WRITTEN)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_ERRORS);
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_COMMIT_TIME)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_BYTES_WRITTEN)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_FILES_ADDED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_FILES_UPDATED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_PARTITIONS_WRITTEN)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_RECORDS_WRITTEN)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_UPDATE_RECORDS_WRITTEN)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_ERRORS);
 
     return HoodiePrintHelper.print(header, fieldNameToConverterMap, "", false,
         -1, false, rows);
@@ -334,17 +334,17 @@ public class TestCommitsCommand extends CLIFunctionalTestHarness {
     );
 
     Map<String, Function<Object, String>> fieldNameToConverterMap = new HashMap<>();
-    fieldNameToConverterMap.put(HoodieTableHeaderFields.HEADER_TOTAL_BYTES_WRITTEN,
+    fieldNameToConverterMap.put(HoodieTableHeaderField.HEADER_TOTAL_BYTES_WRITTEN,
         entry -> NumericUtils.humanReadableByteCount((Long.parseLong(entry.toString()))));
 
-    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderFields.HEADER_ACTION)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_PARTITION_PATH)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_FILES_ADDED)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_FILES_UPDATED)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_RECORDS_INSERTED)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_RECORDS_UPDATED)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_BYTES_WRITTEN)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_ERRORS);
+    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderField.HEADER_ACTION)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_PARTITION_PATH)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_FILES_ADDED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_FILES_UPDATED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_RECORDS_INSERTED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_RECORDS_UPDATED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_BYTES_WRITTEN)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_ERRORS);
 
     String expected = HoodiePrintHelper.print(header, fieldNameToConverterMap, "", false, -1, false, rows);
     expected = removeNonWordAndStripSpace(expected);
@@ -370,17 +370,17 @@ public class TestCommitsCommand extends CLIFunctionalTestHarness {
       );
 
       Map<String, Function<Object, String>> fieldNameToConverterMap = new HashMap<>();
-      fieldNameToConverterMap.put(HoodieTableHeaderFields.HEADER_TOTAL_BYTES_WRITTEN,
+      fieldNameToConverterMap.put(HoodieTableHeaderField.HEADER_TOTAL_BYTES_WRITTEN,
           entry -> NumericUtils.humanReadableByteCount((Long.parseLong(entry.toString()))));
 
-      TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderFields.HEADER_ACTION)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_PARTITION_PATH)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_FILES_ADDED)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_FILES_UPDATED)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_RECORDS_INSERTED)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_RECORDS_UPDATED)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_BYTES_WRITTEN)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_ERRORS);
+      TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderField.HEADER_ACTION)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_PARTITION_PATH)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_FILES_ADDED)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_FILES_UPDATED)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_RECORDS_INSERTED)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_RECORDS_UPDATED)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_BYTES_WRITTEN)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_ERRORS);
 
       String expected = HoodiePrintHelper.print(header, fieldNameToConverterMap, "", false, -1, false, rows);
       expected = removeNonWordAndStripSpace(expected);
@@ -409,15 +409,15 @@ public class TestCommitsCommand extends CLIFunctionalTestHarness {
             value[1], value[0], HoodieTestCommitMetadataGenerator.DEFAULT_TOTAL_WRITE_BYTES,
             // default 0 errors and blank file with 0 size
             0, 0}));
-    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderFields.HEADER_ACTION)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_PARTITION_PATH)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_FILE_ID)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_PREVIOUS_COMMIT)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_RECORDS_UPDATED)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_RECORDS_WRITTEN)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_BYTES_WRITTEN)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_ERRORS)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_FILE_SIZE);
+    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderField.HEADER_ACTION)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_PARTITION_PATH)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_FILE_ID)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_PREVIOUS_COMMIT)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_RECORDS_UPDATED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_RECORDS_WRITTEN)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_BYTES_WRITTEN)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_ERRORS)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_FILE_SIZE);
 
     String expected = HoodiePrintHelper.print(header, new HashMap<>(), "", false, -1, false, rows);
     expected = removeNonWordAndStripSpace(expected);
@@ -442,15 +442,15 @@ public class TestCommitsCommand extends CLIFunctionalTestHarness {
               value[1], value[0], HoodieTestCommitMetadataGenerator.DEFAULT_TOTAL_WRITE_BYTES,
               // default 0 errors and blank file with 0 size
               0, 0}));
-      TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderFields.HEADER_ACTION)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_PARTITION_PATH)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_FILE_ID)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_PREVIOUS_COMMIT)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_RECORDS_UPDATED)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_RECORDS_WRITTEN)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_BYTES_WRITTEN)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_ERRORS)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_FILE_SIZE);
+      TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderField.HEADER_ACTION)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_PARTITION_PATH)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_FILE_ID)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_PREVIOUS_COMMIT)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_RECORDS_UPDATED)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_RECORDS_WRITTEN)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_BYTES_WRITTEN)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_ERRORS)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_FILE_SIZE);
 
       String expected = HoodiePrintHelper.print(header, new HashMap<>(), "", false, -1, false, rows);
       expected = removeNonWordAndStripSpace(expected);

@@ -20,7 +20,7 @@ package org.apache.hudi.cli.commands;
 
 import org.apache.hudi.cli.HoodieCLI;
 import org.apache.hudi.cli.HoodiePrintHelper;
-import org.apache.hudi.cli.HoodieTableHeaderFields;
+import org.apache.hudi.cli.HoodieTableHeaderField;
 import org.apache.hudi.cli.TableHeader;
 import org.apache.hudi.common.config.HoodieCommonConfig;
 import org.apache.hudi.common.fs.FSUtils;
@@ -160,11 +160,11 @@ public class HoodieLogFileCommand implements CommandMarker {
       }
     }
 
-    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderFields.HEADER_INSTANT_TIME)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_RECORD_COUNT)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_BLOCK_TYPE)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_HEADER_METADATA)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_FOOTER_METADATA);
+    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderField.HEADER_INSTANT_TIME)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_RECORD_COUNT)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_BLOCK_TYPE)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_HEADER_METADATA)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_FOOTER_METADATA);
 
     return HoodiePrintHelper.print(header, new HashMap<>(), sortByField, descending, limit, headerOnly, rows);
   }
@@ -263,6 +263,6 @@ public class HoodieLogFileCommand implements CommandMarker {
       rows[i] = data;
       i++;
     }
-    return HoodiePrintHelper.print(new String[] {HoodieTableHeaderFields.HEADER_RECORDS}, rows);
+    return HoodiePrintHelper.print(new String[] {HoodieTableHeaderField.HEADER_RECORDS}, rows);
   }
 }

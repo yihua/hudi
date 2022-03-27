@@ -21,7 +21,7 @@ package org.apache.hudi.cli.commands;
 import org.apache.hudi.avro.model.HoodieRollbackMetadata;
 import org.apache.hudi.cli.HoodieCLI;
 import org.apache.hudi.cli.HoodiePrintHelper;
-import org.apache.hudi.cli.HoodieTableHeaderFields;
+import org.apache.hudi.cli.HoodieTableHeaderField;
 import org.apache.hudi.cli.TableHeader;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
@@ -79,11 +79,11 @@ public class RollbacksCommand implements CommandMarker {
         e.printStackTrace();
       }
     });
-    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderFields.HEADER_INSTANT)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_ROLLBACK_INSTANT)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_FILES_DELETED)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TIME_TOKEN_MILLIS)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_PARTITIONS);
+    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderField.HEADER_INSTANT)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_ROLLBACK_INSTANT)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_FILES_DELETED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TIME_TOKEN_MILLIS)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_PARTITIONS);
     return HoodiePrintHelper.print(header, new HashMap<>(), sortByField, descending, limit, headerOnly, rows);
   }
 
@@ -104,21 +104,21 @@ public class RollbacksCommand implements CommandMarker {
     metadata.getPartitionMetadata().forEach((key, value) -> Stream
             .concat(value.getSuccessDeleteFiles().stream().map(f -> Pair.of(f, true)),
                     value.getFailedDeleteFiles().stream().map(f -> Pair.of(f, false)))
-            .forEach(fileWithDeleteStatus -> {
-              Comparable[] row = new Comparable[5];
-              row[0] = metadata.getStartRollbackTime();
-              row[1] = metadata.getCommitsRollback().toString();
-              row[2] = key;
-              row[3] = fileWithDeleteStatus.getLeft();
-              row[4] = fileWithDeleteStatus.getRight();
-              rows.add(row);
-            }));
+        .forEach(fileWithDeleteStatus -> {
+          Comparable[] row = new Comparable[5];
+          row[0] = metadata.getStartRollbackTime();
+          row[1] = metadata.getCommitsRollback().toString();
+          row[2] = key;
+          row[3] = fileWithDeleteStatus.getLeft();
+          row[4] = fileWithDeleteStatus.getRight();
+          rows.add(row);
+        }));
 
-    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderFields.HEADER_INSTANT)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_ROLLBACK_INSTANT)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_PARTITION)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_DELETED_FILE)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_SUCCEEDED);
+    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderField.HEADER_INSTANT)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_ROLLBACK_INSTANT)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_PARTITION)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_DELETED_FILE)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_SUCCEEDED);
     return HoodiePrintHelper.print(header, new HashMap<>(), sortByField, descending, limit, headerOnly, rows);
   }
 

@@ -20,7 +20,7 @@ package org.apache.hudi.cli.commands;
 
 import org.apache.hudi.cli.HoodieCLI;
 import org.apache.hudi.cli.HoodiePrintHelper;
-import org.apache.hudi.cli.HoodieTableHeaderFields;
+import org.apache.hudi.cli.HoodieTableHeaderField;
 import org.apache.hudi.cli.TableHeader;
 import org.apache.hudi.cli.functional.CLIFunctionalTestHarness;
 import org.apache.hudi.cli.testutils.HoodieTestCommitMetadataGenerator;
@@ -101,10 +101,10 @@ public class TestStatsCommand extends CLIFunctionalTestHarness {
     int totalUpdate = data.values().stream().map(integers -> integers[1] * 2).mapToInt(s -> s).sum();
     rows.add(new Comparable[] {"Total", totalUpdate, totalWrite, df.format((float) totalWrite / totalUpdate)});
 
-    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderFields.HEADER_COMMIT_TIME)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_UPSERTED)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_WRITTEN)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_WRITE_AMPLIFICATION_FACTOR);
+    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderField.HEADER_COMMIT_TIME)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_UPSERTED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_WRITTEN)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_WRITE_AMPLIFICATION_FACTOR);
     String expected = HoodiePrintHelper.print(header, new HashMap<>(), "", false, -1, false, rows);
     expected = removeNonWordAndStripSpace(expected);
     String got = removeNonWordAndStripSpace(cr.getResult().toString());
@@ -165,15 +165,15 @@ public class TestStatsCommand extends CLIFunctionalTestHarness {
     rows.add(new StatsCommand().printFileSizeHistogram("ALL", s));
 
     TableHeader header = new TableHeader()
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_COMMIT_TIME)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_HISTOGRAM_MIN)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_HISTOGRAM_10TH)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_HISTOGRAM_50TH)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_HISTOGRAM_AVG)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_HISTOGRAM_95TH)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_HISTOGRAM_MAX)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_HISTOGRAM_NUM_FILES)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_HISTOGRAM_STD_DEV);
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_COMMIT_TIME)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_HISTOGRAM_MIN)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_HISTOGRAM_10TH)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_HISTOGRAM_50TH)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_HISTOGRAM_AVG)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_HISTOGRAM_95TH)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_HISTOGRAM_MAX)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_HISTOGRAM_NUM_FILES)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_HISTOGRAM_STD_DEV);
     String expect = HoodiePrintHelper.print(header, new StatsCommand().getFieldNameToConverterMap(),
         "", false, -1, false, rows);
     expect = removeNonWordAndStripSpace(expect);

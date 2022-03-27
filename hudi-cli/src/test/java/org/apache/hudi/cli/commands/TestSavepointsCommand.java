@@ -20,7 +20,7 @@ package org.apache.hudi.cli.commands;
 
 import org.apache.hudi.cli.HoodieCLI;
 import org.apache.hudi.cli.HoodiePrintHelper;
-import org.apache.hudi.cli.HoodieTableHeaderFields;
+import org.apache.hudi.cli.HoodieTableHeaderField;
 import org.apache.hudi.cli.functional.CLIFunctionalTestHarness;
 import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
@@ -74,8 +74,8 @@ public class TestSavepointsCommand extends CLIFunctionalTestHarness {
 
     // generate expect result
     String[][] rows = Stream.of("100", "101", "102", "103").sorted(Comparator.reverseOrder())
-        .map(instant -> new String[]{instant}).toArray(String[][]::new);
-    String expected = HoodiePrintHelper.print(new String[] {HoodieTableHeaderFields.HEADER_SAVEPOINT_TIME}, rows);
+        .map(instant -> new String[] {instant}).toArray(String[][]::new);
+    String expected = HoodiePrintHelper.print(new String[] {HoodieTableHeaderField.HEADER_SAVEPOINT_TIME}, rows);
     expected = removeNonWordAndStripSpace(expected);
     String got = removeNonWordAndStripSpace(cr.getResult().toString());
     assertEquals(expected, got);

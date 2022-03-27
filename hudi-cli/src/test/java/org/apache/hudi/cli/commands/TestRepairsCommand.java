@@ -20,7 +20,7 @@ package org.apache.hudi.cli.commands;
 
 import org.apache.hudi.cli.HoodieCLI;
 import org.apache.hudi.cli.HoodiePrintHelper;
-import org.apache.hudi.cli.HoodieTableHeaderFields;
+import org.apache.hudi.cli.HoodieTableHeaderField;
 import org.apache.hudi.cli.functional.CLIFunctionalTestHarness;
 import org.apache.hudi.cli.testutils.HoodieTestCommitMetadataGenerator;
 import org.apache.hudi.common.fs.FSUtils;
@@ -114,8 +114,8 @@ public class TestRepairsCommand extends CLIFunctionalTestHarness {
         .stream()
         .map(partition -> new String[] {partition, "No", "None"})
         .toArray(String[][]::new);
-    String expected = HoodiePrintHelper.print(new String[] {HoodieTableHeaderFields.HEADER_PARTITION_PATH,
-        HoodieTableHeaderFields.HEADER_METADATA_PRESENT, HoodieTableHeaderFields.HEADER_ACTION}, rows);
+    String expected = HoodiePrintHelper.print(new String[] {HoodieTableHeaderField.HEADER_PARTITION_PATH,
+        HoodieTableHeaderField.HEADER_METADATA_PRESENT, HoodieTableHeaderField.HEADER_ACTION}, rows);
     expected = removeNonWordAndStripSpace(expected);
     String got = removeNonWordAndStripSpace(cr.getResult().toString());
     assertEquals(expected, got);
@@ -145,8 +145,8 @@ public class TestRepairsCommand extends CLIFunctionalTestHarness {
     String[][] rows = paths.stream()
         .map(partition -> new String[] {partition, "No", "Repaired"})
         .toArray(String[][]::new);
-    String expected = HoodiePrintHelper.print(new String[] {HoodieTableHeaderFields.HEADER_PARTITION_PATH,
-        HoodieTableHeaderFields.HEADER_METADATA_PRESENT, HoodieTableHeaderFields.HEADER_ACTION}, rows);
+    String expected = HoodiePrintHelper.print(new String[] {HoodieTableHeaderField.HEADER_PARTITION_PATH,
+        HoodieTableHeaderField.HEADER_METADATA_PRESENT, HoodieTableHeaderField.HEADER_ACTION}, rows);
     expected = removeNonWordAndStripSpace(expected);
     String got = removeNonWordAndStripSpace(cr.getResult().toString());
     assertEquals(expected, got);
@@ -157,8 +157,8 @@ public class TestRepairsCommand extends CLIFunctionalTestHarness {
     rows = paths.stream()
         .map(partition -> new String[] {partition, "Yes", "None"})
         .toArray(String[][]::new);
-    expected = HoodiePrintHelper.print(new String[] {HoodieTableHeaderFields.HEADER_PARTITION_PATH,
-        HoodieTableHeaderFields.HEADER_METADATA_PRESENT, HoodieTableHeaderFields.HEADER_ACTION}, rows);
+    expected = HoodiePrintHelper.print(new String[] {HoodieTableHeaderField.HEADER_PARTITION_PATH,
+        HoodieTableHeaderField.HEADER_METADATA_PRESENT, HoodieTableHeaderField.HEADER_ACTION}, rows);
     expected = removeNonWordAndStripSpace(expected);
     got = removeNonWordAndStripSpace(cr.getResult().toString());
     assertEquals(expected, got);
@@ -198,8 +198,8 @@ public class TestRepairsCommand extends CLIFunctionalTestHarness {
     String[][] rows = allPropsStr.stream().sorted().map(key -> new String[] {key,
             oldProps.getOrDefault(key, "null"), result.getOrDefault(key, "null")})
         .toArray(String[][]::new);
-    String expect = HoodiePrintHelper.print(new String[] {HoodieTableHeaderFields.HEADER_HOODIE_PROPERTY,
-        HoodieTableHeaderFields.HEADER_OLD_VALUE, HoodieTableHeaderFields.HEADER_NEW_VALUE}, rows);
+    String expect = HoodiePrintHelper.print(new String[] {HoodieTableHeaderField.HEADER_HOODIE_PROPERTY,
+        HoodieTableHeaderField.HEADER_OLD_VALUE, HoodieTableHeaderField.HEADER_NEW_VALUE}, rows);
     expect = removeNonWordAndStripSpace(expect);
     String got = removeNonWordAndStripSpace(cr.getResult().toString());
     assertEquals(expect, got);

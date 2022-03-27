@@ -20,7 +20,7 @@ package org.apache.hudi.cli.commands;
 
 import org.apache.hudi.cli.HoodieCLI;
 import org.apache.hudi.cli.HoodiePrintHelper;
-import org.apache.hudi.cli.HoodieTableHeaderFields;
+import org.apache.hudi.cli.HoodieTableHeaderField;
 import org.apache.hudi.cli.TableHeader;
 import org.apache.hudi.cli.utils.CommitUtil;
 import org.apache.hudi.cli.utils.InputStreamConsumer;
@@ -88,19 +88,19 @@ public class CommitsCommand implements CommandMarker {
     }
 
     final Map<String, Function<Object, String>> fieldNameToConverterMap = new HashMap<>();
-    fieldNameToConverterMap.put(HoodieTableHeaderFields.HEADER_TOTAL_BYTES_WRITTEN, entry -> {
+    fieldNameToConverterMap.put(HoodieTableHeaderField.HEADER_TOTAL_BYTES_WRITTEN, entry -> {
       return NumericUtils.humanReadableByteCount((Double.valueOf(entry.toString())));
     });
 
     final TableHeader header = new TableHeader()
-            .addTableHeaderField(HoodieTableHeaderFields.HEADER_COMMIT_TIME)
-            .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_BYTES_WRITTEN)
-            .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_FILES_ADDED)
-            .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_FILES_UPDATED)
-            .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_PARTITIONS_WRITTEN)
-            .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_RECORDS_WRITTEN)
-            .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_UPDATE_RECORDS_WRITTEN)
-            .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_ERRORS);
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_COMMIT_TIME)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_BYTES_WRITTEN)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_FILES_ADDED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_FILES_UPDATED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_PARTITIONS_WRITTEN)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_RECORDS_WRITTEN)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_UPDATE_RECORDS_WRITTEN)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_ERRORS);
 
     return HoodiePrintHelper.print(header, fieldNameToConverterMap, sortByField, descending,
             limit, headerOnly, rows, tempTableName);
@@ -140,29 +140,29 @@ public class CommitsCommand implements CommandMarker {
     }
 
     final Map<String, Function<Object, String>> fieldNameToConverterMap = new HashMap<>();
-    fieldNameToConverterMap.put(HoodieTableHeaderFields.HEADER_TOTAL_BYTES_WRITTEN, entry -> {
+    fieldNameToConverterMap.put(HoodieTableHeaderField.HEADER_TOTAL_BYTES_WRITTEN, entry -> {
       return NumericUtils.humanReadableByteCount((Double.valueOf(entry.toString())));
     });
 
-    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderFields.HEADER_ACTION)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_INSTANT)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_PARTITION)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_FILE_ID)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_PREVIOUS_COMMIT)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_NUM_WRITES)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_NUM_INSERTS)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_NUM_DELETES)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_NUM_UPDATE_WRITES)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_ERRORS)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_LOG_BLOCKS)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_CORRUPT_LOG_BLOCKS)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_ROLLBACK_BLOCKS)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_LOG_RECORDS)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_UPDATED_RECORDS_COMPACTED)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_BYTES_WRITTEN);
+    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderField.HEADER_ACTION)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_INSTANT)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_PARTITION)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_FILE_ID)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_PREVIOUS_COMMIT)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_NUM_WRITES)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_NUM_INSERTS)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_NUM_DELETES)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_NUM_UPDATE_WRITES)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_ERRORS)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_LOG_BLOCKS)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_CORRUPT_LOG_BLOCKS)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_ROLLBACK_BLOCKS)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_LOG_RECORDS)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_UPDATED_RECORDS_COMPACTED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_BYTES_WRITTEN);
 
     return HoodiePrintHelper.print(header, new HashMap<>(), sortByField, descending,
-            limit, headerOnly, rows, tempTableName);
+        limit, headerOnly, rows, tempTableName);
   }
 
   @CliCommand(value = "commits show", help = "Show the commits")
@@ -307,17 +307,17 @@ public class CommitsCommand implements CommandMarker {
     }
 
     Map<String, Function<Object, String>> fieldNameToConverterMap = new HashMap<>();
-    fieldNameToConverterMap.put(HoodieTableHeaderFields.HEADER_TOTAL_BYTES_WRITTEN, entry ->
+    fieldNameToConverterMap.put(HoodieTableHeaderField.HEADER_TOTAL_BYTES_WRITTEN, entry ->
         NumericUtils.humanReadableByteCount((Long.parseLong(entry.toString()))));
 
-    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderFields.HEADER_ACTION)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_PARTITION_PATH)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_FILES_ADDED)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_FILES_UPDATED)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_RECORDS_INSERTED)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_RECORDS_UPDATED)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_BYTES_WRITTEN)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_ERRORS);
+    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderField.HEADER_ACTION)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_PARTITION_PATH)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_FILES_ADDED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_FILES_UPDATED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_RECORDS_INSERTED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_RECORDS_UPDATED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_BYTES_WRITTEN)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_ERRORS);
 
     return HoodiePrintHelper.print(header, fieldNameToConverterMap, sortByField, descending,
         limit, headerOnly, rows, exportTableName);
@@ -355,13 +355,13 @@ public class CommitsCommand implements CommandMarker {
     rows.add(new Comparable[] {action, bytesWritten, recordsWritten, avgRecSize});
 
     Map<String, Function<Object, String>> fieldNameToConverterMap = new HashMap<>();
-    fieldNameToConverterMap.put(HoodieTableHeaderFields.HEADER_TOTAL_BYTES_WRITTEN, entry ->
+    fieldNameToConverterMap.put(HoodieTableHeaderField.HEADER_TOTAL_BYTES_WRITTEN, entry ->
         NumericUtils.humanReadableByteCount((Long.parseLong(entry.toString()))));
 
-    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderFields.HEADER_ACTION)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_BYTES_WRITTEN_COMMIT)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_RECORDS_WRITTEN_COMMIT)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_AVG_REC_SIZE_COMMIT);
+    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderField.HEADER_ACTION)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_BYTES_WRITTEN_COMMIT)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_RECORDS_WRITTEN_COMMIT)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_AVG_REC_SIZE_COMMIT);
 
     return HoodiePrintHelper.print(header, fieldNameToConverterMap, sortByField, descending,
         limit, headerOnly, rows, exportTableName);
@@ -401,15 +401,15 @@ public class CommitsCommand implements CommandMarker {
       }
     }
 
-    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderFields.HEADER_ACTION)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_PARTITION_PATH)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_FILE_ID)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_PREVIOUS_COMMIT)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_RECORDS_UPDATED)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_RECORDS_WRITTEN)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_BYTES_WRITTEN)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_ERRORS)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_FILE_SIZE);
+    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderField.HEADER_ACTION)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_PARTITION_PATH)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_FILE_ID)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_PREVIOUS_COMMIT)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_RECORDS_UPDATED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_RECORDS_WRITTEN)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_BYTES_WRITTEN)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_ERRORS)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_FILE_SIZE);
 
     return HoodiePrintHelper.print(header, new HashMap<>(), sortByField, descending,
         limit, headerOnly, rows, exportTableName);

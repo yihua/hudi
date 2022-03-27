@@ -22,7 +22,7 @@ import org.apache.hudi.avro.model.HoodieCompactionOperation;
 import org.apache.hudi.avro.model.HoodieCompactionPlan;
 import org.apache.hudi.cli.HoodieCLI;
 import org.apache.hudi.cli.HoodiePrintHelper;
-import org.apache.hudi.cli.HoodieTableHeaderFields;
+import org.apache.hudi.cli.HoodieTableHeaderField;
 import org.apache.hudi.cli.TableHeader;
 import org.apache.hudi.cli.commands.SparkMain.SparkCommand;
 import org.apache.hudi.cli.utils.CommitUtil;
@@ -342,11 +342,11 @@ public class CompactionCommand implements CommandMarker {
 
     Map<String, Function<Object, String>> fieldNameToConverterMap = new HashMap<>();
     TableHeader header = new TableHeader()
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_COMPACTION_INSTANT_TIME)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_STATE)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_FILES_TO_BE_COMPACTED);
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_COMPACTION_INSTANT_TIME)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_STATE)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_FILES_TO_BE_COMPACTED);
     if (includeExtraMetadata) {
-      header = header.addTableHeaderField(HoodieTableHeaderFields.HEADER_EXTRA_METADATA);
+      header = header.addTableHeaderField(HoodieTableHeaderField.HEADER_EXTRA_METADATA);
     }
     return HoodiePrintHelper.print(header, fieldNameToConverterMap, sortByField, descending, limit, headerOnly, rows);
   }
@@ -419,12 +419,12 @@ public class CompactionCommand implements CommandMarker {
 
     Map<String, Function<Object, String>> fieldNameToConverterMap = new HashMap<>();
     TableHeader header = new TableHeader()
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_PARTITION_PATH)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_FILE_ID)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_BASE_INSTANT)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_DATA_FILE_PATH)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_DELTA_FILES)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_METRICS);
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_PARTITION_PATH)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_FILE_ID)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_BASE_INSTANT)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_DATA_FILE_PATH)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_DELTA_FILES)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_METRICS);
     return HoodiePrintHelper.print(header, fieldNameToConverterMap, sortByField, descending, limit, headerOnly, rows);
   }
 
@@ -491,12 +491,12 @@ public class CompactionCommand implements CommandMarker {
 
       Map<String, Function<Object, String>> fieldNameToConverterMap = new HashMap<>();
       TableHeader header = new TableHeader()
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_FILE_ID)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_BASE_INSTANT_TIME)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_BASE_DATA_FILE)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_NUM_DELTA_FILES)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_VALID)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_ERROR);
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_FILE_ID)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_BASE_INSTANT_TIME)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_BASE_DATA_FILE)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_NUM_DELTA_FILES)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_VALID)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_ERROR);
 
       output = message + HoodiePrintHelper.print(header, fieldNameToConverterMap, sortByField, descending, limit,
           headerOnly, rows);
@@ -668,12 +668,12 @@ public class CompactionCommand implements CommandMarker {
 
       Map<String, Function<Object, String>> fieldNameToConverterMap = new HashMap<>();
       TableHeader header = new TableHeader()
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_FILE_ID)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_SOURCE_FILE_PATH)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_DESTINATION_FILE_PATH)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_RENAME_EXECUTED)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_RENAME_SUCCEEDED)
-          .addTableHeaderField(HoodieTableHeaderFields.HEADER_ERROR);
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_FILE_ID)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_SOURCE_FILE_PATH)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_DESTINATION_FILE_PATH)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_RENAME_EXECUTED)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_RENAME_SUCCEEDED)
+          .addTableHeaderField(HoodieTableHeaderField.HEADER_ERROR);
 
       return HoodiePrintHelper.print(header, fieldNameToConverterMap, sortByField, descending, limit, headerOnly, rows);
     } else {

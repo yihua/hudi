@@ -20,7 +20,7 @@ package org.apache.hudi.cli.commands;
 
 import org.apache.hudi.cli.HoodieCLI;
 import org.apache.hudi.cli.HoodiePrintHelper;
-import org.apache.hudi.cli.HoodieTableHeaderFields;
+import org.apache.hudi.cli.HoodieTableHeaderField;
 import org.apache.hudi.cli.TableHeader;
 import org.apache.hudi.cli.functional.CLIFunctionalTestHarness;
 import org.apache.hudi.cli.testutils.HoodieTestCommitMetadataGenerator;
@@ -137,17 +137,17 @@ public class TestFileSystemViewCommand extends CLIFunctionalTestHarness {
     Function<Object, String> converterFunction =
         entry -> NumericUtils.humanReadableByteCount((Double.parseDouble(entry.toString())));
     Map<String, Function<Object, String>> fieldNameToConverterMap = new HashMap<>();
-    fieldNameToConverterMap.put(HoodieTableHeaderFields.HEADER_TOTAL_DELTA_FILE_SIZE, converterFunction);
-    fieldNameToConverterMap.put(HoodieTableHeaderFields.HEADER_DATA_FILE_SIZE, converterFunction);
+    fieldNameToConverterMap.put(HoodieTableHeaderField.HEADER_TOTAL_DELTA_FILE_SIZE, converterFunction);
+    fieldNameToConverterMap.put(HoodieTableHeaderField.HEADER_DATA_FILE_SIZE, converterFunction);
 
-    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderFields.HEADER_PARTITION)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_FILE_ID)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_BASE_INSTANT)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_DATA_FILE)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_DATA_FILE_SIZE)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_NUM_DELTA_FILES)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_DELTA_FILE_SIZE)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_DELTA_FILES);
+    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderField.HEADER_PARTITION)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_FILE_ID)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_BASE_INSTANT)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_DATA_FILE)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_DATA_FILE_SIZE)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_NUM_DELTA_FILES)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_DELTA_FILE_SIZE)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_DELTA_FILES);
     String expected = HoodiePrintHelper.print(header, fieldNameToConverterMap, "", false, -1, false, rows);
     expected = removeNonWordAndStripSpace(expected);
     String got = removeNonWordAndStripSpace(cr.getResult().toString());
@@ -182,14 +182,14 @@ public class TestFileSystemViewCommand extends CLIFunctionalTestHarness {
     Function<Object, String> converterFunction =
         entry -> NumericUtils.humanReadableByteCount((Double.parseDouble(entry.toString())));
     Map<String, Function<Object, String>> fieldNameToConverterMap = new HashMap<>();
-    fieldNameToConverterMap.put(HoodieTableHeaderFields.HEADER_TOTAL_DELTA_FILE_SIZE, converterFunction);
-    fieldNameToConverterMap.put(HoodieTableHeaderFields.HEADER_DATA_FILE_SIZE, converterFunction);
+    fieldNameToConverterMap.put(HoodieTableHeaderField.HEADER_TOTAL_DELTA_FILE_SIZE, converterFunction);
+    fieldNameToConverterMap.put(HoodieTableHeaderField.HEADER_DATA_FILE_SIZE, converterFunction);
 
-    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderFields.HEADER_PARTITION)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_FILE_ID)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_BASE_INSTANT)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_DATA_FILE)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_DATA_FILE_SIZE);
+    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderField.HEADER_PARTITION)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_FILE_ID)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_BASE_INSTANT)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_DATA_FILE)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_DATA_FILE_SIZE);
 
     String expected = HoodiePrintHelper.print(header, fieldNameToConverterMap, "", false, -1, false, rows);
     expected = removeNonWordAndStripSpace(expected);
@@ -249,24 +249,24 @@ public class TestFileSystemViewCommand extends CLIFunctionalTestHarness {
     Function<Object, String> converterFunction =
         entry -> NumericUtils.humanReadableByteCount((Double.parseDouble(entry.toString())));
     Map<String, Function<Object, String>> fieldNameToConverterMap = new HashMap<>();
-    fieldNameToConverterMap.put(HoodieTableHeaderFields.HEADER_DATA_FILE_SIZE, converterFunction);
-    fieldNameToConverterMap.put(HoodieTableHeaderFields.HEADER_TOTAL_DELTA_SIZE, converterFunction);
-    fieldNameToConverterMap.put(HoodieTableHeaderFields.HEADER_DELTA_SIZE_SCHEDULED, converterFunction);
-    fieldNameToConverterMap.put(HoodieTableHeaderFields.HEADER_DELTA_SIZE_UNSCHEDULED, converterFunction);
+    fieldNameToConverterMap.put(HoodieTableHeaderField.HEADER_DATA_FILE_SIZE, converterFunction);
+    fieldNameToConverterMap.put(HoodieTableHeaderField.HEADER_TOTAL_DELTA_SIZE, converterFunction);
+    fieldNameToConverterMap.put(HoodieTableHeaderField.HEADER_DELTA_SIZE_SCHEDULED, converterFunction);
+    fieldNameToConverterMap.put(HoodieTableHeaderField.HEADER_DELTA_SIZE_UNSCHEDULED, converterFunction);
 
-    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderFields.HEADER_PARTITION)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_FILE_ID)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_BASE_INSTANT)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_DATA_FILE)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_DATA_FILE_SIZE)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_NUM_DELTA_FILES)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_DELTA_SIZE)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_DELTA_SIZE_SCHEDULED)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_DELTA_SIZE_UNSCHEDULED)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_DELTA_BASE_SCHEDULED)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_DELTA_BASE_UNSCHEDULED)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_DELTA_FILES_SCHEDULED)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_DELTA_FILES_UNSCHEDULED);
+    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderField.HEADER_PARTITION)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_FILE_ID)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_BASE_INSTANT)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_DATA_FILE)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_DATA_FILE_SIZE)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_NUM_DELTA_FILES)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_DELTA_SIZE)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_DELTA_SIZE_SCHEDULED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_DELTA_SIZE_UNSCHEDULED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_DELTA_BASE_SCHEDULED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_DELTA_BASE_UNSCHEDULED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_DELTA_FILES_SCHEDULED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_DELTA_FILES_UNSCHEDULED);
     String expected = HoodiePrintHelper.print(header, fieldNameToConverterMap, "", false, -1, false, rows);
     expected = removeNonWordAndStripSpace(expected);
     String got = removeNonWordAndStripSpace(cr.getResult().toString());

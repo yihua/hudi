@@ -21,7 +21,7 @@ package org.apache.hudi.cli.commands;
 import org.apache.hudi.avro.model.HoodieCleanMetadata;
 import org.apache.hudi.cli.HoodieCLI;
 import org.apache.hudi.cli.HoodiePrintHelper;
-import org.apache.hudi.cli.HoodieTableHeaderFields;
+import org.apache.hudi.cli.HoodieTableHeaderField;
 import org.apache.hudi.cli.TableHeader;
 import org.apache.hudi.cli.functional.CLIFunctionalTestHarness;
 import org.apache.hudi.cli.testutils.HoodieTestCommitMetadataGenerator;
@@ -130,10 +130,10 @@ public class TestCleansCommand extends CLIFunctionalTestHarness {
     assertNotNull(clean);
 
     TableHeader header =
-        new TableHeader().addTableHeaderField(HoodieTableHeaderFields.HEADER_CLEAN_TIME)
-            .addTableHeaderField(HoodieTableHeaderFields.HEADER_EARLIEST_COMMAND_RETAINED)
-            .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_FILES_DELETED)
-            .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_TIME_TAKEN);
+        new TableHeader().addTableHeaderField(HoodieTableHeaderField.HEADER_CLEAN_TIME)
+            .addTableHeaderField(HoodieTableHeaderField.HEADER_EARLIEST_COMMAND_RETAINED)
+            .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_FILES_DELETED)
+            .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_TIME_TAKEN);
     List<Comparable[]> rows = new ArrayList<>();
 
     // EarliestCommandRetained should be 102, since hoodie.cleaner.commits.retained=2
@@ -164,10 +164,10 @@ public class TestCleansCommand extends CLIFunctionalTestHarness {
     CommandResult cr = shell().executeCommand("clean showpartitions --clean " + clean.getTimestamp());
     assertTrue(cr.isSuccess());
 
-    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderFields.HEADER_PARTITION_PATH)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_CLEANING_POLICY)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_FILES_SUCCESSFULLY_DELETED)
-        .addTableHeaderField(HoodieTableHeaderFields.HEADER_TOTAL_FAILED_DELETIONS);
+    TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderField.HEADER_PARTITION_PATH)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_CLEANING_POLICY)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_FILES_SUCCESSFULLY_DELETED)
+        .addTableHeaderField(HoodieTableHeaderField.HEADER_TOTAL_FAILED_DELETIONS);
 
     // There should be two partition path
     List<Comparable[]> rows = new ArrayList<>();

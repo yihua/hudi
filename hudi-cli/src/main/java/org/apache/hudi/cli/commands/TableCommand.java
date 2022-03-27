@@ -20,7 +20,7 @@ package org.apache.hudi.cli.commands;
 
 import org.apache.hudi.cli.HoodieCLI;
 import org.apache.hudi.cli.HoodiePrintHelper;
-import org.apache.hudi.cli.HoodieTableHeaderFields;
+import org.apache.hudi.cli.HoodieTableHeaderField;
 import org.apache.hudi.cli.TableHeader;
 import org.apache.hudi.common.fs.ConsistencyGuardConfig;
 import org.apache.hudi.common.table.HoodieTableConfig;
@@ -232,15 +232,15 @@ public class TableCommand implements CommandMarker {
     String[][] rows = new String[allPropKeys.size()][];
     int ind = 0;
     for (String propKey : allPropKeys) {
-      String[] row = new String[]{
+      String[] row = new String[] {
           propKey,
           oldProps.getOrDefault(propKey, "null"),
           newProps.getOrDefault(propKey, "null")
       };
       rows[ind++] = row;
     }
-    return HoodiePrintHelper.print(new String[] {HoodieTableHeaderFields.HEADER_HOODIE_PROPERTY,
-        HoodieTableHeaderFields.HEADER_OLD_VALUE, HoodieTableHeaderFields.HEADER_NEW_VALUE}, rows);
+    return HoodiePrintHelper.print(new String[] {HoodieTableHeaderField.HEADER_HOODIE_PROPERTY,
+        HoodieTableHeaderField.HEADER_OLD_VALUE, HoodieTableHeaderField.HEADER_NEW_VALUE}, rows);
   }
 
   /**

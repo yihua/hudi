@@ -20,7 +20,7 @@ package org.apache.hudi.cli.commands;
 
 import org.apache.hudi.cli.HoodieCLI;
 import org.apache.hudi.cli.HoodiePrintHelper;
-import org.apache.hudi.cli.HoodieTableHeaderFields;
+import org.apache.hudi.cli.HoodieTableHeaderField;
 import org.apache.hudi.cli.utils.InputStreamConsumer;
 import org.apache.hudi.cli.utils.SparkUtil;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
@@ -53,7 +53,7 @@ public class SavepointsCommand implements CommandMarker {
       HoodieInstant commit = commits.get(i);
       rows[i] = new String[] {commit.getTimestamp()};
     }
-    return HoodiePrintHelper.print(new String[] {HoodieTableHeaderFields.HEADER_SAVEPOINT_TIME}, rows);
+    return HoodiePrintHelper.print(new String[] {HoodieTableHeaderField.HEADER_SAVEPOINT_TIME}, rows);
   }
 
   @CliCommand(value = "savepoint create", help = "Savepoint a commit")

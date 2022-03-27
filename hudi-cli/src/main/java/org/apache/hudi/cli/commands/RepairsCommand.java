@@ -21,7 +21,7 @@ package org.apache.hudi.cli.commands;
 import org.apache.hudi.cli.DeDupeType;
 import org.apache.hudi.cli.HoodieCLI;
 import org.apache.hudi.cli.HoodiePrintHelper;
-import org.apache.hudi.cli.HoodieTableHeaderFields;
+import org.apache.hudi.cli.HoodieTableHeaderField;
 import org.apache.hudi.cli.utils.InputStreamConsumer;
 import org.apache.hudi.cli.utils.SparkUtil;
 import org.apache.hudi.common.engine.HoodieLocalEngineContext;
@@ -33,12 +33,11 @@ import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.util.CleanerUtils;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.exception.HoodieIOException;
 
 import org.apache.avro.AvroRuntimeException;
 import org.apache.hadoop.fs.Path;
-import org.apache.hudi.common.util.StringUtils;
-
 import org.apache.log4j.Logger;
 import org.apache.spark.launcher.SparkLauncher;
 import org.apache.spark.util.Utils;
@@ -46,7 +45,6 @@ import org.springframework.shell.core.CommandMarker;
 import org.springframework.shell.core.annotation.CliCommand;
 import org.springframework.shell.core.annotation.CliOption;
 import org.springframework.stereotype.Component;
-import scala.collection.JavaConverters;
 
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -55,6 +53,8 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
+
+import scala.collection.JavaConverters;
 
 import static org.apache.hudi.common.table.HoodieTableMetaClient.METAFOLDER_NAME;
 
@@ -145,8 +145,8 @@ public class RepairsCommand implements CommandMarker {
       rows[ind++] = row;
     }
 
-    return HoodiePrintHelper.print(new String[] {HoodieTableHeaderFields.HEADER_PARTITION_PATH,
-        HoodieTableHeaderFields.HEADER_METADATA_PRESENT, HoodieTableHeaderFields.HEADER_ACTION}, rows);
+    return HoodiePrintHelper.print(new String[] {HoodieTableHeaderField.HEADER_PARTITION_PATH,
+        HoodieTableHeaderField.HEADER_METADATA_PRESENT, HoodieTableHeaderField.HEADER_ACTION}, rows);
   }
 
   @CliCommand(value = "repair overwrite-hoodie-props", help = "Overwrite hoodie.properties with provided file. Risky operation. Proceed with caution!")
@@ -170,15 +170,15 @@ public class RepairsCommand implements CommandMarker {
     String[][] rows = new String[allPropKeys.size()][];
     int ind = 0;
     for (String propKey : allPropKeys) {
-      String[] row = new String[]{
+      String[] row = new String[] {
           propKey,
           oldProps.getOrDefault(propKey, "null"),
           newProps.getOrDefault(propKey, "null").toString()
       };
       rows[ind++] = row;
     }
-    return HoodiePrintHelper.print(new String[] {HoodieTableHeaderFields.HEADER_HOODIE_PROPERTY,
-        HoodieTableHeaderFields.HEADER_OLD_VALUE, HoodieTableHeaderFields.HEADER_NEW_VALUE}, rows);
+    return HoodiePrintHelper.print(new String[] {HoodieTableHeaderField.HEADER_HOODIE_PROPERTY,
+        HoodieTableHeaderField.HEADER_OLD_VALUE, HoodieTableHeaderField.HEADER_NEW_VALUE}, rows);
   }
 
   @CliCommand(value = "repair corrupted clean files", help = "repair corrupted clean files")
@@ -257,10 +257,10 @@ public class RepairsCommand implements CommandMarker {
     HoodieTableConfig.update(HoodieCLI.fs, new Path(client.getMetaPath()), props);
 
     return HoodiePrintHelper.print(new String[] {
-        HoodieTableHeaderFields.HEADER_PARTITION_PATH,
-        HoodieTableHeaderFields.HEADER_TEXT_METAFILE_PRESENT,
-        HoodieTableHeaderFields.HEADER_BASE_METAFILE_PRESENT,
-        HoodieTableHeaderFields.HEADER_ACTION
+        HoodieTableHeaderField.HEADER_PARTITION_PATH,
+        HoodieTableHeaderField.HEADER_TEXT_METAFILE_PRESENT,
+        HoodieTableHeaderField.HEADER_BASE_METAFILE_PRESENT,
+        HoodieTableHeaderField.HEADER_ACTION
     }, rows);
   }
 }
