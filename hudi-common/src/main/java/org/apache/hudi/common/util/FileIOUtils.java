@@ -42,7 +42,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.stream.Collectors;
 
@@ -52,6 +54,7 @@ import java.util.stream.Collectors;
 public class FileIOUtils {
   public static final Logger LOG = LogManager.getLogger(FileIOUtils.class);
   public static final long KB = 1024;
+  public static final Map<String, Random> RANDOM_MAP = new HashMap<>();
 
   public static void deleteDirectory(File directory) throws IOException {
     if (directory.exists()) {
@@ -226,11 +229,11 @@ public class FileIOUtils {
    *
    * @param signalFilePath
    * @param msg
-   * @param denom
+   * @param probability
    */
-  public static void killJVMIfDesired(String signalFilePath, String msg, int denom) {
+  public static void killJVMIfDesired(String signalFilePath, String msg, double probability) {
     try {
-      boolean kill = new Random().nextInt(denom) == 0;
+      boolean kill = getRandom(signalFilePath).nextDouble() <= probability;
       if (kill) {
         System.out.println("Killing the jvm at " + signalFilePath + " Reason: " + msg);
         System.exit(1);
@@ -243,5 +246,9 @@ public class FileIOUtils {
       System.err.println(">>> error killing the jvm at " + signalFilePath + " ...");
       e.printStackTrace();
     }
+  }
+
+  private static Random getRandom(String signalFilePath) {
+    return RANDOM_MAP.computeIfAbsent(signalFilePath, key -> new Random());
   }
 }

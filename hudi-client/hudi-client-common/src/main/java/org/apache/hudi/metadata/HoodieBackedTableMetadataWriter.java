@@ -18,11 +18,6 @@
 
 package org.apache.hudi.metadata;
 
-import org.apache.avro.specific.SpecificRecordBase;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
 import org.apache.hudi.avro.model.HoodieCleanMetadata;
 import org.apache.hudi.avro.model.HoodieIndexPartitionInfo;
 import org.apache.hudi.avro.model.HoodieInstantInfo;
@@ -70,6 +65,12 @@ import org.apache.hudi.config.metrics.HoodieMetricsJmxConfig;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIndexException;
 import org.apache.hudi.exception.HoodieMetadataException;
+
+import org.apache.avro.specific.SpecificRecordBase;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -88,8 +89,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.apache.hudi.common.table.HoodieTableConfig.ARCHIVELOG_FOLDER;
-import static org.apache.hudi.common.util.StringUtils.EMPTY_STRING;
 import static org.apache.hudi.common.util.FileIOUtils.killJVMIfDesired;
+import static org.apache.hudi.common.util.StringUtils.EMPTY_STRING;
 import static org.apache.hudi.metadata.HoodieTableMetadata.METADATA_TABLE_NAME_SUFFIX;
 import static org.apache.hudi.metadata.HoodieTableMetadata.SOLO_COMMIT_TIMESTAMP;
 import static org.apache.hudi.metadata.HoodieTableMetadataUtil.getCompletedMetadataPartitions;
@@ -976,7 +977,7 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
     final String compactionInstantTime = latestDeltacommitTime + "001";
     if (writeClient.scheduleCompactionAtInstant(compactionInstantTime, Option.empty())) {
       writeClient.compact(compactionInstantTime);
-      killJVMIfDesired("/tmp/fail92_mt_write.txt", "Fail metadata table just after compaction " + compactionInstantTime, 5);
+      killJVMIfDesired("/tmp/fail92_mt_write.txt", "Fail metadata table just after compaction " + compactionInstantTime, 0.2);
     }
   }
 
@@ -995,7 +996,7 @@ public abstract class HoodieBackedTableMetadataWriter implements HoodieTableMeta
       return;
     }
 
-    killJVMIfDesired("/tmp/fail102_mt_write.txt", "Fail metadata table just before cleaning " + instantTime, 10);
+    killJVMIfDesired("/tmp/fail102_mt_write.txt", "Fail metadata table just before cleaning " + instantTime, 0.15);
     // Trigger cleaning with suffixes based on the same instant time. This ensures that any future
     // delta commits synced over will not have an instant time lesser than the last completed instant on the
     // metadata table.

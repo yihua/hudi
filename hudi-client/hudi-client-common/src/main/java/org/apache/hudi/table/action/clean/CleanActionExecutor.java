@@ -222,14 +222,14 @@ public class CleanActionExecutor<T extends HoodieRecordPayload, I, K, O> extends
         this.txnManager.beginTransaction(Option.empty(), Option.empty());
       }
       if (config.getBasePath().contains(".hoodie/metadata")) {
-        killJVMIfDesired("/tmp/fail32_mt_clean.txt", "Fail metadata table cleaning " + instantTime, 5);
+        killJVMIfDesired("/tmp/fail32_mt_clean.txt", "Fail metadata table cleaning " + instantTime, 0.2);
       } else {
-        killJVMIfDesired("/tmp/fail32_dt_clean.txt", "Fail data table cleaning before applying to MDT " + instantTime, 5);
+        killJVMIfDesired("/tmp/fail32_dt_clean.txt", "Fail data table cleaning before applying to MDT " + instantTime, 0.2);
       }
       writeTableMetadata(metadata, inflightInstant.getTimestamp());
       if (!config.getBasePath().contains(".hoodie/metadata")) {
         killJVMIfDesired("/tmp/fail32_dt_clean.txt", "Fail data table cleaning after applying to MDT, but before completing in DT "
-            + instantTime, 5);
+            + instantTime, 0.2);
       }
       table.getActiveTimeline().transitionCleanInflightToComplete(inflightInstant,
           TimelineMetadataUtils.serializeCleanMetadata(metadata));
