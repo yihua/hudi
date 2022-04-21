@@ -19,17 +19,6 @@
 
 package org.apache.hudi.common.testutils;
 
-import org.apache.avro.Conversions;
-import org.apache.avro.LogicalTypes;
-import org.apache.avro.Schema;
-import org.apache.avro.generic.GenericArray;
-import org.apache.avro.generic.GenericData;
-import org.apache.avro.generic.GenericFixed;
-import org.apache.avro.generic.GenericRecord;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FSDataOutputStream;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
 import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.avro.model.HoodieCompactionPlan;
 import org.apache.hudi.common.fs.FSUtils;
@@ -45,8 +34,21 @@ import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.TimelineMetadataUtils;
 import org.apache.hudi.common.util.AvroOrcUtils;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
+
+import org.apache.avro.Conversions;
+import org.apache.avro.LogicalTypes;
+import org.apache.avro.Schema;
+import org.apache.avro.generic.GenericArray;
+import org.apache.avro.generic.GenericData;
+import org.apache.avro.generic.GenericFixed;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.apache.orc.TypeDescription;
@@ -144,20 +146,34 @@ public class HoodieTestDataGenerator implements AutoCloseable {
   public static final TypeDescription ORC_TRIP_SCHEMA = AvroOrcUtils.createOrcSchema(new Schema.Parser().parse(TRIP_SCHEMA));
   public static final Schema FLATTENED_AVRO_SCHEMA = new Schema.Parser().parse(TRIP_FLATTENED_SCHEMA);
 
+  private static final String[] CURRENCY_VALUES = new String[] {"USD", "CNY", "EUR"};
+  private static final String FARE_CURRENCY_NESTED_FIELD = "fare.currency";
+
   private final Random rand;
 
-  //Maintains all the existing keys schema wise
-  private final Map<String, Map<Integer, KeyPartition>> existingKeysBySchema;
+  // Maintains all the existing keys schema wise
+  // Map{schema -> Map{HoodieKey -> key partition information}}
+  private final Map<String, Map<HoodieKey, KeyPartition>> existingKeysBySchema;
+  // When generating updates, the partition column list is used so that values
+  // in these columns do not change
+  private final Set<String> partitionColumnSet;
   private final String[] partitionPaths;
   //maintains the count of existing keys schema wise
   private Map<String, Integer> numKeysBySchema;
 
   public HoodieTestDataGenerator(long seed) {
-    this(seed, DEFAULT_PARTITION_PATHS, new HashMap<>());
+    this(seed, new HashSet<>());
   }
 
-  public HoodieTestDataGenerator(long seed, String[] partitionPaths, Map<Integer, KeyPartition> keyPartitionMap) {
+  public HoodieTestDataGenerator(long seed, Set<String> partitionColumnSet) {
+    this(seed, partitionColumnSet, DEFAULT_PARTITION_PATHS, new HashMap<>());
+  }
+
+  public HoodieTestDataGenerator(
+      long seed, Set<String> partitionColumnSet, String[] partitionPaths,
+      Map<HoodieKey, KeyPartition> keyPartitionMap) {
     this.rand = new Random(seed);
+    this.partitionColumnSet = partitionColumnSet;
     this.partitionPaths = Arrays.copyOf(partitionPaths, partitionPaths.length);
     this.existingKeysBySchema = new HashMap<>();
     this.existingKeysBySchema.put(TRIP_EXAMPLE_SCHEMA, keyPartitionMap);
@@ -182,12 +198,12 @@ public class HoodieTestDataGenerator implements AutoCloseable {
   }
 
   @Deprecated
-  public HoodieTestDataGenerator(String[] partitionPaths, Map<Integer, KeyPartition> keyPartitionMap) {
+  public HoodieTestDataGenerator(String[] partitionPaths, Map<HoodieKey, KeyPartition> keyPartitionMap) {
     // NOTE: This used as a workaround to make sure that new instantiations of the generator
     //       always return "new" random values.
     //       Caveat is that if 2 successive invocations are made w/in the timespan that is smaller
     //       than the resolution of {@code nanoTime}, then this will produce identical results
-    this(System.nanoTime(), partitionPaths, keyPartitionMap);
+    this(System.nanoTime(), new HashSet<>(), partitionPaths, keyPartitionMap);
   }
 
   /**
@@ -213,7 +229,8 @@ public class HoodieTestDataGenerator implements AutoCloseable {
     return numOfRecords * BYTES_PER_RECORD + BLOOM_FILTER_BYTES;
   }
 
-  public RawTripTestPayload generateRandomValueAsPerSchema(String schemaStr, HoodieKey key, String commitTime, boolean isFlattened) throws IOException {
+  public Pair<GenericRecord, RawTripTestPayload> generateRandomValueAsPerSchema(
+      String schemaStr, KeyPartition key, String commitTime, boolean isFlattened) throws IOException {
     if (TRIP_EXAMPLE_SCHEMA.equals(schemaStr)) {
       return generateRandomValue(key, commitTime, isFlattened);
     } else if (TRIP_SCHEMA.equals(schemaStr)) {
@@ -229,56 +246,82 @@ public class HoodieTestDataGenerator implements AutoCloseable {
    * Generates a new avro record of the above nested schema format,
    * retaining the key if optionally provided.
    *
-   * @param key Hoodie key.
+   * @param key         {@link HoodieKey} instance.
    * @param instantTime Instant time to use.
-   * @return Raw paylaod of a test record.
+   * @return A pair of generic record and raw payload of the test record.
    */
-  public RawTripTestPayload generateRandomValue(HoodieKey key, String instantTime) throws IOException {
-    return generateRandomValue(key, instantTime, false);
+  public Pair<GenericRecord, RawTripTestPayload> generateRandomValue(
+      HoodieKey key, String instantTime) throws IOException {
+    return generateRandomValue(
+        new KeyPartition(key, key.getPartitionPath()), instantTime, false);
+  }
+
+  /**
+   * Generates a new avro record of the above nested schema format,
+   * retaining the key if optionally provided.
+   *
+   * @param keyPartition {@link KeyPartition} containing key and partition information.
+   * @param instantTime  Instant time to use.
+   * @return A pair of generic record and raw payload of the test record.
+   */
+  public Pair<GenericRecord, RawTripTestPayload> generateRandomValue(
+      KeyPartition keyPartition, String instantTime) throws IOException {
+    return generateRandomValue(keyPartition, instantTime, false);
   }
 
   /**
    * Generates a new avro record with the specified schema (nested or flattened),
    * retaining the key if optionally provided.
    *
-   * @param key  Hoodie key.
+   * @param keyPartition {@link KeyPartition} containing key and partition information.
    * @param instantTime  Commit time to use.
    * @param isFlattened  whether the schema of the record should be flattened.
-   * @return Raw paylaod of a test record.
+   * @return A pair of generic record and raw payload of the test record.
    * @throws IOException
    */
-  private RawTripTestPayload generateRandomValue(
-      HoodieKey key, String instantTime, boolean isFlattened) throws IOException {
-    return generateRandomValue(key, instantTime, isFlattened, 0);
+  private Pair<GenericRecord, RawTripTestPayload> generateRandomValue(
+      KeyPartition keyPartition, String instantTime, boolean isFlattened) throws IOException {
+    return generateRandomValue(keyPartition, instantTime, isFlattened, 0);
   }
 
-  private RawTripTestPayload generateRandomValue(
-      HoodieKey key, String instantTime, boolean isFlattened, int ts) throws IOException {
+  private Pair<GenericRecord, RawTripTestPayload> generateRandomValue(
+      KeyPartition keyPartition, String instantTime, boolean isFlattened, int ts) throws IOException {
+    HoodieKey key = keyPartition.key;
     GenericRecord rec = generateGenericRecord(
-        key.getRecordKey(), key.getPartitionPath(), "rider-" + instantTime, "driver-" + instantTime, ts,
-        false, isFlattened);
-    return new RawTripTestPayload(rec.toString(), key.getRecordKey(), key.getPartitionPath(), TRIP_EXAMPLE_SCHEMA);
+        key.getRecordKey(), key.getPartitionPath(), "rider-" + instantTime, "driver-" + instantTime,
+        ts, keyPartition.partitionColumnValueMap, false, isFlattened);
+    return Pair.of(rec, new RawTripTestPayload(
+        rec.toString(), key.getRecordKey(), key.getPartitionPath(), TRIP_EXAMPLE_SCHEMA));
   }
 
   /**
    * Generates a new avro record with TRIP_SCHEMA, retaining the key if optionally provided.
    */
-  public RawTripTestPayload generatePayloadForTripSchema(HoodieKey key, String commitTime) throws IOException {
+  public Pair<GenericRecord, RawTripTestPayload> generatePayloadForTripSchema(
+      KeyPartition keyPartition, String commitTime) throws IOException {
+    HoodieKey key = keyPartition.key;
     GenericRecord rec = generateRecordForTripSchema(key.getRecordKey(), "rider-" + commitTime, "driver-" + commitTime, 0);
-    return new RawTripTestPayload(rec.toString(), key.getRecordKey(), key.getPartitionPath(), TRIP_SCHEMA);
+    return Pair.of(rec, new RawTripTestPayload(
+        rec.toString(), key.getRecordKey(), key.getPartitionPath(), TRIP_SCHEMA));
   }
 
-  public RawTripTestPayload generatePayloadForShortTripSchema(HoodieKey key, String commitTime) throws IOException {
-    GenericRecord rec = generateRecordForShortTripSchema(key.getRecordKey(), "rider-" + commitTime, "driver-" + commitTime, 0);
-    return new RawTripTestPayload(rec.toString(), key.getRecordKey(), key.getPartitionPath(), SHORT_TRIP_SCHEMA);
+  public Pair<GenericRecord, RawTripTestPayload> generatePayloadForShortTripSchema(
+      KeyPartition keyPartition, String commitTime) throws IOException {
+    HoodieKey key = keyPartition.key;
+    GenericRecord rec = generateRecordForShortTripSchema(
+        key.getRecordKey(), "rider-" + commitTime, "driver-" + commitTime, 0);
+    return Pair.of(rec, new RawTripTestPayload(
+        rec.toString(), key.getRecordKey(), key.getPartitionPath(), SHORT_TRIP_SCHEMA));
   }
 
   /**
    * Generates a new avro record of the above schema format for a delete.
    */
-  private RawTripTestPayload generateRandomDeleteValue(HoodieKey key, String instantTime) throws IOException {
-    GenericRecord rec = generateGenericRecord(key.getRecordKey(), key.getPartitionPath(), "rider-" + instantTime, "driver-" + instantTime, 0,
-        true, false);
+  private RawTripTestPayload generateRandomDeleteValue(KeyPartition keyPartition, String instantTime) throws IOException {
+    HoodieKey key = keyPartition.key;
+    GenericRecord rec = generateGenericRecord(
+        key.getRecordKey(), key.getPartitionPath(), "rider-" + instantTime, "driver-" + instantTime,
+        0, keyPartition.partitionColumnValueMap, true, false);
     return new RawTripTestPayload(Option.of(rec.toString()), key.getRecordKey(), key.getPartitionPath(), TRIP_EXAMPLE_SCHEMA, true, 0L);
   }
 
@@ -286,18 +329,21 @@ public class HoodieTestDataGenerator implements AutoCloseable {
    * Generates a new avro record of the above schema format, retaining the key if optionally provided.
    */
   private HoodieAvroPayload generateAvroPayload(HoodieKey key, String instantTime) {
-    GenericRecord rec = generateGenericRecord(key.getRecordKey(), key.getPartitionPath(), "rider-" + instantTime, "driver-" + instantTime, 0);
+    GenericRecord rec = generateGenericRecord(key.getRecordKey(), key.getPartitionPath(),
+        "rider-" + instantTime, "driver-" + instantTime, 0, new HashMap<>());
     return new HoodieAvroPayload(Option.of(rec));
   }
 
-  public GenericRecord generateGenericRecord(String rowKey, String partitionPath, String riderName, String driverName,
-                                             long timestamp) {
-    return generateGenericRecord(rowKey, partitionPath, riderName, driverName, timestamp, false, false);
+  public GenericRecord generateGenericRecord(
+      String rowKey, String partitionPath, String riderName, String driverName, long timestamp,
+      Map<String, Object> partitionColumnValueMap) {
+    return generateGenericRecord(rowKey, partitionPath, riderName, driverName, timestamp,
+        partitionColumnValueMap, false, false);
   }
 
-  public GenericRecord generateGenericRecord(String rowKey, String partitionPath, String riderName, String driverName,
-                                                    long timestamp, boolean isDeleteRecord,
-                                                    boolean isFlattened) {
+  public GenericRecord generateGenericRecord(
+      String rowKey, String partitionPath, String riderName, String driverName, long timestamp,
+      Map<String, Object> partitionColumnValueMap, boolean isDeleteRecord, boolean isFlattened) {
     GenericRecord rec = new GenericData.Record(isFlattened ? FLATTENED_AVRO_SCHEMA : AVRO_SCHEMA);
     rec.put("_row_key", rowKey);
     rec.put("timestamp", timestamp);
@@ -308,9 +354,11 @@ public class HoodieTestDataGenerator implements AutoCloseable {
     rec.put("begin_lon", rand.nextDouble());
     rec.put("end_lat", rand.nextDouble());
     rec.put("end_lon", rand.nextDouble());
+
+    String currency = CURRENCY_VALUES[rand.nextInt(CURRENCY_VALUES.length)];
     if (isFlattened) {
       rec.put("fare", rand.nextDouble() * 100);
-      rec.put("currency", "USD");
+      rec.put("currency", currency);
     } else {
       rec.put("distance_in_meters", rand.nextInt());
       rec.put("seconds_since_epoch", rand.nextLong());
@@ -332,16 +380,25 @@ public class HoodieTestDataGenerator implements AutoCloseable {
 
       GenericRecord fareRecord = new GenericData.Record(AVRO_SCHEMA.getField("fare").schema());
       fareRecord.put("amount", rand.nextDouble() * 100);
-      fareRecord.put("currency", "USD");
+      fareRecord.put("currency", partitionColumnValueMap.getOrDefault(FARE_CURRENCY_NESTED_FIELD, currency));
       rec.put("fare", fareRecord);
 
       GenericArray<GenericRecord> tipHistoryArray = new GenericData.Array<>(1, AVRO_SCHEMA.getField("tip_history").schema());
       Schema tipSchema = new Schema.Parser().parse(AVRO_SCHEMA.getField("tip_history").schema().toString()).getElementType();
       GenericRecord tipRecord = new GenericData.Record(tipSchema);
       tipRecord.put("amount", rand.nextDouble() * 100);
-      tipRecord.put("currency", "USD");
+      tipRecord.put("currency", currency);
       tipHistoryArray.add(tipRecord);
       rec.put("tip_history", tipHistoryArray);
+    }
+
+    for (String partitionColumn : partitionColumnValueMap.keySet()) {
+      // TODO: support all nested fields
+      // The partition column values should not change for updates,
+      // where partitionColumnValueMap provides the values
+      if (!partitionColumn.contains(".")) {
+        rec.put(partitionColumn, partitionColumnValueMap.get(partitionColumn));
+      }
     }
 
     if (isDeleteRecord) {
@@ -527,13 +584,21 @@ public class HoodieTestDataGenerator implements AutoCloseable {
         partitionPath = partitionPaths[i];
       }
       HoodieKey key = new HoodieKey(recordKeySupplier.get(), partitionPath);
-      KeyPartition kp = new KeyPartition();
-      kp.key = key;
-      kp.partitionPath = partitionPath;
-      populateKeysBySchema(schemaStr, currSize + i, kp);
-      incrementNumExistingKeysBySchema(schemaStr);
+      KeyPartition kp = new KeyPartition(key, partitionPath);
       try {
-        return new HoodieAvroRecord(key, generateRandomValueAsPerSchema(schemaStr, key, instantTime, isFlattened));
+        Pair<GenericRecord, RawTripTestPayload> recordPayload =
+            generateRandomValueAsPerSchema(schemaStr, kp, instantTime, isFlattened);
+        HoodieAvroRecord record = new HoodieAvroRecord(key, recordPayload.getRight());
+        kp.partitionColumnValueMap = new HashMap<>();
+        for (String partitionColumn : partitionColumnSet) {
+          // recordPayload.getLeft().get(partitionColumn)
+          kp.partitionColumnValueMap.put(
+              partitionColumn, HoodieAvroUtils.getNestedFieldValAsString(
+                  recordPayload.getLeft(), partitionColumn, true, false));
+        }
+        populateKeysBySchema(schemaStr, kp);
+        incrementNumExistingKeysBySchema(schemaStr);
+        return record;
       } catch (IOException e) {
         throw new HoodieIOException(e.getMessage(), e);
       }
@@ -543,12 +608,12 @@ public class HoodieTestDataGenerator implements AutoCloseable {
   /*
   Takes care of populating keys schema wise
    */
-  private void populateKeysBySchema(String schemaStr, int i, KeyPartition kp) {
+  private void populateKeysBySchema(String schemaStr, KeyPartition kp) {
     if (existingKeysBySchema.containsKey(schemaStr)) {
-      existingKeysBySchema.get(schemaStr).put(i, kp);
+      existingKeysBySchema.get(schemaStr).put(kp.key, kp);
     } else {
       existingKeysBySchema.put(schemaStr, new HashMap<>());
-      existingKeysBySchema.get(schemaStr).put(i, kp);
+      existingKeysBySchema.get(schemaStr).put(kp.key, kp);
     }
   }
 
@@ -564,7 +629,10 @@ public class HoodieTestDataGenerator implements AutoCloseable {
     List<HoodieRecord> copy = new ArrayList<>();
     for (HoodieRecord r : origin) {
       HoodieKey key = r.getKey();
-      HoodieRecord record = new HoodieAvroRecord(key, generateRandomValue(key, instantTime));
+      KeyPartition keyPartition = existingKeysBySchema
+          .computeIfAbsent(TRIP_EXAMPLE_SCHEMA, k -> new HashMap<>())
+          .computeIfAbsent(key, k -> new KeyPartition(key, key.getPartitionPath()));
+      HoodieRecord record = new HoodieAvroRecord(key, generateRandomValue(keyPartition, instantTime).getRight());
       copy.add(record);
     }
     return copy;
@@ -579,10 +647,7 @@ public class HoodieTestDataGenerator implements AutoCloseable {
       HoodieRecord record = new HoodieAvroRecord(key, generateAvroPayload(key, instantTime));
       inserts.add(record);
 
-      KeyPartition kp = new KeyPartition();
-      kp.key = key;
-      kp.partitionPath = partitionPath;
-      populateKeysBySchema(TRIP_EXAMPLE_SCHEMA, currSize + i, kp);
+      populateKeysBySchema(TRIP_EXAMPLE_SCHEMA, new KeyPartition(key, partitionPath));
       incrementNumExistingKeysBySchema(TRIP_EXAMPLE_SCHEMA);
     }
     return inserts;
@@ -623,14 +688,30 @@ public class HoodieTestDataGenerator implements AutoCloseable {
   }
 
   public HoodieRecord generateUpdateRecord(HoodieKey key, String instantTime) throws IOException {
-    return new HoodieAvroRecord(key, generateRandomValue(key, instantTime));
+    KeyPartition keyPartition = existingKeysBySchema
+        .computeIfAbsent(TRIP_EXAMPLE_SCHEMA, k -> new HashMap<>())
+        .get(key);
+    if (keyPartition == null) {
+      logger.error("There is no existing record for the same key: " + key);
+      keyPartition = new KeyPartition(key, key.getPartitionPath());
+    }
+    return generateUpdateRecord(keyPartition, instantTime);
+  }
+
+  public HoodieRecord generateUpdateRecord(KeyPartition keyPartition, String instantTime) throws IOException {
+    return new HoodieAvroRecord(keyPartition.key, generateRandomValue(keyPartition, instantTime).getRight());
   }
 
   public List<HoodieRecord> generateUpdates(String instantTime, List<HoodieRecord> baseRecords) throws IOException {
     List<HoodieRecord> updates = new ArrayList<>();
     for (HoodieRecord baseRecord : baseRecords) {
-      HoodieRecord record = generateUpdateRecord(baseRecord.getKey(), instantTime);
-      updates.add(record);
+      KeyPartition keyPartition = existingKeysBySchema
+          .computeIfAbsent(TRIP_EXAMPLE_SCHEMA, k -> new HashMap<>())
+          .get(baseRecord.getKey());
+      if (keyPartition != null) {
+        HoodieRecord record = generateUpdateRecord(keyPartition, instantTime);
+        updates.add(record);
+      }
     }
     return updates;
   }
@@ -638,27 +719,14 @@ public class HoodieTestDataGenerator implements AutoCloseable {
   public List<HoodieRecord> generateUpdatesWithTS(String instantTime, List<HoodieRecord> baseRecords, int ts) throws IOException {
     List<HoodieRecord> updates = new ArrayList<>();
     for (HoodieRecord baseRecord : baseRecords) {
-      HoodieRecord record = new HoodieAvroRecord(baseRecord.getKey(),
-          generateRandomValue(baseRecord.getKey(), instantTime, false, ts));
-      updates.add(record);
-    }
-    return updates;
-  }
-
-  public List<HoodieRecord> generateUpdatesWithDiffPartition(String instantTime, List<HoodieRecord> baseRecords)
-      throws IOException {
-    List<HoodieRecord> updates = new ArrayList<>();
-    for (HoodieRecord baseRecord : baseRecords) {
-      String partition = baseRecord.getPartitionPath();
-      String newPartition = "";
-      if (partitionPaths[0].equalsIgnoreCase(partition)) {
-        newPartition = partitionPaths[1];
-      } else {
-        newPartition = partitionPaths[0];
+      KeyPartition keyPartition = existingKeysBySchema
+          .computeIfAbsent(TRIP_EXAMPLE_SCHEMA, k -> new HashMap<>())
+          .get(baseRecord.getKey());
+      if (keyPartition != null) {
+        HoodieRecord record = new HoodieAvroRecord(baseRecord.getKey(),
+            generateRandomValue(keyPartition, instantTime, false, ts).getRight());
+        updates.add(record);
       }
-      HoodieKey key = new HoodieKey(baseRecord.getRecordKey(), newPartition);
-      HoodieRecord record = generateUpdateRecord(key, instantTime);
-      updates.add(record);
     }
     return updates;
   }
@@ -673,11 +741,11 @@ public class HoodieTestDataGenerator implements AutoCloseable {
    */
   public List<HoodieRecord> generateUpdates(String instantTime, Integer n) throws IOException {
     List<HoodieRecord> updates = new ArrayList<>();
+    List<KeyPartition> existingKeys = new ArrayList<>(existingKeysBySchema.get(TRIP_EXAMPLE_SCHEMA).values());
+    int numExistingKeys = existingKeys.size();
     for (int i = 0; i < n; i++) {
-      Map<Integer, KeyPartition> existingKeys = existingKeysBySchema.get(TRIP_EXAMPLE_SCHEMA);
-      Integer numExistingKeys = numKeysBySchema.get(TRIP_EXAMPLE_SCHEMA);
       KeyPartition kp = existingKeys.get(rand.nextInt(numExistingKeys - 1));
-      HoodieRecord record = generateUpdateRecord(kp.key, instantTime);
+      HoodieRecord record = generateUpdateRecord(kp, instantTime);
       updates.add(record);
     }
     return updates;
@@ -691,10 +759,10 @@ public class HoodieTestDataGenerator implements AutoCloseable {
    */
   public List<HoodieRecord> generateUpdatesForAllRecords(String instantTime) {
     List<HoodieRecord> updates = new ArrayList<>();
-    Map<Integer, KeyPartition> existingKeys = existingKeysBySchema.get(TRIP_EXAMPLE_SCHEMA);
+    Map<HoodieKey, KeyPartition> existingKeys = existingKeysBySchema.get(TRIP_EXAMPLE_SCHEMA);
     existingKeys.values().forEach(kp -> {
       try {
-        HoodieRecord record = generateUpdateRecord(kp.key, instantTime);
+        HoodieRecord record = generateUpdateRecord(kp, instantTime);
         updates.add(record);
       } catch (IOException ioe) {
         throw new HoodieIOException(ioe.getMessage(), ioe);
@@ -742,7 +810,7 @@ public class HoodieTestDataGenerator implements AutoCloseable {
   public Stream<HoodieRecord> generateUniqueUpdatesStream(String instantTime, Integer n, String schemaStr) {
     final Set<KeyPartition> used = new HashSet<>();
     int numExistingKeys = numKeysBySchema.getOrDefault(schemaStr, 0);
-    Map<Integer, KeyPartition> existingKeys = existingKeysBySchema.get(schemaStr);
+    List<KeyPartition> existingKeys = new ArrayList<>(existingKeysBySchema.get(schemaStr).values());
     if (n > numExistingKeys) {
       throw new IllegalArgumentException("Requested unique updates is greater than number of available keys");
     }
@@ -758,7 +826,8 @@ public class HoodieTestDataGenerator implements AutoCloseable {
       logger.debug("key getting updated: " + kp.key.getRecordKey());
       used.add(kp);
       try {
-        return new HoodieAvroRecord(kp.key, generateRandomValueAsPerSchema(schemaStr, kp.key, instantTime, false));
+        return new HoodieAvroRecord(kp.key, generateRandomValueAsPerSchema(
+            schemaStr, kp, instantTime, false).getRight());
       } catch (IOException e) {
         throw new HoodieIOException(e.getMessage(), e);
       }
@@ -772,24 +841,23 @@ public class HoodieTestDataGenerator implements AutoCloseable {
    * @return stream of hoodie record updates
    */
   public Stream<HoodieKey> generateUniqueDeleteStream(Integer n) {
-    final Set<KeyPartition> used = new HashSet<>();
-    Map<Integer, KeyPartition> existingKeys = existingKeysBySchema.get(TRIP_EXAMPLE_SCHEMA);
-    Integer numExistingKeys = numKeysBySchema.get(TRIP_EXAMPLE_SCHEMA);
+    Map<HoodieKey, KeyPartition> existingKeys = existingKeysBySchema.get(TRIP_EXAMPLE_SCHEMA);
+    List<KeyPartition> existingKeyList = new ArrayList<>(existingKeys.values());
+    Integer numExistingKeys = existingKeyList.size();
     if (n > numExistingKeys) {
       throw new IllegalArgumentException("Requested unique deletes is greater than number of available keys");
     }
 
     List<HoodieKey> result = new ArrayList<>();
-    for (int i = 0; i < n; i++) {
-      int index = rand.nextInt(numExistingKeys);
-      while (!existingKeys.containsKey(index)) {
-        index = (index + 1) % numExistingKeys;
-      }
-      KeyPartition kp = existingKeys.remove(index);
-      existingKeys.put(index, existingKeys.get(numExistingKeys - 1));
-      existingKeys.remove(numExistingKeys - 1);
+    Set<Integer> deleteIndices = new HashSet<>();
+    while (deleteIndices.size() < n) {
+      deleteIndices.add(rand.nextInt(numExistingKeys));
+    }
+
+    for (Integer i : deleteIndices) {
+      KeyPartition kp = existingKeyList.get(i);
+      existingKeys.remove(kp.key);
       numExistingKeys--;
-      used.add(kp);
       result.add(kp.key);
     }
     numKeysBySchema.put(TRIP_EXAMPLE_SCHEMA, numExistingKeys);
@@ -804,27 +872,25 @@ public class HoodieTestDataGenerator implements AutoCloseable {
    * @return stream of hoodie records for delete
    */
   public Stream<HoodieRecord> generateUniqueDeleteRecordStream(String instantTime, Integer n) {
-    final Set<KeyPartition> used = new HashSet<>();
-    Map<Integer, KeyPartition> existingKeys = existingKeysBySchema.get(TRIP_EXAMPLE_SCHEMA);
-    Integer numExistingKeys = numKeysBySchema.get(TRIP_EXAMPLE_SCHEMA);
+    Map<HoodieKey, KeyPartition> existingKeys = existingKeysBySchema.get(TRIP_EXAMPLE_SCHEMA);
+    List<KeyPartition> existingKeyList = new ArrayList<>(existingKeys.values());
+    Integer numExistingKeys = existingKeyList.size();
     if (n > numExistingKeys) {
       throw new IllegalArgumentException("Requested unique deletes is greater than number of available keys");
     }
 
     List<HoodieRecord> result = new ArrayList<>();
-    for (int i = 0; i < n; i++) {
-      int index = rand.nextInt(numExistingKeys);
-      while (!existingKeys.containsKey(index)) {
-        index = (index + 1) % numExistingKeys;
-      }
-      // swap chosen index with last index and remove last entry.
-      KeyPartition kp = existingKeys.remove(index);
-      existingKeys.put(index, existingKeys.get(numExistingKeys - 1));
-      existingKeys.remove(numExistingKeys - 1);
+    Set<Integer> deleteIndices = new HashSet<>();
+    while (deleteIndices.size() < n) {
+      deleteIndices.add(rand.nextInt(numExistingKeys));
+    }
+
+    for (Integer i : deleteIndices) {
+      KeyPartition kp = existingKeyList.get(i);
+      existingKeys.remove(kp.key);
       numExistingKeys--;
-      used.add(kp);
       try {
-        result.add(new HoodieAvroRecord(kp.key, generateRandomDeleteValue(kp.key, instantTime)));
+        result.add(new HoodieAvroRecord(kp.key, generateRandomDeleteValue(kp, instantTime)));
       } catch (IOException e) {
         throw new HoodieIOException(e.getMessage(), e);
       }
@@ -845,17 +911,13 @@ public class HoodieTestDataGenerator implements AutoCloseable {
   }
 
   public boolean deleteExistingKeyIfPresent(HoodieKey key) {
-    Map<Integer, KeyPartition> existingKeys = existingKeysBySchema.get(TRIP_EXAMPLE_SCHEMA);
+    Map<HoodieKey, KeyPartition> existingKeys = existingKeysBySchema.get(TRIP_EXAMPLE_SCHEMA);
     Integer numExistingKeys = numKeysBySchema.get(TRIP_EXAMPLE_SCHEMA);
-    for (Map.Entry<Integer, KeyPartition> entry : existingKeys.entrySet()) {
-      if (entry.getValue().key.equals(key)) {
-        int index = entry.getKey();
-        existingKeys.put(index, existingKeys.get(numExistingKeys - 1));
-        existingKeys.remove(numExistingKeys - 1);
-        numExistingKeys--;
-        numKeysBySchema.put(TRIP_EXAMPLE_SCHEMA, numExistingKeys);
-        return true;
-      }
+    if (existingKeys.containsKey(key)) {
+      existingKeys.remove(key);
+      numExistingKeys--;
+      numKeysBySchema.put(TRIP_EXAMPLE_SCHEMA, numExistingKeys);
+      return true;
     }
     return false;
   }
@@ -864,7 +926,8 @@ public class HoodieTestDataGenerator implements AutoCloseable {
     List<GenericRecord> list = new ArrayList<>();
     IntStream.range(0, numRecords).forEach(i -> {
       list.add(generateGenericRecord(genPseudoRandomUUID(rand).toString(), "0",
-          genPseudoRandomUUID(rand).toString(), genPseudoRandomUUID(rand).toString(), rand.nextLong()));
+          genPseudoRandomUUID(rand).toString(), genPseudoRandomUUID(rand).toString(), rand.nextLong(),
+          new HashMap<>()));
     });
     return list;
   }
@@ -881,6 +944,13 @@ public class HoodieTestDataGenerator implements AutoCloseable {
 
     public HoodieKey key;
     public String partitionPath;
+    public Map<String, Object> partitionColumnValueMap;
+
+    public KeyPartition(HoodieKey key, String partitionPath) {
+      this.key = key;
+      this.partitionPath = partitionPath;
+      this.partitionColumnValueMap = new HashMap<>();
+    }
   }
 
   @Override

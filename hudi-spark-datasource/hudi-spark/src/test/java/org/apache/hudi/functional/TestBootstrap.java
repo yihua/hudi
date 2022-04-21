@@ -90,6 +90,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -565,7 +566,9 @@ public class TestBootstrap extends HoodieClientTestBase {
     final List<String> records = new ArrayList<>();
     IntStream.range(from, to).forEach(i -> {
       String id = "" + i;
-      records.add(new HoodieTestDataGenerator().generateGenericRecord("trip_" + id, Long.toString(timestamp), "rider_" + id, "driver_" + id, timestamp, false, false).toString());
+      records.add(new HoodieTestDataGenerator().generateGenericRecord(
+          "trip_" + id, Long.toString(timestamp), "rider_" + id, "driver_" + id, timestamp,
+          new HashMap<>(), false, false).toString());
     });
     if (isPartitioned) {
       sqlContext.udf().register("partgen",

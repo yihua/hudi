@@ -42,7 +42,6 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -79,15 +78,18 @@ public abstract class AbstractBaseTestSource extends AvroSource {
     List<Row> rows = sqlContext.read().format("hudi").load(globParquetPath)
         .select("_hoodie_record_key", "_hoodie_partition_path")
         .collectAsList();
-    Map<Integer, HoodieTestDataGenerator.KeyPartition> keyPartitionMap = IntStream
+    Map<HoodieKey, HoodieTestDataGenerator.KeyPartition> keyPartitionMap = IntStream
         .range(0, rows.size()).boxed()
-        .collect(Collectors.toMap(Function.identity(), i -> {
-          Row r = rows.get(i);
-          HoodieTestDataGenerator.KeyPartition kp = new HoodieTestDataGenerator.KeyPartition();
-          kp.key = new HoodieKey(r.getString(0), r.getString(1));
-          kp.partitionPath = r.getString(1);
-          return kp;
-        }));
+        .collect(Collectors.toMap(
+            i -> {
+              Row r = rows.get(i);
+              return new HoodieKey(r.getString(0), r.getString(1));
+            },
+            i -> {
+              Row r = rows.get(i);
+              return new HoodieTestDataGenerator.KeyPartition(
+                  new HoodieKey(r.getString(0), r.getString(1)), r.getString(1));
+            }));
     dataGeneratorMap.put(partition,
         new HoodieTestDataGenerator(HoodieTestDataGenerator.DEFAULT_PARTITION_PATHS, keyPartitionMap));
   }

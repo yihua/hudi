@@ -35,6 +35,7 @@ import org.junit.jupiter.api.Tag
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 
+import java.util
 import scala.collection.JavaConversions._
 
 
@@ -66,11 +67,17 @@ class TestMORDataSourceStorage extends SparkClientFunctionalTestHarness {
   ))
   def testMergeOnReadStorage(isMetadataEnabled: Boolean, preComineField: String) {
     var options: Map[String, String] = commonOpts +
+      (DataSourceWriteOptions.KEYGENERATOR_CLASS_NAME.key() -> "org.apache.hudi.keygen.SimpleKeyGenerator") +
+      (DataSourceWriteOptions.PARTITIONPATH_FIELD.key() -> "partition_path") +
+      (DataSourceWriteOptions.PRECOMBINE_FIELD.key() -> "fare.currency") +
       (HoodieMetadataConfig.ENABLE.key -> String.valueOf(isMetadataEnabled))
     if (!StringUtils.isNullOrEmpty(preComineField)) {
       options += (DataSourceWriteOptions.PRECOMBINE_FIELD.key() -> preComineField)
     }
-    val dataGen = new HoodieTestDataGenerator(0xDEEF)
+    val partitionColumnSet: util.HashSet[String] = new util.HashSet[String]()
+    partitionColumnSet.add("fare.currency")
+    partitionColumnSet.add("partition_path")
+    val dataGen = new HoodieTestDataGenerator(0xDEEF, partitionColumnSet)
     val fs = FSUtils.getFs(basePath, spark.sparkContext.hadoopConfiguration)
     // Bulk Insert Operation
     val records1 = recordsToStrings(dataGen.generateInserts("001", 100)).toList
@@ -110,6 +117,8 @@ class TestMORDataSourceStorage extends SparkClientFunctionalTestHarness {
       .option(DataSourceReadOptions.QUERY_TYPE.key, DataSourceReadOptions.QUERY_TYPE_SNAPSHOT_OPT_VAL)
       .option(HoodieMetadataConfig.ENABLE.key, isMetadataEnabled)
       .load(basePath)
+
+    hudiSnapshotDF2.select("driver").show()
 
     val updateCommitTimes = hudiSnapshotDF2.select("_hoodie_commit_time").distinct().collectAsList().map(r => r.getString(0)).toList
     assertEquals(List(updateCommitTime), updateCommitTimes)
