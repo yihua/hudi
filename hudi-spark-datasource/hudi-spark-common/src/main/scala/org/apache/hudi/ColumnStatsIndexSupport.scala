@@ -79,7 +79,7 @@ trait ColumnStatsIndexSupport extends SparkAdapterSupport {
     val colStatsDF = metadataTableDF.where(col(HoodieMetadataPayload.SCHEMA_FIELD_ID_COLUMN_STATS).isNotNull)
       .select(requiredMetadataIndexColumns.map(col): _*)
 
-    colStatsDF
+    colStatsDF //.repartitionByRange(50, col(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME))
   }
 
   /**
@@ -156,75 +156,103 @@ trait ColumnStatsIndexSupport extends SparkAdapterSupport {
     val transposedRDD = colStatsDF.rdd
       .filter(row => queryColumnSet.contains(row.getString(colNameOrdinal)))
       .map { row =>
+        val fileName = row.get(fileNameOrdinal)
+        val colName = row.getString(colNameOrdinal)
+        val valueCount = row.get(valueCountOrdinal)
+        val nullCount = row.get(nullCountOrdinal)
         if (row.isNullAt(minValueOrdinal) && row.isNullAt(maxValueOrdinal)) {
           // Corresponding row could be null in either of the 2 cases
           //    - Column contains only null values (in that case both min/max have to be nulls)
           //    - This is a stubbed Column Stats record (used as a tombstone)
-          row
+          (fileName, Map(colName -> Seq(null, null, valueCount, nullCount)))
         } else {
           val minValueStruct = row.getAs[Row](minValueOrdinal)
           val maxValueStruct = row.getAs[Row](maxValueOrdinal)
 
           checkState(minValueStruct != null && maxValueStruct != null, "Invalid Column Stats record: either both min/max have to be null, or both have to be non-null")
 
-          val colName = row.getString(colNameOrdinal)
           val colType = tableSchemaFieldMap(colName).dataType
 
           val (minValue, _) = tryUnpackNonNullVal(minValueStruct)
           val (maxValue, _) = tryUnpackNonNullVal(maxValueStruct)
-          val rowValsSeq = row.toSeq.toArray
+          //val rowValsSeq = row.toSeq.toArray
           // Update min-/max-value structs w/ unwrapped values in-place
-          rowValsSeq(minValueOrdinal) = deserialize(minValue, colType)
-          rowValsSeq(maxValueOrdinal) = deserialize(maxValue, colType)
+          //rowValsSeq(minValueOrdinal) = deserialize(minValue, colType)
+          //rowValsSeq(maxValueOrdinal) = deserialize(maxValue, colType)
 
-          Row(rowValsSeq: _*)
+          (fileName, Map(colName -> Seq(deserialize(minValue, colType), deserialize(maxValue, colType), valueCount, nullCount)))
         }
       }
-      .groupBy(r => r.getString(fileNameOrdinal))
-      .foldByKey(Seq[Row]()) {
-        case (_, columnRowsSeq) =>
-          // Rows seq is always non-empty (otherwise it won't be grouped into)
-          val fileName = columnRowsSeq.head.get(fileNameOrdinal)
-          val valueCount = columnRowsSeq.head.get(valueCountOrdinal)
+      .reduceByKey((x, y) => x ++ y)
+      .map(fileNameColStatsPair => {
+        val fileName = fileNameColStatsPair._1
+        val colStatsMap = fileNameColStatsPair._2
+        val valueCount = colStatsMap.values.find(seq => seq.head != null).getOrElse(Seq(null, null, 0, 0))(2)
+        val coalescedRowValues = new ListBuffer[Any]()
+        coalescedRowValues += fileName
+        coalescedRowValues += valueCount
+        queryColumns.foreach(columnName => {
+          if (colStatsMap.contains(columnName)) {
+            val colStats = colStatsMap(columnName)
+            coalescedRowValues += colStats(0)
+            coalescedRowValues += colStats(1)
+            coalescedRowValues += colStats(3)
+          } else {
+            coalescedRowValues += null
+            coalescedRowValues += null
+            coalescedRowValues += valueCount
+          }
+        })
+        Row(coalescedRowValues: _*)
+      })
 
-          // To properly align individual rows (corresponding to a file) w/in the transposed projection, we need
-          // to align existing column-stats for individual file with the list of expected ones for the
-          // whole transposed projection (a superset of all files)
-          val columnRowsMap = columnRowsSeq.map(row => (row.getString(colNameOrdinal), row)).toMap
-          val alignedColumnRowsSeq = queryColumns.map(columnRowsMap.get)
 
-          val coalescedRowValues = new ListBuffer[Any]()
-          coalescedRowValues += fileName
-          coalescedRowValues += valueCount
-          alignedColumnRowsSeq.foreach((columnStatsOpt: Option[Row]) => {
-            coalescedRowValues.append((columnStatsOpt match {
-              case Some(columnStatsRow) =>
-                Seq(minValueOrdinal, maxValueOrdinal, nullCountOrdinal).map(ord => columnStatsRow.get(ord))
-              case None =>
-                // NOTE: Since we're assuming missing column to essentially contain exclusively
-                //       null values, we set null-count to be equal to value-count (this behavior is
-                //       consistent with reading non-existent columns from Parquet)
-                Seq(null, null, valueCount)
-            }): _*)
-          })
-          /*
-          val coalescedRowValuesSeq =
-            alignedColumnRowsSeq.foldLeft(Seq[Any](fileName, valueCount)) {
-              case (acc, opt) =>
-                opt match {
-                  case Some(columnStatsRow) =>
-                    acc ++ Seq(minValueOrdinal, maxValueOrdinal, nullCountOrdinal).map(ord => columnStatsRow.get(ord))
-                  case None =>
-                    // NOTE: Since we're assuming missing column to essentially contain exclusively
-                    //       null values, we set null-count to be equal to value-count (this behavior is
-                    //       consistent with reading non-existent columns from Parquet)
-                    acc ++ Seq(null, null, valueCount)
-                }
-            }*/
-          Seq(Row(coalescedRowValues: _*))
-      }
-      .values
-      .flatMap(it => it)
+    /*
+    .groupBy(r => r.getString(fileNameOrdinal))
+    .foldByKey(Seq[Row]()) {
+      case (_, columnRowsSeq) =>
+        // Rows seq is always non-empty (otherwise it won't be grouped into)
+        val fileName = columnRowsSeq.head.get(fileNameOrdinal)
+        val valueCount = columnRowsSeq.head.get(valueCountOrdinal)
+
+        // To properly align individual rows (corresponding to a file) w/in the transposed projection, we need
+        // to align existing column-stats for individual file with the list of expected ones for the
+        // whole transposed projection (a superset of all files)
+        val columnRowsMap = columnRowsSeq.map(row => (row.getString(colNameOrdinal), row)).toMap
+        val alignedColumnRowsSeq = queryColumns.map(columnRowsMap.get)
+
+        val coalescedRowValues = new ListBuffer[Any]()
+        coalescedRowValues += fileName
+        coalescedRowValues += valueCount
+        alignedColumnRowsSeq.foreach((columnStatsOpt: Option[Row]) => {
+          coalescedRowValues.append((columnStatsOpt match {
+            case Some(columnStatsRow) =>
+              Seq(minValueOrdinal, maxValueOrdinal, nullCountOrdinal).map(ord => columnStatsRow.get(ord))
+            case None =>
+              // NOTE: Since we're assuming missing column to essentially contain exclusively
+              //       null values, we set null-count to be equal to value-count (this behavior is
+              //       consistent with reading non-existent columns from Parquet)
+              Seq(null, null, valueCount)
+          }): _*)
+        })
+        /*
+        val coalescedRowValuesSeq =
+          alignedColumnRowsSeq.foldLeft(Seq[Any](fileName, valueCount)) {
+            case (acc, opt) =>
+              opt match {
+                case Some(columnStatsRow) =>
+                  acc ++ Seq(minValueOrdinal, maxValueOrdinal, nullCountOrdinal).map(ord => columnStatsRow.get(ord))
+                case None =>
+                  // NOTE: Since we're assuming missing column to essentially contain exclusively
+                  //       null values, we set null-count to be equal to value-count (this behavior is
+                  //       consistent with reading non-existent columns from Parquet)
+                  acc ++ Seq(null, null, valueCount)
+              }
+          }*/
+        Seq(Row(coalescedRowValues: _*))
+    }
+    .values
+    .flatMap(it => it) */
 
     LOG.info("transpose logic")
 

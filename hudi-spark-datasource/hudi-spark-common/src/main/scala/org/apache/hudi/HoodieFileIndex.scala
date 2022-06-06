@@ -26,17 +26,16 @@ import org.apache.hudi.common.util.{HoodieTimer, StringUtils}
 import org.apache.hudi.exception.HoodieException
 import org.apache.hudi.keygen.constant.KeyGeneratorOptions
 import org.apache.hudi.keygen.{TimestampBasedAvroKeyGenerator, TimestampBasedKeyGenerator}
-import org.apache.hudi.metadata.{HoodieMetadataPayload, HoodieTableMetadataUtil}
+import org.apache.hudi.metadata.HoodieTableMetadataUtil
 import org.apache.log4j.LogManager
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{And, Expression, Literal}
+import org.apache.spark.sql.catalyst.expressions.{Expression, Literal}
 import org.apache.spark.sql.execution.datasources.{FileIndex, FileStatusCache, NoopCache, PartitionDirectory}
-import org.apache.spark.sql.hudi.DataSkippingUtils.translateIntoColumnStatsIndexFilterExpr
 import org.apache.spark.sql.hudi.HoodieSqlCommonUtils
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{Column, DataFrame, SparkSession}
+import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.unsafe.types.UTF8String
 
 import java.text.SimpleDateFormat
@@ -209,9 +208,11 @@ case class HoodieFileIndex(spark: SparkSession,
 
       // Persist DF to avoid re-computing column statistics unraveling
       withPersistence(colStatsDF) {
-        //colStatsDF.count()
+        colStatsDF.count()
         LOG.info("readColumnStatsIndex time: " + timer1.endTimer())
         val timer2 = new HoodieTimer().startTimer()
+        Some(lookupFileNamesMissingFromIndex(Set()))
+        /*
         val transposedColStatsDF: DataFrame = transposeColumnStatsIndex(spark, colStatsDF, queryReferencedColumns, schema)
 
         // Persist DF to avoid re-computing column statistics unraveling
@@ -246,7 +247,7 @@ case class HoodieFileIndex(spark: SparkSession,
 
           LOG.info("pruning time: " + timer3.endTimer())
           Some(prunedCandidateFileNames ++ notIndexedFileNames)
-        }
+        }*/
       }
     }
   }
