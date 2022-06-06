@@ -32,15 +32,16 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{And, Expression, Literal}
 import org.apache.spark.sql.execution.datasources.{FileIndex, FileStatusCache, NoopCache, PartitionDirectory}
-import org.apache.spark.sql.hudi.DataSkippingUtils.{newTranslateIntoColumnStatsIndexFilterExpr, translateIntoColumnStatsIndexFilterExpr}
+import org.apache.spark.sql.hudi.DataSkippingUtils.newTranslateIntoColumnStatsIndexFilterExpr
 import org.apache.spark.sql.hudi.HoodieSqlCommonUtils
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{Column, DataFrame, SparkSession}
+import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.unsafe.types.UTF8String
 
 import java.text.SimpleDateFormat
 import scala.collection.JavaConverters._
+import scala.collection.mutable
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success, Try}
 
@@ -215,7 +216,53 @@ case class HoodieFileIndex(spark: SparkSession,
         Some(lookupFileNamesMissingFromIndex(Set()))
 
         /// new DAG for pruning files based on column stats
+        val filterMap = mutable.Map[String, Expression]()
+        val newProcessedFilters = queryFilters.map(newTranslateIntoColumnStatsIndexFilterExpr(_, colStatsDF.schema))
+        newProcessedFilters.foreach(filter => {
+          val colName = filter._1
+          if (filterMap.contains(colName)) {
+            filterMap(colName) = And(filterMap(colName), filter._2)
+          } else {
+            filterMap(colName) = filter._2
+          }
+        })
 
+        val allDF = mutable.Map[String, DataFrame]()
+        val filterColStats = filterColumnStats(spark, colStatsDF, queryReferencedColumns, schema)
+
+        newProcessedFilters.foreach(filter => {
+          val colName = filter._1
+          val filterExpr = filter._2
+          allDF(colName) = deserializeAndApplyFilter(spark, filterColStats, colName, filterExpr, schema)
+        })
+
+        val dfSeq = allDF.values
+
+        val prunedCandidateFileNames =
+          (if (dfSeq.size == 1) {
+            dfSeq.head
+          } else {
+            dfSeq.foldLeft(dfSeq.head)((b, a) => b.union(a))
+          }).collect().map(_.getString(0))
+            .toSet
+
+
+        val allIndexedFileNames = colStatsDF.select(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME)
+          .distinct().collect().map(_.getString(0))
+          .toSet
+
+        // NOTE: Col-Stats Index isn't guaranteed to have complete set of statistics for every
+        //       base-file: since it's bound to clustering, which could occur asynchronously
+        //       at arbitrary point in time, and is not likely to be touching all of the base files.
+        //
+        //       To close that gap, we manually compute the difference b/w all indexed (by col-stats-index)
+        //       files and all outstanding base-files, and make sure that all base files not
+        //       represented w/in the index are included in the output of this method
+        val notIndexedFileNames = lookupFileNamesMissingFromIndex(allIndexedFileNames)
+
+        Some(prunedCandidateFileNames ++ notIndexedFileNames)
+
+        /*
         /// old DAG
         val transposedColStatsDF: DataFrame = transposeColumnStatsIndex(spark, colStatsDF, queryReferencedColumns, schema)
 
@@ -252,7 +299,7 @@ case class HoodieFileIndex(spark: SparkSession,
 
           LOG.info("pruning time: " + timer3.endTimer())
           Some(prunedCandidateFileNames ++ notIndexedFileNames)
-        }
+        }*/
       }
     }
   }

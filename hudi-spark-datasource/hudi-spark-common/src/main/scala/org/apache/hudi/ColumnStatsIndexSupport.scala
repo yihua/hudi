@@ -34,10 +34,11 @@ import org.apache.log4j.LogManager
 import org.apache.spark.api.java.JavaSparkContext
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{DataFrame, HoodieUnsafeRDDUtils, Row, SparkSession}
+import org.apache.spark.sql._
 
 import scala.collection.JavaConverters._
 import scala.collection.immutable.TreeSet
@@ -267,7 +268,7 @@ trait ColumnStatsIndexSupport extends SparkAdapterSupport {
   }
 
 
-  def filterAndDeserializeColumnStats(spark: SparkSession, colStatsDF: DataFrame, queryColumns: Seq[String], tableSchema: StructType): DataFrame = {
+  def filterColumnStats(spark: SparkSession, colStatsDF: DataFrame, queryColumns: Seq[String], tableSchema: StructType): DataFrame = {
     val colStatsSchema = colStatsDF.schema
     val colStatsSchemaOrdinalsMap = colStatsSchema.fields.zipWithIndex.map({
       case (field, ordinal) => (field.name, ordinal)
@@ -299,8 +300,27 @@ trait ColumnStatsIndexSupport extends SparkAdapterSupport {
 
     LOG.info("indexedColumns")
 
-    val transposedRDD = colStatsDF.rdd
+    colStatsDF
       .filter(row => queryColumnSet.contains(row.getString(colNameOrdinal)))
+  }
+
+  def deserializeAndApplyFilter(spark: SparkSession, colStatsDF: DataFrame, colName: String, filter: Expression, tableSchema: StructType): DataFrame = {
+    val colStatsSchema = colStatsDF.schema
+    val colStatsSchemaOrdinalsMap = colStatsSchema.fields.zipWithIndex.map({
+      case (field, ordinal) => (field.name, ordinal)
+    }).toMap
+
+    val tableSchemaFieldMap = tableSchema.fields.map(f => (f.name, f)).toMap
+
+    val colNameOrdinal = colStatsSchemaOrdinalsMap(HoodieMetadataPayload.COLUMN_STATS_FIELD_COLUMN_NAME)
+    val minValueOrdinal = colStatsSchemaOrdinalsMap(HoodieMetadataPayload.COLUMN_STATS_FIELD_MIN_VALUE)
+    val maxValueOrdinal = colStatsSchemaOrdinalsMap(HoodieMetadataPayload.COLUMN_STATS_FIELD_MAX_VALUE)
+    val fileNameOrdinal = colStatsSchemaOrdinalsMap(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME)
+    val nullCountOrdinal = colStatsSchemaOrdinalsMap(HoodieMetadataPayload.COLUMN_STATS_FIELD_NULL_COUNT)
+    val valueCountOrdinal = colStatsSchemaOrdinalsMap(HoodieMetadataPayload.COLUMN_STATS_FIELD_VALUE_COUNT)
+
+    val resDF = colStatsDF.rdd
+      .filter(row => row.getString(colNameOrdinal).equals(colName))
       .map { row =>
         val fileName = row.get(fileNameOrdinal)
         val colName = row.getString(colNameOrdinal)
@@ -310,7 +330,7 @@ trait ColumnStatsIndexSupport extends SparkAdapterSupport {
           // Corresponding row could be null in either of the 2 cases
           //    - Column contains only null values (in that case both min/max have to be nulls)
           //    - This is a stubbed Column Stats record (used as a tombstone)
-          (fileName, Map(colName -> Seq(null, null, valueCount, nullCount)))
+          Row(fileName, null, null, valueCount, nullCount)
         } else {
           val minValueStruct = row.getAs[Row](minValueOrdinal)
           val maxValueStruct = row.getAs[Row](maxValueOrdinal)
@@ -326,18 +346,26 @@ trait ColumnStatsIndexSupport extends SparkAdapterSupport {
           //rowValsSeq(minValueOrdinal) = deserialize(minValue, colType)
           //rowValsSeq(maxValueOrdinal) = deserialize(maxValue, colType)
 
-          (fileName, Map(colName -> Seq(deserialize(minValue, colType), deserialize(maxValue, colType), valueCount, nullCount)))
+          Row(fileName, deserialize(minValue, colType), deserialize(maxValue, colType), valueCount, nullCount)
         }
       }
 
-    // NOTE: It's crucial to maintain appropriate ordering of the columns
-    //       matching table layout: hence, we cherry-pick individual columns
-    //       instead of simply filtering in the ones we're interested in the schema
-    val indexSchema = composeIndexSchema(queryColumns, tableSchema)
+    val targetField: StructField = tableSchema.fields.find(f => f.name == colName).get
 
-    val res = spark.createDataFrame(transposedRDD, indexSchema)
-    LOG.info("Create dataframe for transposedRDD")
-    res
+    val fileNameField = StructField(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME, StringType, nullable = true, Metadata.empty)
+    val minValueField = StructField(HoodieMetadataPayload.COLUMN_STATS_FIELD_MIN_VALUE, targetField.dataType, nullable = true, Metadata.empty)
+    val maxValueField = StructField(HoodieMetadataPayload.COLUMN_STATS_FIELD_MAX_VALUE, targetField.dataType, nullable = true, Metadata.empty)
+    val valueCountField = StructField(HoodieMetadataPayload.COLUMN_STATS_FIELD_VALUE_COUNT, LongType, nullable = true, Metadata.empty)
+    val nullCountField = StructField(HoodieMetadataPayload.COLUMN_STATS_FIELD_NULL_COUNT, LongType, nullable = true, Metadata.empty)
+
+    val indexSchema = StructType(Array(
+      fileNameField, minValueField, maxValueField, valueCountField, nullCountField
+    ))
+
+    spark.createDataFrame(resDF, indexSchema)
+      .where(new Column(filter))
+      .select(col(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME))
+      .distinct()
   }
 
   private def readFullColumnStatsIndexInternal(spark: SparkSession, metadataConfig: HoodieMetadataConfig, tableBasePath: String): DataFrame = {
