@@ -26,16 +26,17 @@ import org.apache.hudi.common.util.{HoodieTimer, StringUtils}
 import org.apache.hudi.exception.HoodieException
 import org.apache.hudi.keygen.constant.KeyGeneratorOptions
 import org.apache.hudi.keygen.{TimestampBasedAvroKeyGenerator, TimestampBasedKeyGenerator}
-import org.apache.hudi.metadata.HoodieTableMetadataUtil
+import org.apache.hudi.metadata.{HoodieMetadataPayload, HoodieTableMetadataUtil}
 import org.apache.log4j.LogManager
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Expression, Literal}
+import org.apache.spark.sql.catalyst.expressions.{And, Expression, Literal}
 import org.apache.spark.sql.execution.datasources.{FileIndex, FileStatusCache, NoopCache, PartitionDirectory}
+import org.apache.spark.sql.hudi.DataSkippingUtils.{newTranslateIntoColumnStatsIndexFilterExpr, translateIntoColumnStatsIndexFilterExpr}
 import org.apache.spark.sql.hudi.HoodieSqlCommonUtils
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import org.apache.spark.unsafe.types.UTF8String
 
 import java.text.SimpleDateFormat
@@ -208,11 +209,14 @@ case class HoodieFileIndex(spark: SparkSession,
 
       // Persist DF to avoid re-computing column statistics unraveling
       withPersistence(colStatsDF) {
-        colStatsDF.count()
+        //colStatsDF.count()
         LOG.info("readColumnStatsIndex time: " + timer1.endTimer())
         val timer2 = new HoodieTimer().startTimer()
         Some(lookupFileNamesMissingFromIndex(Set()))
-        /*
+
+        /// new DAG for pruning files based on column stats
+
+        /// old DAG
         val transposedColStatsDF: DataFrame = transposeColumnStatsIndex(spark, colStatsDF, queryReferencedColumns, schema)
 
         // Persist DF to avoid re-computing column statistics unraveling
@@ -221,9 +225,10 @@ case class HoodieFileIndex(spark: SparkSession,
           LOG.info("transpose time: " + timer2.endTimer())
           val timer3 = new HoodieTimer().startTimer()
           val indexSchema = transposedColStatsDF.schema
-          val indexFilter =
-            queryFilters.map(translateIntoColumnStatsIndexFilterExpr(_, indexSchema))
-              .reduce(And)
+          val processedFilters = queryFilters.map(translateIntoColumnStatsIndexFilterExpr(_, indexSchema))
+          val newProcessedFilters = queryFilters.map(newTranslateIntoColumnStatsIndexFilterExpr(_, colStatsDF.schema))
+          val indexFilter = processedFilters.map(_._2)
+            .reduce(And)
 
           val indexedFileResult = transposedColStatsDF
             .select(new Column(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME), new Column(indexFilter))
@@ -247,7 +252,7 @@ case class HoodieFileIndex(spark: SparkSession,
 
           LOG.info("pruning time: " + timer3.endTimer())
           Some(prunedCandidateFileNames ++ notIndexedFileNames)
-        }*/
+        }
       }
     }
   }

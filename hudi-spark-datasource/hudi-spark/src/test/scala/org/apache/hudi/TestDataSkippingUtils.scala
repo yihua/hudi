@@ -97,7 +97,7 @@ class TestDataSkippingUtils extends HoodieClientTestBase with SparkAdapterSuppor
 
     val indexDf = spark.createDataFrame(input.map(_.toRow).asJava, indexSchema)
 
-    val rows = indexDf.where(new Column(lookupFilter))
+    val rows = indexDf.where(new Column(lookupFilter._2))
       .select("fileName")
       .collect()
       .map(_.getString(0))
@@ -117,7 +117,7 @@ class TestDataSkippingUtils extends HoodieClientTestBase with SparkAdapterSuppor
 
     val indexDf = spark.createDataset(input)
 
-    val rows = indexDf.where(new Column(lookupFilter))
+    val rows = indexDf.where(new Column(lookupFilter._2))
       .select("fileName")
       .collect()
       .map(_.getString(0))
