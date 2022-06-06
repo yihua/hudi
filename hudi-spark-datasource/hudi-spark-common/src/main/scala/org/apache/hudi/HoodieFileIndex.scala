@@ -22,11 +22,12 @@ import org.apache.hudi.HoodieDatasetUtils.withPersistence
 import org.apache.hudi.HoodieFileIndex.{DataSkippingFailureMode, collectReferencedColumns, getConfigProperties}
 import org.apache.hudi.common.config.{HoodieMetadataConfig, TypedProperties}
 import org.apache.hudi.common.table.HoodieTableMetaClient
-import org.apache.hudi.common.util.StringUtils
+import org.apache.hudi.common.util.{HoodieTimer, StringUtils}
 import org.apache.hudi.exception.HoodieException
 import org.apache.hudi.keygen.constant.KeyGeneratorOptions
 import org.apache.hudi.keygen.{TimestampBasedAvroKeyGenerator, TimestampBasedKeyGenerator}
 import org.apache.hudi.metadata.{HoodieMetadataPayload, HoodieTableMetadataUtil}
+import org.apache.log4j.LogManager
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{And, Expression, Literal}
@@ -83,6 +84,7 @@ case class HoodieFileIndex(spark: SparkSession,
     with FileIndex
     with ColumnStatsIndexSupport {
 
+  private val LOG = LogManager.getLogger(classOf[HoodieFileIndex])
   override def rootPaths: Seq[Path] = queryPaths.asScala
 
   /**
@@ -202,31 +204,36 @@ case class HoodieFileIndex(spark: SparkSession,
     } else if (queryFilters.isEmpty || queryReferencedColumns.isEmpty) {
       Option.empty
     } else {
+      val timer1 = new HoodieTimer().startTimer()
       val colStatsDF: DataFrame = readColumnStatsIndex(spark, basePath, metadataConfig, queryReferencedColumns)
 
       // Persist DF to avoid re-computing column statistics unraveling
       withPersistence(colStatsDF) {
+        //colStatsDF.count()
+        LOG.info("readColumnStatsIndex time: " + timer1.endTimer())
+        val timer2 = new HoodieTimer().startTimer()
         val transposedColStatsDF: DataFrame = transposeColumnStatsIndex(spark, colStatsDF, queryReferencedColumns, schema)
 
         // Persist DF to avoid re-computing column statistics unraveling
         withPersistence(transposedColStatsDF) {
+          //transposedColStatsDF.count()
+          LOG.info("transpose time: " + timer2.endTimer())
+          val timer3 = new HoodieTimer().startTimer()
           val indexSchema = transposedColStatsDF.schema
           val indexFilter =
             queryFilters.map(translateIntoColumnStatsIndexFilterExpr(_, indexSchema))
               .reduce(And)
 
-          val allIndexedFileNames =
-            transposedColStatsDF.select(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME)
-              .collect()
-              .map(_.getString(0))
-              .toSet
+          val indexedFileResult = transposedColStatsDF
+            .select(new Column(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME), new Column(indexFilter))
+            .collect()
 
-          val prunedCandidateFileNames =
-            transposedColStatsDF.where(new Column(indexFilter))
-              .select(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME)
-              .collect()
-              .map(_.getString(0))
-              .toSet
+          val allIndexedFileNames = indexedFileResult.map(_.getString(0)).toSet
+
+          val prunedCandidateFileNames = indexedFileResult
+            .filter(_.getBoolean(1))
+            .map(_.getString(0))
+            .toSet
 
           // NOTE: Col-Stats Index isn't guaranteed to have complete set of statistics for every
           //       base-file: since it's bound to clustering, which could occur asynchronously
@@ -237,6 +244,7 @@ case class HoodieFileIndex(spark: SparkSession,
           //       represented w/in the index are included in the output of this method
           val notIndexedFileNames = lookupFileNamesMissingFromIndex(allIndexedFileNames)
 
+          LOG.info("pruning time: " + timer3.endTimer())
           Some(prunedCandidateFileNames ++ notIndexedFileNames)
         }
       }

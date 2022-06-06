@@ -19,7 +19,7 @@ package org.apache.hudi
 
 import org.apache.avro.Schema.Parser
 import org.apache.avro.generic.GenericRecord
-import org.apache.hudi.ColumnStatsIndexSupport.{composeIndexSchema, deserialize, metadataRecordSchemaString, metadataRecordStructType, tryUnpackNonNullVal}
+import org.apache.hudi.ColumnStatsIndexSupport._
 import org.apache.hudi.HoodieConversionUtils.toScalaOption
 import org.apache.hudi.avro.model.HoodieMetadataRecord
 import org.apache.hudi.client.common.HoodieSparkEngineContext
@@ -30,6 +30,7 @@ import org.apache.hudi.common.util.ValidationUtils.checkState
 import org.apache.hudi.common.util.hash.ColumnIndexID
 import org.apache.hudi.data.HoodieJavaRDD
 import org.apache.hudi.metadata.{HoodieMetadataPayload, HoodieTableMetadata, HoodieTableMetadataUtil, MetadataPartitionType}
+import org.apache.log4j.LogManager
 import org.apache.spark.api.java.JavaSparkContext
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
@@ -40,12 +41,14 @@ import org.apache.spark.sql.{DataFrame, HoodieUnsafeRDDUtils, Row, SparkSession}
 
 import scala.collection.JavaConverters._
 import scala.collection.immutable.TreeSet
+import scala.collection.mutable.ListBuffer
 
 /**
  * Mixin trait abstracting away heavy-lifting of interactions with Metadata Table's Column Stats Index,
  * providing convenient interfaces to read it, transpose, etc
  */
 trait ColumnStatsIndexSupport extends SparkAdapterSupport {
+  private val LOG = LogManager.getLogger(classOf[ColumnStatsIndexSupport])
 
   def readColumnStatsIndex(spark: SparkSession,
                            tableBasePath: String,
@@ -133,19 +136,25 @@ trait ColumnStatsIndexSupport extends SparkAdapterSupport {
     val nullCountOrdinal = colStatsSchemaOrdinalsMap(HoodieMetadataPayload.COLUMN_STATS_FIELD_NULL_COUNT)
     val valueCountOrdinal = colStatsSchemaOrdinalsMap(HoodieMetadataPayload.COLUMN_STATS_FIELD_VALUE_COUNT)
 
+    LOG.info("Finish getting schema info")
+
     // NOTE: We have to collect list of indexed columns to make sure we properly align the rows
     //       w/in the transposed dataset: since some files might not have all of the columns indexed
     //       either due to the Column Stats Index config changes, schema evolution, etc, we have
     //       to make sure that all of the rows w/in transposed data-frame are properly padded (with null
     //       values) for such file-column combinations
-    val indexedColumns: Seq[String] = colStatsDF.rdd.map(row => row.getString(colNameOrdinal)).distinct().collect()
+    //val indexedColumns: Seq[String] = colStatsDF.rdd.map(row => row.getString(colNameOrdinal)).distinct().collect()
 
     // NOTE: We're sorting the columns to make sure final index schema matches layout
     //       of the transposed table
-    val sortedTargetColumns = TreeSet(queryColumns.intersect(indexedColumns): _*)
+    //val sortedTargetColumns = TreeSet(queryColumns.intersect(indexedColumns): _*)
+
+    val queryColumnSet = TreeSet(queryColumns: _*)
+
+    LOG.info("indexedColumns")
 
     val transposedRDD = colStatsDF.rdd
-      .filter(row => sortedTargetColumns.contains(row.getString(colNameOrdinal)))
+      .filter(row => queryColumnSet.contains(row.getString(colNameOrdinal)))
       .map { row =>
         if (row.isNullAt(minValueOrdinal) && row.isNullAt(maxValueOrdinal)) {
           // Corresponding row could be null in either of the 2 cases
@@ -182,8 +191,23 @@ trait ColumnStatsIndexSupport extends SparkAdapterSupport {
           // to align existing column-stats for individual file with the list of expected ones for the
           // whole transposed projection (a superset of all files)
           val columnRowsMap = columnRowsSeq.map(row => (row.getString(colNameOrdinal), row)).toMap
-          val alignedColumnRowsSeq = sortedTargetColumns.toSeq.map(columnRowsMap.get)
+          val alignedColumnRowsSeq = queryColumns.map(columnRowsMap.get)
 
+          val coalescedRowValues = new ListBuffer[Any]()
+          coalescedRowValues += fileName
+          coalescedRowValues += valueCount
+          alignedColumnRowsSeq.foreach((columnStatsOpt: Option[Row]) => {
+            coalescedRowValues.append((columnStatsOpt match {
+              case Some(columnStatsRow) =>
+                Seq(minValueOrdinal, maxValueOrdinal, nullCountOrdinal).map(ord => columnStatsRow.get(ord))
+              case None =>
+                // NOTE: Since we're assuming missing column to essentially contain exclusively
+                //       null values, we set null-count to be equal to value-count (this behavior is
+                //       consistent with reading non-existent columns from Parquet)
+                Seq(null, null, valueCount)
+            }): _*)
+          })
+          /*
           val coalescedRowValuesSeq =
             alignedColumnRowsSeq.foldLeft(Seq[Any](fileName, valueCount)) {
               case (acc, opt) =>
@@ -196,19 +220,22 @@ trait ColumnStatsIndexSupport extends SparkAdapterSupport {
                     //       consistent with reading non-existent columns from Parquet)
                     acc ++ Seq(null, null, valueCount)
                 }
-            }
-
-          Seq(Row(coalescedRowValuesSeq:_*))
+            }*/
+          Seq(Row(coalescedRowValues: _*))
       }
       .values
       .flatMap(it => it)
 
+    LOG.info("transpose logic")
+
     // NOTE: It's crucial to maintain appropriate ordering of the columns
     //       matching table layout: hence, we cherry-pick individual columns
     //       instead of simply filtering in the ones we're interested in the schema
-    val indexSchema = composeIndexSchema(sortedTargetColumns.toSeq, tableSchema)
+    val indexSchema = composeIndexSchema(queryColumns, tableSchema)
 
-    spark.createDataFrame(transposedRDD, indexSchema)
+    val res = spark.createDataFrame(transposedRDD, indexSchema)
+    LOG.info("Create dataframe for transposedRDD")
+    res
   }
 
   private def readFullColumnStatsIndexInternal(spark: SparkSession, metadataConfig: HoodieMetadataConfig, tableBasePath: String): DataFrame = {
