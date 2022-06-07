@@ -19,11 +19,13 @@ package org.apache.hudi
 
 import org.apache.avro.Schema.Parser
 import org.apache.avro.generic.GenericRecord
-import org.apache.hudi.ColumnStatsIndexSupport.{composeIndexSchema, deserialize, metadataRecordSchemaString, metadataRecordStructType, tryUnpackNonNullVal}
+import org.apache.hudi.ColumnStatsIndexSupport._
 import org.apache.hudi.HoodieConversionUtils.toScalaOption
 import org.apache.hudi.avro.model.HoodieMetadataRecord
 import org.apache.hudi.client.common.HoodieSparkEngineContext
 import org.apache.hudi.common.config.HoodieMetadataConfig
+import org.apache.hudi.common.data.HoodieList
+import org.apache.hudi.common.engine.HoodieLocalEngineContext
 import org.apache.hudi.common.model.HoodieRecord
 import org.apache.hudi.common.table.view.FileSystemViewStorageConfig
 import org.apache.hudi.common.util.ValidationUtils.checkState
@@ -220,21 +222,23 @@ trait ColumnStatsIndexSupport extends SparkAdapterSupport {
   }
 
   private def readColumnStatsIndexForColumnsInternal(spark: SparkSession, targetColumns: Seq[String], metadataConfig: HoodieMetadataConfig, tableBasePath: String) = {
-    val ctx = new HoodieSparkEngineContext(new JavaSparkContext(spark.sparkContext))
+    val sparkCtx = new HoodieSparkEngineContext(new JavaSparkContext(spark.sparkContext))
+    val localCtx = new HoodieLocalEngineContext(spark.sparkContext.hadoopConfiguration)
 
     // Read Metadata Table's Column Stats Index into Spark's [[DataFrame]] by
     //    - Fetching the records from CSI by key-prefixes (encoded column names)
     //    - Deserializing fetched records into [[InternalRow]]s
     //    - Composing [[DataFrame]]
     val metadataTableDF = {
-      val metadataTable = HoodieTableMetadata.create(ctx, metadataConfig, tableBasePath, FileSystemViewStorageConfig.SPILLABLE_DIR.defaultValue)
+      val metadataTable = HoodieTableMetadata.create(localCtx, metadataConfig, tableBasePath, FileSystemViewStorageConfig.SPILLABLE_DIR.defaultValue)
 
       // TODO encoding should be done internally w/in HoodieBackedTableMetadata
       val encodedTargetColumnNames = targetColumns.map(colName => new ColumnIndexID(colName).asBase64EncodedString())
 
       val recordsRDD: RDD[HoodieRecord[HoodieMetadataPayload]] =
         HoodieJavaRDD.getJavaRDD(
-          metadataTable.getRecordsByKeyPrefixes(encodedTargetColumnNames.asJava, HoodieTableMetadataUtil.PARTITION_NAME_COLUMN_STATS)
+          sparkCtx.parallelize(HoodieList.getList(metadataTable.getRecordsByKeyPrefixes(
+            encodedTargetColumnNames.asJava, HoodieTableMetadataUtil.PARTITION_NAME_COLUMN_STATS)), 1)
         )
 
       val catalystRowsRDD: RDD[InternalRow] = recordsRDD.mapPartitions { it =>
