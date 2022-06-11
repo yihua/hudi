@@ -69,6 +69,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import static org.apache.hudi.common.util.FileIOUtils.killJVMIfDesired;
+
 @SuppressWarnings("checkstyle:LineLength")
 public class SparkRDDWriteClient<T extends HoodieRecordPayload> extends
     BaseHoodieWriteClient<T, JavaRDD<HoodieRecord<T>>, JavaRDD<HoodieKey>, JavaRDD<WriteStatus>> {
@@ -310,6 +312,12 @@ public class SparkRDDWriteClient<T extends HoodieRecordPayload> extends
       // commit to data table after committing to metadata table.
       updateTableMetadata(table, metadata, compactionInstant);
       LOG.info("Committing Compaction " + compactionCommitTime + ". Finished with result " + metadata);
+
+      if (basePath.contains(".hoodie/metadata")) {
+        killJVMIfDesired("/tmp/fail32_mt_compaction.txt", "Fail metadata table compaction", 4);
+      } else {
+        killJVMIfDesired("/tmp/fail62_dt_compaction.txt", "Fail data table compaction", 4);
+      }
       CompactHelpers.getInstance().completeInflightCompaction(table, compactionCommitTime, metadata);
     } finally {
       this.txnManager.endTransaction(Option.of(compactionInstant));
@@ -390,6 +398,12 @@ public class SparkRDDWriteClient<T extends HoodieRecordPayload> extends
 
       LOG.info("Committing Clustering " + clusteringCommitTime + ". Finished with result " + metadata);
 
+      if (basePath.contains(".hoodie/metadata")) {
+        killJVMIfDesired("/tmp/fail31_mt_clustering.txt", "Fail metadata table clustering", 4);
+      } else {
+        killJVMIfDesired("/tmp/fail61_dt_clustering.txt", "Fail data table clustering", 4);
+      }
+      
       table.getActiveTimeline().transitionReplaceInflightToComplete(
           clusteringInstant,
           Option.of(metadata.toJsonString().getBytes(StandardCharsets.UTF_8)));
