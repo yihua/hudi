@@ -115,6 +115,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static org.apache.hudi.common.model.HoodieCommitMetadata.SCHEMA_KEY;
+import static org.apache.hudi.common.util.FileIOUtils.killJVMIfDesired;
 
 /**
  * Abstract Write Client providing functionality for performing commit, index updates and rollback
@@ -337,6 +338,8 @@ public abstract class BaseHoodieWriteClient<T extends HoodieRecordPayload, I, K,
     context.setJobStatus(this.getClass().getSimpleName(), "Committing to metadata table: " + config.getTableName());
     table.getMetadataWriter(instantTime).ifPresent(w -> ((HoodieTableMetadataWriter) w).update(metadata, instantTime,
         table.isTableServiceAction(actionType)));
+    killJVMIfDesired("/tmp/fail4_mt_post_commit.txt",
+        "Fail after metadata table commit/services before data table commit", 8);
   }
 
   /**
