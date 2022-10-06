@@ -52,7 +52,7 @@ import java.util.Properties;
 
 /**
  * A writer abstraction for the Hudi test suite. This class wraps different implementations of writers used to perform write operations into the target hudi dataset. Current supported writers are
- * {@link HoodieDeltaStreamerWrapper} and {@link SparkRDDWriteClient}.
+ * {@link HoodieStreamerWrapper} and {@link SparkRDDWriteClient}.
  */
 public class HoodieInlineTestSuiteWriter extends HoodieTestSuiteWriter {
 
@@ -189,7 +189,7 @@ public class HoodieInlineTestSuiteWriter extends HoodieTestSuiteWriter {
       Map<String, String> extraMetadata = new HashMap<>();
       /** Store the checkpoint in the commit metadata just like
        * {@link HoodieDeltaStreamer#commit(SparkRDDWriteClient, JavaRDD, Option)} **/
-      extraMetadata.put(HoodieDeltaStreamerWrapper.CHECKPOINT_KEY, lastCheckpoint.get());
+      extraMetadata.put(HoodieStreamerWrapper.CHECKPOINT_KEY, lastCheckpoint.get());
       if (generatedDataStats != null && generatedDataStats.count() > 1) {
         // Just stores the path where this batch of data is generated to
         extraMetadata.put(GENERATED_DATA_PATH, generatedDataStats.map(s -> s.getFilePath()).collect().get(0));
@@ -204,7 +204,7 @@ public class HoodieInlineTestSuiteWriter extends HoodieTestSuiteWriter {
       Map<String, String> extraMetadata = new HashMap<>();
       /** Store the checkpoint in the commit metadata just like
        * {@link HoodieDeltaStreamer#commit(SparkRDDWriteClient, JavaRDD, Option)} **/
-      extraMetadata.put(HoodieDeltaStreamerWrapper.CHECKPOINT_KEY, lastCheckpoint.get());
+      extraMetadata.put(HoodieStreamerWrapper.CHECKPOINT_KEY, lastCheckpoint.get());
       if (generatedDataStats != null && generatedDataStats.count() > 1) {
         // Just stores the path where this batch of data is generated to
         extraMetadata.put(GENERATED_DATA_PATH, generatedDataStats.map(s -> s.getFilePath()).collect().get(0));

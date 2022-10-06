@@ -55,7 +55,7 @@ import static org.apache.hudi.sync.common.HoodieSyncConfig.META_SYNC_PARTITION_E
 import static org.apache.hudi.sync.common.HoodieSyncConfig.META_SYNC_PARTITION_FIELDS;
 import static org.apache.hudi.sync.common.HoodieSyncConfig.META_SYNC_TABLE_NAME;
 
-public class HoodieDeltaStreamerTestBase extends UtilitiesTestBase {
+public class HoodieStreamerTestBase extends UtilitiesTestBase {
 
 
   static final Random RANDOM = new Random();
@@ -180,7 +180,7 @@ public class HoodieDeltaStreamerTestBase extends UtilitiesTestBase {
   protected static void writeCommonPropsToFile(FileSystem dfs, String dfsBasePath) throws IOException {
     TypedProperties props = new TypedProperties();
     props.setProperty("include", "sql-transformer.properties");
-    props.setProperty("hoodie.datasource.write.keygenerator.class", TestHoodieDeltaStreamer.TestGenerator.class.getName());
+    props.setProperty("hoodie.datasource.write.keygenerator.class", TestHoodieStreamer.TestGenerator.class.getName());
     props.setProperty("hoodie.datasource.write.recordkey.field", "_row_key");
     props.setProperty("hoodie.datasource.write.partitionpath.field", "partition_path");
     props.setProperty("hoodie.deltastreamer.schemaprovider.source.schema.file", dfsBasePath + "/source.avsc");
@@ -216,7 +216,7 @@ public class HoodieDeltaStreamerTestBase extends UtilitiesTestBase {
   }
 
   protected static void populateInvalidTableConfigFilePathProps(TypedProperties props, String dfsBasePath) {
-    props.setProperty("hoodie.datasource.write.keygenerator.class", TestHoodieDeltaStreamer.TestGenerator.class.getName());
+    props.setProperty("hoodie.datasource.write.keygenerator.class", TestHoodieStreamer.TestGenerator.class.getName());
     props.setProperty("hoodie.deltastreamer.keygen.timebased.output.dateformat", "yyyyMMdd");
     props.setProperty("hoodie.deltastreamer.ingestion.tablesToBeIngested", "uber_db.dummy_table_uber");
     props.setProperty("hoodie.deltastreamer.ingestion.uber_db.dummy_table_uber.configFile", dfsBasePath + "/config/invalid_uber_config.properties");
@@ -229,7 +229,7 @@ public class HoodieDeltaStreamerTestBase extends UtilitiesTestBase {
   }
 
   protected static void populateCommonProps(TypedProperties props, String dfsBasePath) {
-    props.setProperty("hoodie.datasource.write.keygenerator.class", TestHoodieDeltaStreamer.TestGenerator.class.getName());
+    props.setProperty("hoodie.datasource.write.keygenerator.class", TestHoodieStreamer.TestGenerator.class.getName());
     props.setProperty("hoodie.deltastreamer.keygen.timebased.output.dateformat", "yyyyMMdd");
     props.setProperty("hoodie.deltastreamer.ingestion.tablesToBeIngested", "short_trip_db.dummy_table_short_trip,uber_db.dummy_table_uber");
     props.setProperty("hoodie.deltastreamer.ingestion.uber_db.dummy_table_uber.configFile", dfsBasePath + "/config/uber_config.properties");

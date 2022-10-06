@@ -46,7 +46,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Tag("functional")
-public class TestHoodieMultiTableDeltaStreamer extends HoodieDeltaStreamerTestBase {
+public class TestHoodieMultiTableDeltaStreamer extends HoodieStreamerTestBase {
 
   private static final Logger LOG = LogManager.getLogger(TestHoodieMultiTableDeltaStreamer.class);
 
@@ -125,7 +125,7 @@ public class TestHoodieMultiTableDeltaStreamer extends HoodieDeltaStreamerTestBa
     assertEquals("uber_db.dummy_table_uber", executionContext.getConfig().targetTableName);
     assertEquals("topic1", executionContext.getProperties().getString(HoodieMultiTableDeltaStreamer.Constants.KAFKA_TOPIC_PROP));
     assertEquals("_row_key", executionContext.getProperties().getString(DataSourceWriteOptions.RECORDKEY_FIELD().key()));
-    assertEquals(TestHoodieDeltaStreamer.TestGenerator.class.getName(), executionContext.getProperties().getString(DataSourceWriteOptions.KEYGENERATOR_CLASS_NAME().key()));
+    assertEquals(TestHoodieStreamer.TestGenerator.class.getName(), executionContext.getProperties().getString(DataSourceWriteOptions.KEYGENERATOR_CLASS_NAME().key()));
     assertEquals("uber_hive_dummy_table", executionContext.getProperties().getString(HoodieMultiTableDeltaStreamer.Constants.HIVE_SYNC_TABLE_PROP));
     assertEquals("http://localhost:8081/subjects/random-value/versions/latest", executionContext.getProperties().getString(SchemaRegistryProvider.Config.SRC_SCHEMA_REGISTRY_URL_PROP));
     assertEquals("http://localhost:8081/subjects/topic2-value/versions/latest",
@@ -174,8 +174,8 @@ public class TestHoodieMultiTableDeltaStreamer extends HoodieDeltaStreamerTestBa
     String targetBasePath2 = executionContexts.get(1).getConfig().targetBasePath;
     streamer.sync();
 
-    TestHoodieDeltaStreamer.TestHelpers.assertRecordCount(5, targetBasePath1, sqlContext);
-    TestHoodieDeltaStreamer.TestHelpers.assertRecordCount(10, targetBasePath2, sqlContext);
+    TestHoodieStreamer.TestHelpers.assertRecordCount(5, targetBasePath1, sqlContext);
+    TestHoodieStreamer.TestHelpers.assertRecordCount(10, targetBasePath2, sqlContext);
 
     //insert updates for already existing records in kafka topics
     testUtils.sendMessages(topicName1, Helpers.jsonifyRecords(dataGenerator.generateUpdatesAsPerSchema("001", 5, HoodieTestDataGenerator.TRIP_SCHEMA)));
@@ -190,8 +190,8 @@ public class TestHoodieMultiTableDeltaStreamer extends HoodieDeltaStreamerTestBa
     assertTrue(streamer.getFailedTables().isEmpty());
 
     //assert the record count matches now
-    TestHoodieDeltaStreamer.TestHelpers.assertRecordCount(5, targetBasePath1, sqlContext);
-    TestHoodieDeltaStreamer.TestHelpers.assertRecordCount(10, targetBasePath2, sqlContext);
+    TestHoodieStreamer.TestHelpers.assertRecordCount(5, targetBasePath1, sqlContext);
+    TestHoodieStreamer.TestHelpers.assertRecordCount(10, targetBasePath2, sqlContext);
     testNum++;
   }
 
@@ -244,11 +244,11 @@ public class TestHoodieMultiTableDeltaStreamer extends HoodieDeltaStreamerTestBa
       switch (tableExecutionContext.getTableName()) {
         case "dummy_table_short_trip":
           String tableLevelKeyGeneratorClass = tableExecutionContext.getProperties().getString(DataSourceWriteOptions.KEYGENERATOR_CLASS_NAME().key());
-          assertEquals(TestHoodieDeltaStreamer.TestTableLevelGenerator.class.getName(), tableLevelKeyGeneratorClass);
+          assertEquals(TestHoodieStreamer.TestTableLevelGenerator.class.getName(), tableLevelKeyGeneratorClass);
           break;
         default:
           String defaultKeyGeneratorClass = tableExecutionContext.getProperties().getString(DataSourceWriteOptions.KEYGENERATOR_CLASS_NAME().key());
-          assertEquals(TestHoodieDeltaStreamer.TestGenerator.class.getName(), defaultKeyGeneratorClass);
+          assertEquals(TestHoodieStreamer.TestGenerator.class.getName(), defaultKeyGeneratorClass);
       }
     });
   }
@@ -284,7 +284,7 @@ public class TestHoodieMultiTableDeltaStreamer extends HoodieDeltaStreamerTestBa
 
   private void syncAndVerify(HoodieMultiTableDeltaStreamer streamer, String targetBasePath1, String targetBasePath2, long table1ExpectedRecords, long table2ExpectedRecords) {
     streamer.sync();
-    TestHoodieDeltaStreamer.TestHelpers.assertRecordCount(table1ExpectedRecords, targetBasePath1, sqlContext);
-    TestHoodieDeltaStreamer.TestHelpers.assertRecordCount(table2ExpectedRecords, targetBasePath2, sqlContext);
+    TestHoodieStreamer.TestHelpers.assertRecordCount(table1ExpectedRecords, targetBasePath1, sqlContext);
+    TestHoodieStreamer.TestHelpers.assertRecordCount(table2ExpectedRecords, targetBasePath2, sqlContext);
   }
 }

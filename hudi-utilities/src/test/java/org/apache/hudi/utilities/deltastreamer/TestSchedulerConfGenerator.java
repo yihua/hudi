@@ -32,7 +32,7 @@ public class TestSchedulerConfGenerator {
 
   @Test
   public void testGenerateSparkSchedulingConf() throws Exception {
-    HoodieDeltaStreamer.Config cfg = new HoodieDeltaStreamer.Config();
+    HoodieStreamer.Config cfg = new HoodieStreamer.Config();
     Map<String, String> configs = SchedulerConfGenerator.getSparkSchedulingConfigs(cfg);
     assertNull(configs.get(SparkConfigs.SPARK_SCHEDULER_ALLOCATION_FILE_KEY()), "spark.scheduler.mode not set");
 

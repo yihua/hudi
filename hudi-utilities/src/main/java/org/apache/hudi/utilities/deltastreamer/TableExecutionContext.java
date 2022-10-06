@@ -29,15 +29,15 @@ import java.util.Objects;
 public class TableExecutionContext {
 
   private TypedProperties properties;
-  private HoodieDeltaStreamer.Config config;
+  private HoodieStreamer.Config config;
   private String database;
   private String tableName;
 
-  public HoodieDeltaStreamer.Config getConfig() {
+  public HoodieStreamer.Config getConfig() {
     return config;
   }
 
-  public void setConfig(HoodieDeltaStreamer.Config config) {
+  public void setConfig(HoodieStreamer.Config config) {
     this.config = config;
   }
 

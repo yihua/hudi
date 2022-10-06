@@ -18,27 +18,27 @@
 
 package org.apache.hudi.utilities.deltastreamer;
 
-import com.beust.jcommander.Parameter;
 import org.apache.hudi.client.utils.OperationConverter;
+import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.OverwriteWithLatestAvroPayload;
 import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.StringUtils;
-import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.util.ValidationUtils;
+import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.hive.HiveSyncTool;
 import org.apache.hudi.sync.common.HoodieSyncConfig;
 import org.apache.hudi.utilities.IdentitySplitter;
-import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.utilities.UtilHelpers;
 import org.apache.hudi.utilities.schema.SchemaRegistryProvider;
+import org.apache.hudi.utilities.sources.JsonDFSSource;
 
 import com.beust.jcommander.JCommander;
+import com.beust.jcommander.Parameter;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
-import org.apache.hudi.utilities.sources.JsonDFSSource;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.apache.spark.api.java.JavaSparkContext;
@@ -126,7 +126,7 @@ public class HoodieMultiTableDeltaStreamer {
           tableProperties.setProperty(k.toString(), v.toString());
         }
       });
-      final HoodieDeltaStreamer.Config cfg = new HoodieDeltaStreamer.Config();
+      final HoodieStreamer.Config cfg = new HoodieStreamer.Config();
       //copy all the values from config to cfg
       String targetBasePath = resetTarget(config, database, currentTable);
       Helpers.deepCopyConfigs(config, cfg);
@@ -154,7 +154,7 @@ public class HoodieMultiTableDeltaStreamer {
     return Arrays.asList(tablesArray);
   }
 
-  private void populateSchemaProviderProps(HoodieDeltaStreamer.Config cfg, TypedProperties typedProperties) {
+  private void populateSchemaProviderProps(HoodieStreamer.Config cfg, TypedProperties typedProperties) {
     if (Objects.equals(cfg.schemaProviderClassName, SchemaRegistryProvider.class.getName())) {
       populateSourceRegistryProp(typedProperties);
       populateTargetRegistryProp(typedProperties);
@@ -201,7 +201,7 @@ public class HoodieMultiTableDeltaStreamer {
       return context.getDatabase() + Constants.DELIMITER + context.getTableName();
     }
 
-    static void deepCopyConfigs(Config globalConfig, HoodieDeltaStreamer.Config tableConfig) {
+    static void deepCopyConfigs(Config globalConfig, HoodieStreamer.Config tableConfig) {
       tableConfig.enableHiveSync = globalConfig.enableHiveSync;
       tableConfig.enableMetaSync = globalConfig.enableMetaSync;
       tableConfig.syncClientToolClassNames = globalConfig.syncClientToolClassNames;
@@ -427,7 +427,7 @@ public class HoodieMultiTableDeltaStreamer {
   public void sync() {
     for (TableExecutionContext context : tableExecutionContexts) {
       try {
-        new HoodieDeltaStreamer(context.getConfig(), jssc, Option.ofNullable(context.getProperties())).sync();
+        new HoodieStreamer(context.getConfig(), jssc, Option.ofNullable(context.getProperties())).sync();
         successTables.add(Helpers.getTableWithDatabase(context));
       } catch (Exception e) {
         logger.error("error while running MultiTableDeltaStreamer for table: " + context.getTableName(), e);

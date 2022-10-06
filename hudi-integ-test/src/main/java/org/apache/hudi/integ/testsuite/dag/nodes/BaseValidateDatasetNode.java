@@ -57,7 +57,7 @@ import scala.Tuple2;
 import scala.collection.JavaConversions;
 import scala.collection.JavaConverters;
 
-import static org.apache.hudi.utilities.deltastreamer.HoodieDeltaStreamer.CHECKPOINT_KEY;
+import static org.apache.hudi.utilities.deltastreamer.HoodieStreamer.CHECKPOINT_KEY;
 
 /**
  * This nodes validates contents from input path are in tact with Hudi. By default no configs are required for this node. But there is an

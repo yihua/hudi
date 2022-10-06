@@ -23,19 +23,19 @@ import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.utilities.deltastreamer.DeltaSync;
-import org.apache.hudi.utilities.deltastreamer.HoodieDeltaStreamer;
+import org.apache.hudi.utilities.deltastreamer.HoodieStreamer;
 import org.apache.hudi.utilities.schema.SchemaProvider;
 
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 
 /**
- * Extends the {@link HoodieDeltaStreamer} to expose certain operations helpful in running the Test Suite. This is done to achieve 2 things 1) Leverage some components of {@link HoodieDeltaStreamer}
- * 2) Piggyback on the suite to test {@link HoodieDeltaStreamer}
+ * Extends the {@link HoodieStreamer} to expose certain operations helpful in running the Test Suite. This is done to achieve 2 things 1) Leverage some components of {@link HoodieStreamer}
+ * 2) Piggyback on the suite to test {@link HoodieStreamer}
  */
-public class HoodieDeltaStreamerWrapper extends HoodieDeltaStreamer {
+public class HoodieStreamerWrapper extends HoodieStreamer {
 
-  public HoodieDeltaStreamerWrapper(Config cfg, JavaSparkContext jssc) throws Exception {
+  public HoodieStreamerWrapper(Config cfg, JavaSparkContext jssc) throws Exception {
     super(cfg, jssc);
   }
 

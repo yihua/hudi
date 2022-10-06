@@ -63,7 +63,7 @@ public class BootstrapExecutor implements Serializable {
   /**
    * Config.
    */
-  private final HoodieDeltaStreamer.Config cfg;
+  private final HoodieStreamer.Config cfg;
 
   /**
    * Schema provider that supplies the command for reading the input and writing out the target table.
@@ -106,7 +106,7 @@ public class BootstrapExecutor implements Serializable {
    * @param properties Bootstrap Writer Properties
    * @throws IOException
    */
-  public BootstrapExecutor(HoodieDeltaStreamer.Config cfg, JavaSparkContext jssc, FileSystem fs, Configuration conf,
+  public BootstrapExecutor(HoodieStreamer.Config cfg, JavaSparkContext jssc, FileSystem fs, Configuration conf,
                            TypedProperties properties) throws IOException {
     this.cfg = cfg;
     this.jssc = jssc;
@@ -147,9 +147,9 @@ public class BootstrapExecutor implements Serializable {
 
     try {
       HashMap<String, String> checkpointCommitMetadata = new HashMap<>();
-      checkpointCommitMetadata.put(HoodieDeltaStreamer.CHECKPOINT_KEY, cfg.checkpoint);
+      checkpointCommitMetadata.put(HoodieStreamer.CHECKPOINT_KEY, cfg.checkpoint);
       if (cfg.checkpoint != null) {
-        checkpointCommitMetadata.put(HoodieDeltaStreamer.CHECKPOINT_RESET_KEY, cfg.checkpoint);
+        checkpointCommitMetadata.put(HoodieStreamer.CHECKPOINT_RESET_KEY, cfg.checkpoint);
       }
       bootstrapClient.bootstrap(Option.of(checkpointCommitMetadata));
       syncHive();

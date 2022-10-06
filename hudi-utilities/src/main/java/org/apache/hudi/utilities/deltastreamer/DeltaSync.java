@@ -67,7 +67,7 @@ import org.apache.hudi.utilities.callback.kafka.HoodieWriteCommitKafkaCallback;
 import org.apache.hudi.utilities.callback.kafka.HoodieWriteCommitKafkaCallbackConfig;
 import org.apache.hudi.utilities.callback.pulsar.HoodieWriteCommitPulsarCallback;
 import org.apache.hudi.utilities.callback.pulsar.HoodieWriteCommitPulsarCallbackConfig;
-import org.apache.hudi.utilities.deltastreamer.HoodieDeltaStreamer.Config;
+import org.apache.hudi.utilities.deltastreamer.HoodieStreamer.Config;
 import org.apache.hudi.utilities.exception.HoodieDeltaStreamerException;
 import org.apache.hudi.utilities.exception.HoodieSourceTimeoutException;
 import org.apache.hudi.utilities.schema.DelegatingSchemaProvider;
@@ -118,8 +118,8 @@ import static org.apache.hudi.config.HoodieWriteConfig.COMBINE_BEFORE_INSERT;
 import static org.apache.hudi.config.HoodieWriteConfig.COMBINE_BEFORE_UPSERT;
 import static org.apache.hudi.hive.HiveSyncConfigHolder.HIVE_SYNC_BUCKET_SYNC;
 import static org.apache.hudi.hive.HiveSyncConfigHolder.HIVE_SYNC_BUCKET_SYNC_SPEC;
-import static org.apache.hudi.utilities.deltastreamer.HoodieDeltaStreamer.CHECKPOINT_KEY;
-import static org.apache.hudi.utilities.deltastreamer.HoodieDeltaStreamer.CHECKPOINT_RESET_KEY;
+import static org.apache.hudi.utilities.deltastreamer.HoodieStreamer.CHECKPOINT_KEY;
+import static org.apache.hudi.utilities.deltastreamer.HoodieStreamer.CHECKPOINT_RESET_KEY;
 import static org.apache.hudi.utilities.schema.RowBasedSchemaProvider.HOODIE_RECORD_NAMESPACE;
 import static org.apache.hudi.utilities.schema.RowBasedSchemaProvider.HOODIE_RECORD_STRUCT_NAME;
 
@@ -134,7 +134,7 @@ public class DeltaSync implements Serializable, Closeable {
   /**
    * Delta Sync Config.
    */
-  private final HoodieDeltaStreamer.Config cfg;
+  private final HoodieStreamer.Config cfg;
 
   /**
    * Source to pull deltas from.
@@ -221,7 +221,7 @@ public class DeltaSync implements Serializable, Closeable {
 
   private transient HoodieMetrics hoodieMetrics;
 
-  public DeltaSync(HoodieDeltaStreamer.Config cfg, SparkSession sparkSession, SchemaProvider schemaProvider,
+  public DeltaSync(HoodieStreamer.Config cfg, SparkSession sparkSession, SchemaProvider schemaProvider,
                    TypedProperties props, JavaSparkContext jssc, FileSystem fs, Configuration conf,
                    Function<SparkRDDWriteClient, Boolean> onInitializingHoodieWriteClient) throws IOException {
 
@@ -931,7 +931,7 @@ public class DeltaSync implements Serializable, Closeable {
 
   /**
    * Schedule clustering.
-   * Called from {@link HoodieDeltaStreamer} when async clustering is enabled.
+   * Called from {@link HoodieStreamer} when async clustering is enabled.
    *
    * @return Requested clustering instant.
    */

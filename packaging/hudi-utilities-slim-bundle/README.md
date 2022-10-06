@@ -34,7 +34,7 @@ bin/spark-submit \
   --conf spark.ui.port=6679 \
   --packages org.apache.spark:spark-avro_2.11:2.4.7 \
   --jars /path/to/hudi/packaging/hudi-spark-bundle/target/hudi-spark-bundle_2.11-0.12.0-SNAPSHOT.jar \
-  --class org.apache.hudi.utilities.deltastreamer.HoodieDeltaStreamer `ls /path/to/hudi/packaging/hudi-utilities-slim-bundle/target/hudi-utilities-slim-bundle_2.11-0.12.0-SNAPSHOT.jar` \
+  --class org.apache.hudi.utilities.deltastreamer.HoodieStreamer `ls /path/to/hudi/packaging/hudi-utilities-slim-bundle/target/hudi-utilities-slim-bundle_2.11-0.12.0-SNAPSHOT.jar` \
   --props `ls /path/to/hudi/dfs-source.properties` \
   --source-class org.apache.hudi.utilities.sources.ParquetDFSSource  \
   --schemaprovider-class org.apache.hudi.utilities.schema.FilebasedSchemaProvider \
@@ -62,7 +62,7 @@ bin/spark-submit \
   --conf spark.ui.port=6679 \
   --packages org.apache.spark:spark-avro_2.12:3.1.2 \
   --jars /path/to/hudi/packaging/hudi-spark-bundle/target/hudi-spark3.1-bundle_2.12-0.12.0-SNAPSHOT.jar \
-  --class org.apache.hudi.utilities.deltastreamer.HoodieDeltaStreamer `ls /path/to/hudi/packaging/hudi-utilities-slim-bundle/target/hudi-utilities-slim-bundle_2.12-0.12.0-SNAPSHOT.jar` \
+  --class org.apache.hudi.utilities.deltastreamer.HoodieStreamer `ls /path/to/hudi/packaging/hudi-utilities-slim-bundle/target/hudi-utilities-slim-bundle_2.12-0.12.0-SNAPSHOT.jar` \
   --props `ls /path/to/hudi/dfs-source.properties` \
   --source-class org.apache.hudi.utilities.sources.ParquetDFSSource  \
   --schemaprovider-class org.apache.hudi.utilities.schema.FilebasedSchemaProvider \
@@ -90,7 +90,7 @@ bin/spark-submit \
   --conf spark.ui.port=6679 \
   --packages org.apache.spark:spark-avro_2.12:3.2.0 \
   --jars /path/to/hudi/packaging/hudi-spark-bundle/target/hudi-spark3.2-bundle_2.12-0.12.0-SNAPSHOT.jar \
-  --class org.apache.hudi.utilities.deltastreamer.HoodieDeltaStreamer `ls /path/to/hudi/packaging/hudi-utilities-slim-bundle/target/hudi-utilities-slim-bundle_2.12-0.12.0-SNAPSHOT.jar` \
+  --class org.apache.hudi.utilities.deltastreamer.HoodieStreamer `ls /path/to/hudi/packaging/hudi-utilities-slim-bundle/target/hudi-utilities-slim-bundle_2.12-0.12.0-SNAPSHOT.jar` \
   --props `ls /path/to/hudi/dfs-source.properties` \
   --source-class org.apache.hudi.utilities.sources.ParquetDFSSource  \
   --schemaprovider-class org.apache.hudi.utilities.schema.FilebasedSchemaProvider \

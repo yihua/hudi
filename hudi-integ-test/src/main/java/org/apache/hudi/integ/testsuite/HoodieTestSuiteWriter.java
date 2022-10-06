@@ -55,7 +55,7 @@ public abstract class HoodieTestSuiteWriter implements Serializable {
 
   private static Logger log = LoggerFactory.getLogger(HoodieTestSuiteWriter.class);
 
-  protected HoodieDeltaStreamerWrapper deltaStreamerWrapper;
+  protected HoodieStreamerWrapper deltaStreamerWrapper;
   protected HoodieWriteConfig writeConfig;
   protected SparkRDDWriteClient writeClient;
   protected HoodieTestSuiteJob.HoodieTestSuiteConfig cfg;
@@ -73,7 +73,7 @@ public abstract class HoodieTestSuiteWriter implements Serializable {
     // This does not instantiate a HoodieWriteClient until a
     // {@link HoodieDeltaStreamer#commit(HoodieWriteClient, JavaRDD, Option)} is invoked.
     HoodieSparkEngineContext context = new HoodieSparkEngineContext(jsc);
-    this.deltaStreamerWrapper = new HoodieDeltaStreamerWrapper(cfg, jsc);
+    this.deltaStreamerWrapper = new HoodieStreamerWrapper(cfg, jsc);
     this.hoodieReadClient = new HoodieReadClient(context, cfg.targetBasePath);
     this.writeConfig = getHoodieClientConfig(cfg, props, schema);
     if (!cfg.useDeltaStreamer) {
@@ -154,7 +154,7 @@ public abstract class HoodieTestSuiteWriter implements Serializable {
     return writeClient;
   }
 
-  public HoodieDeltaStreamerWrapper getDeltaStreamerWrapper() {
+  public HoodieStreamerWrapper getDeltaStreamerWrapper() {
     return deltaStreamerWrapper;
   }
 

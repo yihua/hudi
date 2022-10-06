@@ -45,7 +45,7 @@ public class SchedulerConfGenerator {
 
   private static final Logger LOG = LogManager.getLogger(SchedulerConfGenerator.class);
 
-  public static final String DELTASYNC_POOL_NAME = HoodieDeltaStreamer.DELTASYNC_POOL_NAME;
+  public static final String DELTASYNC_POOL_NAME = HoodieStreamer.DELTASYNC_POOL_NAME;
   public static final String COMPACT_POOL_NAME = AsyncCompactService.COMPACT_POOL_NAME;
   public static final String SPARK_SCHEDULER_MODE_KEY = "spark.scheduler.mode";
   public static final String SPARK_SCHEDULER_FAIR_MODE = "FAIR";
@@ -80,7 +80,7 @@ public class SchedulerConfGenerator {
    *
    * @param cfg Config for HoodieDeltaStreamer
    */
-  public static Map<String, String> getSparkSchedulingConfigs(HoodieDeltaStreamer.Config cfg) throws Exception {
+  public static Map<String, String> getSparkSchedulingConfigs(HoodieStreamer.Config cfg) throws Exception {
     scala.Option<String> scheduleModeKeyOption = new SparkConf().getOption(SPARK_SCHEDULER_MODE_KEY);
     final Option<String> sparkSchedulerMode =
         scheduleModeKeyOption.isDefined() ? Option.of(scheduleModeKeyOption.get()) : Option.empty();

@@ -43,7 +43,7 @@ import org.apache.hudi.integ.testsuite.writer.DeltaOutputMode;
 import org.apache.hudi.keygen.BuiltinKeyGenerator;
 import org.apache.hudi.keygen.factory.HoodieSparkKeyGeneratorFactory;
 import org.apache.hudi.utilities.UtilHelpers;
-import org.apache.hudi.utilities.deltastreamer.HoodieDeltaStreamer;
+import org.apache.hudi.utilities.deltastreamer.HoodieStreamer;
 
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
@@ -65,7 +65,7 @@ import static org.apache.hudi.common.table.HoodieTableConfig.ARCHIVELOG_FOLDER;
 import static org.apache.hudi.common.util.StringUtils.EMPTY_STRING;
 
 /**
- * This is the entry point for running a Hudi Test Suite. Although this class has similarities with {@link HoodieDeltaStreamer} this class does not extend it since do not want to create a dependency
+ * This is the entry point for running a Hudi Test Suite. Although this class has similarities with {@link HoodieStreamer} this class does not extend it since do not want to create a dependency
  * on the changes in DeltaStreamer.
  */
 public class HoodieTestSuiteJob {
@@ -253,9 +253,9 @@ public class HoodieTestSuiteJob {
   }
 
   /**
-   * The Hudi test suite uses {@link HoodieDeltaStreamer} to run some operations hence extend delta streamer config.
+   * The Hudi test suite uses {@link HoodieStreamer} to run some operations hence extend delta streamer config.
    */
-  public static class HoodieTestSuiteConfig extends HoodieDeltaStreamer.Config {
+  public static class HoodieTestSuiteConfig extends HoodieStreamer.Config {
 
     @Parameter(names = {"--input-base-path"}, description = "base path for input data"
         + "(Will be created if did not exist first time around. If exists, more data will be added to that path)",

@@ -94,10 +94,10 @@ import java.util.concurrent.Executors;
  * write-to-sink (c) Schedule Compactions if needed (d) Conditionally Sync to Hive each cycle. For MOR table with
  * continuous mode enabled, a separate compactor thread is allocated to execute compactions
  */
-public class HoodieDeltaStreamer implements Serializable {
+public class HoodieStreamer implements Serializable {
 
   private static final long serialVersionUID = 1L;
-  private static final Logger LOG = LogManager.getLogger(HoodieDeltaStreamer.class);
+  private static final Logger LOG = LogManager.getLogger(HoodieStreamer.class);
 
   public static final String CHECKPOINT_KEY = HoodieWriteConfig.DELTASTREAMER_CHECKPOINT_KEY;
   public static final String CHECKPOINT_RESET_KEY = "deltastreamer.checkpoint.reset_key";
@@ -115,22 +115,22 @@ public class HoodieDeltaStreamer implements Serializable {
 
   public static final String DELTASYNC_POOL_NAME = "hoodiedeltasync";
 
-  public HoodieDeltaStreamer(Config cfg, JavaSparkContext jssc) throws IOException {
+  public HoodieStreamer(Config cfg, JavaSparkContext jssc) throws IOException {
     this(cfg, jssc, FSUtils.getFs(cfg.targetBasePath, jssc.hadoopConfiguration()),
         jssc.hadoopConfiguration(), Option.empty());
   }
 
-  public HoodieDeltaStreamer(Config cfg, JavaSparkContext jssc, Option<TypedProperties> props) throws IOException {
+  public HoodieStreamer(Config cfg, JavaSparkContext jssc, Option<TypedProperties> props) throws IOException {
     this(cfg, jssc, FSUtils.getFs(cfg.targetBasePath, jssc.hadoopConfiguration()),
         jssc.hadoopConfiguration(), props);
   }
 
-  public HoodieDeltaStreamer(Config cfg, JavaSparkContext jssc, FileSystem fs, Configuration conf) throws IOException {
+  public HoodieStreamer(Config cfg, JavaSparkContext jssc, FileSystem fs, Configuration conf) throws IOException {
     this(cfg, jssc, fs, conf, Option.empty());
   }
 
-  public HoodieDeltaStreamer(Config cfg, JavaSparkContext jssc, FileSystem fs, Configuration conf,
-                             Option<TypedProperties> propsOverride) throws IOException {
+  public HoodieStreamer(Config cfg, JavaSparkContext jssc, FileSystem fs, Configuration conf,
+                        Option<TypedProperties> propsOverride) throws IOException {
     this.properties = combineProperties(cfg, propsOverride, jssc.hadoopConfiguration());
     if (cfg.initialCheckpointProvider != null && cfg.checkpoint == null) {
       InitialCheckPointProvider checkPointProvider =
@@ -568,7 +568,7 @@ public class HoodieDeltaStreamer implements Serializable {
     }
 
     try {
-      new HoodieDeltaStreamer(cfg, jssc).sync();
+      new HoodieStreamer(cfg, jssc).sync();
     } finally {
       jssc.stop();
     }
@@ -583,7 +583,7 @@ public class HoodieDeltaStreamer implements Serializable {
     /**
      * Delta Sync Config.
      */
-    private final HoodieDeltaStreamer.Config cfg;
+    private final HoodieStreamer.Config cfg;
 
     /**
      * Schema provider that supplies the command for reading the input and writing out the target table.
@@ -676,7 +676,7 @@ public class HoodieDeltaStreamer implements Serializable {
           this::onInitializingWriteClient);
     }
 
-    public DeltaSyncService(HoodieDeltaStreamer.Config cfg, JavaSparkContext jssc, FileSystem fs, Configuration conf)
+    public DeltaSyncService(HoodieStreamer.Config cfg, JavaSparkContext jssc, FileSystem fs, Configuration conf)
         throws IOException {
       this(cfg, jssc, fs, conf, Option.empty());
     }
