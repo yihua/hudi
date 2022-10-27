@@ -27,7 +27,7 @@ import org.apache.spark.execution.datasources.HoodieInMemoryFileIndex
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.execution.datasources.{FileStatusCache, PartitionedFile}
+import org.apache.spark.sql.execution.datasources.PartitionedFile
 import org.apache.spark.sql.sources.{BaseRelation, Filter, PrunedFilteredScan}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.{Row, SQLContext}
@@ -160,8 +160,8 @@ class HoodieBootstrapRelation(@transient val _sqlContext: SQLContext,
       val inMemoryFileIndex = HoodieInMemoryFileIndex.create(_sqlContext.sparkSession, globPaths)
       inMemoryFileIndex.allFiles()
     } else { // Load files by the HoodieFileIndex.
-        HoodieFileIndex(sqlContext.sparkSession, metaClient, Some(schema), optParams,
-          FileStatusCache.getOrCreate(sqlContext.sparkSession)).allFiles
+      HoodieFileIndex(sqlContext.sparkSession, metaClient, Some(schema), optParams,
+        SparkHoodieFileStatusCache.getOrCreate(sqlContext.sparkSession)).allFiles
     }
     if (fileStatuses.isEmpty) {
       throw new HoodieException("No files found for reading in user provided path.")

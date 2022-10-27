@@ -24,12 +24,11 @@ import org.apache.hudi.common.util.ValidationUtils.checkArgument
 import org.apache.hudi.common.util.{ClusteringUtils, Option => HOption}
 import org.apache.hudi.config.HoodieClusteringConfig
 import org.apache.hudi.exception.HoodieClusteringException
-import org.apache.hudi.{AvroConversionUtils, HoodieCLIUtils, HoodieFileIndex}
+import org.apache.hudi.{AvroConversionUtils, HoodieCLIUtils, HoodieFileIndex, SparkHoodieFileStatusCache}
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.HoodieCatalystExpressionUtils.{resolveExpr, splitPartitionAndDataPredicates}
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.expressions.PredicateHelper
-import org.apache.spark.sql.execution.datasources.FileStatusCache
 import org.apache.spark.sql.types._
 
 import java.util.function.Supplier
@@ -143,7 +142,7 @@ class RunClusteringProcedure extends BaseProcedure
   def prunePartition(metaClient: HoodieTableMetaClient, predicate: String): String = {
     val options = Map(QUERY_TYPE.key() -> QUERY_TYPE_SNAPSHOT_OPT_VAL, "path" -> metaClient.getBasePath)
     val hoodieFileIndex = HoodieFileIndex(sparkSession, metaClient, None, options,
-      FileStatusCache.getOrCreate(sparkSession))
+      SparkHoodieFileStatusCache.getOrCreate(sparkSession))
 
     // Resolve partition predicates
     val schemaResolver = new TableSchemaResolver(metaClient)

@@ -208,6 +208,7 @@
     <springboot.version>2.7.3</springboot.version>
     <spring.shell.version>2.1.1</spring.shell.version>
     <snappy.version>1.1.8.3</snappy.version>
+    <guava.version>14.0.1</guava.version>
   </properties>
 
   <scm>

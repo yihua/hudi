@@ -36,7 +36,6 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.{AttributeReference, BoundReference, Expression, InterpretedPredicate}
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.catalyst.{InternalRow, expressions}
-import org.apache.spark.sql.execution.datasources.{FileStatusCache, NoopCache}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{StringType, StructField, StructType}
 import org.apache.spark.unsafe.types.UTF8String
@@ -60,7 +59,7 @@ class SparkHoodieTableFileIndex(spark: SparkSession,
                                 configProperties: TypedProperties,
                                 queryPaths: Seq[Path],
                                 specifiedQueryInstant: Option[String] = None,
-                                @transient fileStatusCache: FileStatusCache = NoopCache)
+                                @transient fileStatusCache: SparkHoodieFileStatusCache = NoopCache)
   extends BaseHoodieTableFileIndex(
     new HoodieSparkEngineContext(new JavaSparkContext(spark.sparkContext)),
     metaClient,
@@ -333,10 +332,12 @@ object SparkHoodieTableFileIndex {
     }
   }
 
-  private def adapt(cache: FileStatusCache): BaseHoodieTableFileIndex.FileStatusCache = {
+  private def adapt(cache: SparkHoodieFileStatusCache): BaseHoodieTableFileIndex.FileStatusCache = {
     new BaseHoodieTableFileIndex.FileStatusCache {
       override def get(path: Path): org.apache.hudi.common.util.Option[Array[FileStatus]] = toJavaOption(cache.getLeafFiles(path))
+
       override def put(path: Path, leafFiles: Array[FileStatus]): Unit = cache.putLeafFiles(path, leafFiles)
+
       override def invalidate(): Unit = cache.invalidateAll()
     }
   }

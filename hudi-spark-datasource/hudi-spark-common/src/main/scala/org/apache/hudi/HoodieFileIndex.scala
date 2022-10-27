@@ -29,7 +29,7 @@ import org.apache.hudi.metadata.{HoodieMetadataPayload, HoodieTableMetadataUtil}
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{And, Expression, Literal}
-import org.apache.spark.sql.execution.datasources.{FileIndex, FileStatusCache, NoopCache, PartitionDirectory}
+import org.apache.spark.sql.execution.datasources.{FileIndex, PartitionDirectory}
 import org.apache.spark.sql.hudi.DataSkippingUtils.translateIntoColumnStatsIndexFilterExpr
 import org.apache.spark.sql.hudi.HoodieSqlCommonUtils
 import org.apache.spark.sql.internal.SQLConf
@@ -69,7 +69,7 @@ case class HoodieFileIndex(spark: SparkSession,
                            metaClient: HoodieTableMetaClient,
                            schemaSpec: Option[StructType],
                            options: Map[String, String],
-                           @transient fileStatusCache: FileStatusCache = NoopCache)
+                           @transient fileStatusCache: SparkHoodieFileStatusCache = NoopCache)
   extends SparkHoodieTableFileIndex(
     spark = spark,
     metaClient = metaClient,
