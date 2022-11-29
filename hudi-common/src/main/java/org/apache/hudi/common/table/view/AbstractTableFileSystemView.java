@@ -140,6 +140,7 @@ public abstract class AbstractTableFileSystemView implements SyncableFileSystemV
     fileGroups.stream().collect(Collectors.groupingBy(HoodieFileGroup::getPartitionPath)).forEach((partition, value) -> {
       if (!isPartitionAvailableInStore(partition)) {
         if (bootstrapIndex.useIndex()) {
+          LOG.info("Bootstrap Index enabled for read");
           try (BootstrapIndex.IndexReader reader = bootstrapIndex.createReader()) {
             LOG.info("Bootstrap Index available for partition " + partition);
             List<BootstrapFileMapping> sourceFileMappings =

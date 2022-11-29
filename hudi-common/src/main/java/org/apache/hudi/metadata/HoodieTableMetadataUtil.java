@@ -1000,6 +1000,12 @@ public class HoodieTableMetadataUtil {
     return getPartitionFileSlices(metaClient, Option.empty(), partition, true);
   }
 
+  public static List<FileSlice> getPartitionLatestMergedFileSlices(
+      HoodieTableMetaClient metaClient, HoodieTableFileSystemView fileSystemView, String partition) {
+    LOG.info("Loading latest merged file slices with cached file system view for metadata table partition " + partition);
+    return getPartitionFileSlices(metaClient, Option.of(fileSystemView), partition, true);
+  }
+
   /**
    * Get the latest file slices for a Metadata Table partition. The list of file slices
    * returned is sorted in the correct order of file group name.
@@ -1062,6 +1068,26 @@ public class HoodieTableMetadataUtil {
       fileSliceStream = fsView.getLatestFileSlices(partition);
     }
     return fileSliceStream.sorted(Comparator.comparing(FileSlice::getFileId)).collect(Collectors.toList());
+  }
+
+  public static Pair<List<FileSlice>, HoodieTableFileSystemView> getPartitionFileSlicesWithFSView(
+      HoodieTableMetaClient metaClient,
+      Option<HoodieTableFileSystemView> fileSystemView,
+      String partition,
+      boolean mergeFileSlices) {
+    HoodieTableFileSystemView fsView = fileSystemView.orElse(getFileSystemView(metaClient));
+    Stream<FileSlice> fileSliceStream;
+    if (mergeFileSlices) {
+      if (metaClient.getActiveTimeline().filterCompletedInstants().lastInstant().isPresent()) {
+        fileSliceStream = fsView.getLatestMergedFileSlicesBeforeOrOn(
+            partition, metaClient.getActiveTimeline().filterCompletedInstants().lastInstant().get().getTimestamp());
+      } else {
+        return Pair.of(Collections.EMPTY_LIST, fsView);
+      }
+    } else {
+      fileSliceStream = fsView.getLatestFileSlices(partition);
+    }
+    return Pair.of(fileSliceStream.sorted(Comparator.comparing(FileSlice::getFileId)).collect(Collectors.toList()), fsView);
   }
 
   /**
