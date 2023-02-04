@@ -93,6 +93,8 @@ public class HoodieConfigDocGenerator {
 
     // Automated: Scan through all HoodieConfig superclasses using reflection
     for (Class<? extends HoodieConfig> subType : subTypes) {
+      //Set<Class<? extends HoodieConfig>> subsubTypes = reflections.getSubTypesOf(subType);
+      LOG.info("### Config class " + subType.getName());// + ": " + subsubTypes);
       // sub-heading using the annotation
       ConfigClassProperty configGroupProperty = subType.getAnnotation(ConfigClassProperty.class);
       try {

@@ -4,7 +4,7 @@ keywords: [ configurations, default, flink options, spark, configs, parameters ]
 permalink: /docs/configurations.html
 summary: This page covers the different ways of configuring your job to write/read Hudi tables. At a high level, you can control behaviour at few levels.
 toc: true
-last_modified_at: 2022-12-27T23:40:18.658
+last_modified_at: 2023-02-04T13:08:18.599
 ---
 
 This page covers the different ways of configuring your job to write/read Hudi tables. At a high level, you can control behaviour at few levels.
@@ -12,6 +12,7 @@ This page covers the different ways of configuring your job to write/read Hudi t
 - [**Spark Datasource Configs**](#SPARK_DATASOURCE): These configs control the Hudi Spark Datasource, providing ability to define keys/partitioning, pick out the write operation, specify how to merge records or choosing query type to read.
 - [**Flink Sql Configs**](#FLINK_SQL): These configs control the Hudi Flink SQL source/sink connectors, providing ability to define record keys, pick out the write operation, specify how to merge records, enable/disable asynchronous compaction or choosing query type to read.
 - [**Write Client Configs**](#WRITE_CLIENT): Internally, the Hudi datasource uses a RDD based HoodieWriteClient API to actually perform writes to storage. These configs provide deep control over lower level aspects like file sizing, compression, parallelism, compaction, write schema, cleaning etc. Although Hudi provides sane defaults, from time-time these configs may need to be tweaked to optimize for specific workloads.
+- [**Metadata Sync Configs**](#METADATA_SYNC): Please fill in the description for Config Group Name: Metadata Sync Configs
 - [**Metrics Configs**](#METRICS): These set of configs are used to enable monitoring and reporting of keyHudi stats and metrics.
 - [**Record Payload Config**](#RECORD_PAYLOAD): This is the lowest level of customization offered by Hudi. Record payloads define how to produce new values to upsert based on incoming new record and stored old record. Hudi provides default implementations such as OverwriteWithLatestAvroPayload which simply update table with the latest/last-written record. This can be overridden to a custom class extending HoodieRecordPayload class, on both datasource and WriteClient levels.
 - [**Kafka Connect Configs**](#KAFKA_CONNECT): These set of configs are used for Kafka Connect Sink Connector for writing Hudi Tables
@@ -58,6 +59,7 @@ Options useful for reading tables via `read.format.option(...)`
 > Start offset to pull data from hoodie streaming source. allow earliest, latest, and specified start instant time<br></br>
 > **Default Value**: earliest (Optional)<br></br>
 > `Config Param: START_OFFSET`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
@@ -101,6 +103,7 @@ Options useful for reading tables via `read.format.option(...)`
 > This config is used alone with the 'incremental' query type.When set to 'latest_state', it returns the latest records' values.When set to 'cdc', it returns the cdc data.<br></br>
 > **Default Value**: latest_state (Optional)<br></br>
 > `Config Param: INCREMENTAL_FORMAT`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
@@ -133,7 +136,7 @@ Options useful for reading tables via `read.format.option(...)`
 
 ---
 
-> #### hoodie.datasource.read.file.index.listing.mode.override
+> #### hoodie.datasource.read.file.index.listing.mode
 > Overrides Hudi's file-index implementation's file listing mode: when set to 'eager', file-index will list all partition paths and corresponding file slices w/in them eagerly, during initialization, prior to partition-pruning kicking in, meaning that all partitions will be listed including ones that might be  subsequently pruned out; when set to 'lazy', partitions and file-slices w/in them will be listed lazily (ie when they actually accessed, instead of when file-index is initialized) allowing partition pruning to occur before that, only listing partitions that has already been pruned. Please note that, this config is provided purely to allow to fallback to behavior existing prior to 0.13.0 release, and will be deprecated soon after.<br></br>
 > **Default Value**: lazy (Optional)<br></br>
 > `Config Param: FILE_INDEX_LISTING_MODE_OVERRIDE`<br></br>
@@ -246,6 +249,14 @@ the dot notation eg: `a.b.c`<br></br>
 > Serde properties to hive table.<br></br>
 > **Default Value**: N/A (Required)<br></br>
 > `Config Param: HIVE_TABLE_SERDE_PROPERTIES`<br></br>
+
+---
+
+> #### hoodie.datasource.write.record.merger.impls
+> List of HoodieMerger implementations constituting Hudi's merging strategy -- based on the engine used. These merger impls will filter by hoodie.datasource.write.record.merger.strategy Hudi will pick most efficient implementation to perform merging/combining of the records (during update, reading MOR table, etc)<br></br>
+> **Default Value**: org.apache.hudi.common.model.HoodieAvroRecordMerger (Optional)<br></br>
+> `Config Param: RECORD_MERGER_IMPLS`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
@@ -489,10 +500,11 @@ the dot notation eg: `a.b.c`<br></br>
 
 ---
 
-> #### hoodie.datasource.write.merger.impls
-> List of HoodieMerger implementations constituting Hudi's merging strategy -- based on the engine used. These merger impls will filter by hoodie.datasource.write.merger.strategy Hudi will pick most efficient implementation to perform merging/combining of the records (during update, reading MOR table, etc)<br></br>
-> **Default Value**: org.apache.hudi.common.model.HoodieAvroRecordMerger (Optional)<br></br>
-> `Config Param: MERGER_IMPLS`<br></br>
+> #### hoodie.datasource.write.record.merger.strategy
+> Id of merger strategy. Hudi will pick HoodieRecordMerger implementations in hoodie.datasource.write.record.merger.impls which has the same merger strategy id<br></br>
+> **Default Value**: eeb8d96f-b1e4-49fd-bbf8-28ac514178e5 (Optional)<br></br>
+> `Config Param: RECORD_MERGER_STRATEGY`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
@@ -533,13 +545,6 @@ By default false (the names of partition folders are only partition values)<br><
 
 ---
 
-> #### hoodie.datasource.write.merger.strategy
-> Id of merger strategy. Hudi will pick HoodieRecordMerger implementations in hoodie.datasource.write.merger.impls which has the same merger strategy id<br></br>
-> **Default Value**: eeb8d96f-b1e4-49fd-bbf8-28ac514178e5 (Optional)<br></br>
-> `Config Param: MERGER_STRATEGY`<br></br>
-
----
-
 > #### hoodie.datasource.hive_sync.mode
 > Mode to choose for Hive ops. Valid values are hms, jdbc and hiveql.<br></br>
 > **Default Value**: N/A (Required)<br></br>
@@ -549,16 +554,8 @@ By default false (the names of partition folders are only partition values)<br><
 
 > #### hoodie.datasource.write.streaming.checkpoint.identifier
 > A stream identifier used for HUDI to fetch the right checkpoint(`batch id` to be more specific) corresponding this writer. Please note that keep the identifier an unique value for different writer if under multi-writer scenario. If the value is not set, will only keep the checkpoint info in the memory. This could introduce the potential issue that the job is restart(`batch id` is lost) while spark checkpoint write fails, causing spark will retry and rewrite the data.<br></br>
-> **Default Value**: N/A (Required)<br></br>
+> **Default Value**: default_single_writer (Optional)<br></br>
 > `Config Param: STREAMING_CHECKPOINT_IDENTIFIER`<br></br>
-> `Since Version: 0.13.0`<br></br>
-
----
-
-> #### hoodie.datasource.write.schema.canonicalize
-> Controls whether incoming batch's schema's nullability constraints should be canonicalized relative to the table's schema. For ex, in case field A is marked as null-able in table's schema, but is marked as non-null in the incoming batch, w/o canonicalization such write might fail as we won't be able to read existing null records from the table (for updating, for ex). Note, that this config has only effect when 'hoodie.datasource.write.reconcile.schema' is set to false.<br></br>
-> **Default Value**: true (Optional)<br></br>
-> `Config Param: CANONICALIZE_SCHEMA`<br></br>
 > `Since Version: 0.13.0`<br></br>
 
 ---
@@ -674,8 +671,8 @@ k2=v2<br></br>
 ---
 
 > #### cdc.supplemental.logging.mode
-> The supplemental logging mode:1) 'cdc_op_key': persist the 'op' and the record key only,2) 'cdc_data_before': persist the additional 'before' image,3) 'cdc_data_before_after': persist the 'before' and 'after' images at the same time<br></br>
-> **Default Value**: cdc_data_before_after (Optional)<br></br>
+> Setting 'op_key_only' persists the 'op' and the record key only, setting 'data_before' persists the additional 'before' image, and setting 'data_before_after' persists the additional 'before' and 'after' images.<br></br>
+> **Default Value**: data_before_after (Optional)<br></br>
 > `Config Param: SUPPLEMENTAL_LOGGING_MODE`<br></br>
 
 ---
@@ -836,7 +833,7 @@ By default 2000 and it will be doubled by every retry<br></br>
 ---
 
 > #### clustering.plan.partition.filter.mode
-> Partition filter mode used in the creation of clustering plan. Available values are - NONE: do not filter table partition and thus the clustering plan will include all partitions that have clustering candidate.RECENT_DAYS: keep a continuous range of partitions, worked together with configs 'hoodie.clustering.plan.strategy.daybased.lookback.partitions' and 'hoodie.clustering.plan.strategy.daybased.skipfromlatest.partitions.SELECTED_PARTITIONS: keep partitions that are in the specified range ['hoodie.clustering.plan.strategy.cluster.begin.partition', 'hoodie.clustering.plan.strategy.cluster.end.partition'].<br></br>
+> Partition filter mode used in the creation of clustering plan. Available values are - NONE: do not filter table partition and thus the clustering plan will include all partitions that have clustering candidate.RECENT_DAYS: keep a continuous range of partitions, worked together with configs 'hoodie.clustering.plan.strategy.daybased.lookback.partitions' and 'hoodie.clustering.plan.strategy.daybased.skipfromlatest.partitions.SELECTED_PARTITIONS: keep partitions that are in the specified range ['hoodie.clustering.plan.strategy.cluster.begin.partition', 'hoodie.clustering.plan.strategy.cluster.end.partition'].DAY_ROLLING: clustering partitions on a rolling basis by the hour to avoid clustering all partitions each time, which strategy sorts the partitions asc and chooses the partition of which index is divided by 24 and the remainder is equal to the current hour.<br></br>
 > **Default Value**: NONE (Optional)<br></br>
 > `Config Param: CLUSTERING_PLAN_PARTITION_FILTER_MODE_NAME`<br></br>
 
@@ -1421,6 +1418,13 @@ The semantics is best effort because the compaction job would finally merge all 
 
 ---
 
+> #### hoodie.database.name
+> Database name to register to Hive metastore<br></br>
+> **Default Value**: N/A (Required)<br></br>
+> `Config Param: DATABASE_NAME`<br></br>
+
+---
+
 > #### read.utc-timezone
 > Use UTC timezone or local timezone to the conversion between epoch time and LocalDateTime. Hive 0.x/1.x/2.x use local timezone. But Hive 3.x use UTC timezone, by default true<br></br>
 > **Default Value**: true (Optional)<br></br>
@@ -1633,39 +1637,6 @@ Cleaning (reclamation of older/unused file groups/slices).
 
 ---
 
-### Metastore Configs {#Metastore-Configs}
-
-Configurations used by the Hudi Metastore.
-
-`Config Class`: org.apache.hudi.common.config.HoodieMetastoreConfig<br></br>
-> #### hoodie.metastore.uris
-> Metastore server uris<br></br>
-> **Default Value**: thrift://localhost:9090 (Optional)<br></br>
-> `Config Param: METASTORE_URLS`<br></br>
-
----
-
-> #### hoodie.metastore.enable
-> Use metastore server to store hoodie table metadata<br></br>
-> **Default Value**: false (Optional)<br></br>
-> `Config Param: METASTORE_ENABLE`<br></br>
-
----
-
-> #### hoodie.metastore.connect.retries
-> Number of retries while opening a connection to metastore<br></br>
-> **Default Value**: 3 (Optional)<br></br>
-> `Config Param: METASTORE_CONNECTION_RETRIES`<br></br>
-
----
-
-> #### hoodie.metastore.connect.retry.delay
-> Number of seconds for the client to wait between consecutive connection attempts<br></br>
-> **Default Value**: 1 (Optional)<br></br>
-> `Config Param: METASTORE_CONNECTION_RETRY_DELAY`<br></br>
-
----
-
 ### Table Configurations {#Table-Configurations}
 
 Configurations that persist across writes and read on a Hudi table  like  base, log file formats, table name, creation schema, table version layouts.  Configurations are loaded from hoodie.properties, these properties are usually set during initializing a path as hoodie base path and rarely changes during the lifetime of the table. Writers/Queries' configurations are validated against these  each time for compatibility.
@@ -1682,20 +1653,15 @@ Configurations that persist across writes and read on a Hudi table  like  base, 
 > When enable, persist the change data if necessary, and can be queried as a CDC query mode.<br></br>
 > **Default Value**: false (Optional)<br></br>
 > `Config Param: CDC_ENABLED`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
 > #### hoodie.table.cdc.supplemental.logging.mode
-> When 'cdc_op_key' persist the 'op' and the record key only, when 'cdc_data_before' persist the additional 'before' image , and when 'cdc_data_before_after', persist the 'before' and 'after' at the same time.<br></br>
-> **Default Value**: cdc_op_key (Optional)<br></br>
+> Setting 'op_key_only' persists the 'op' and the record key only, setting 'data_before' persists the additional 'before' image, and setting 'data_before_after' persists the additional 'before' and 'after' images.<br></br>
+> **Default Value**: op_key_only (Optional)<br></br>
 > `Config Param: CDC_SUPPLEMENTAL_LOGGING_MODE`<br></br>
-
----
-
-> #### hoodie.compaction.merger.strategy
-> Id of merger strategy. Hudi will pick HoodieRecordMerger implementations in hoodie.datasource.write.merger.impls which has the same merger strategy id<br></br>
-> **Default Value**: eeb8d96f-b1e4-49fd-bbf8-28ac514178e5 (Optional)<br></br>
-> `Config Param: MERGER_STRATEGY`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
@@ -1710,6 +1676,7 @@ Configurations that persist across writes and read on a Hudi table  like  base, 
 > The metadata of secondary indexes<br></br>
 > **Default Value**: N/A (Required)<br></br>
 > `Config Param: SECONDARY_INDEXES_METADATA`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
@@ -1883,6 +1850,14 @@ By default false (the names of partition folders are only partition values)<br><
 > Table name that will be used for registering with Hive. Needs to be same across runs.<br></br>
 > **Default Value**: N/A (Required)<br></br>
 > `Config Param: NAME`<br></br>
+
+---
+
+> #### hoodie.compaction.record.merger.strategy
+> Id of merger strategy. Hudi will pick HoodieRecordMerger implementations in hoodie.datasource.write.record.merger.impls which has the same merger strategy id<br></br>
+> **Default Value**: eeb8d96f-b1e4-49fd-bbf8-28ac514178e5 (Optional)<br></br>
+> `Config Param: RECORD_MERGER_STRATEGY`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
@@ -2164,7 +2139,7 @@ Configurations used by the Hudi Metadata Table. This table maintains the metadat
 ---
 
 > #### hoodie.metadata.enable.full.scan.log.files
-> Enable full scanning of log files while reading log records. If disabled, Hudi does look up of only interested entries.<br></br>
+> Enable full scanning of log files while reading log records. If disabled, Hudi does look up of only interested entries. This is an internal config and setting this will not overwrite the actual value used.<br></br>
 > **Default Value**: true (Optional)<br></br>
 > `Config Param: ENABLE_FULL_SCAN_LOG_FILES`<br></br>
 > `Since Version: 0.10.0`<br></br>
@@ -2180,7 +2155,7 @@ Configurations used by the Hudi Metadata Table. This table maintains the metadat
 ---
 
 > #### hoodie.metadata.clean.async
-> Enable asynchronous cleaning for metadata table<br></br>
+> Enable asynchronous cleaning for metadata table. This is an internal config and setting this will not overwrite the value actually used.<br></br>
 > **Default Value**: false (Optional)<br></br>
 > `Config Param: ASYNC_CLEAN_ENABLE`<br></br>
 > `Since Version: 0.7.0`<br></br>
@@ -2227,6 +2202,14 @@ Configurations used by the Hudi Metadata Table. This table maintains the metadat
 
 ---
 
+> #### hoodie.metadata.optimized.log.blocks.scan.enable
+> Optimized log blocks scanner that addresses all the multiwriter use-cases while appending to log files. It also differentiates original blocks written by ingestion writers and compacted blocks written by log compaction.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: ENABLE_OPTIMIZED_LOG_BLOCKS_SCAN`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
 > #### hoodie.metadata.index.column.stats.inMemory.projection.threshold
 > When reading Column Stats Index, if the size of the expected resulting projection is below the in-memory threshold (counted by the # of rows), it will be attempted to be loaded "in-memory" (ie not using the execution engine like Spark, Flink, etc). If the value is above the threshold execution engine will be used to compose the projection.<br></br>
 > **Default Value**: 100000 (Optional)<br></br>
@@ -2252,7 +2235,7 @@ Configurations used by the Hudi Metadata Table. This table maintains the metadat
 ---
 
 > #### hoodie.metadata.cleaner.commits.retained
-> Number of commits to retain, without cleaning, on metadata table.<br></br>
+> Number of commits to retain, without cleaning, on metadata table. This is an internal config and setting this will not overwrite the actual value used.<br></br>
 > **Default Value**: 3 (Optional)<br></br>
 > `Config Param: CLEANER_COMMITS_RETAINED`<br></br>
 > `Since Version: 0.7.0`<br></br>
@@ -2268,7 +2251,7 @@ Configurations used by the Hudi Metadata Table. This table maintains the metadat
 ---
 
 > #### hoodie.metadata.populate.meta.fields
-> When enabled, populates all meta fields. When disabled, no meta fields are populated.<br></br>
+> When enabled, populates all meta fields. When disabled, no meta fields are populated. This is an internal config and setting this will not overwrite the actual value used.<br></br>
 > **Default Value**: false (Optional)<br></br>
 > `Config Param: POPULATE_META_FIELDS`<br></br>
 > `Since Version: 0.10.0`<br></br>
@@ -2296,14 +2279,6 @@ Configurations used by the Hudi Metadata Table. This table maintains the metadat
 > **Default Value**: 200 (Optional)<br></br>
 > `Config Param: BLOOM_FILTER_INDEX_PARALLELISM`<br></br>
 > `Since Version: 0.11.0`<br></br>
-
----
-
-> #### hoodie.metadata.log.record.reader.use.scanV2
-> ScanV2 logic address all the multiwriter challenges while appending to log files. It also differentiates original blocks written by ingestion writers and compacted blocks written log compaction.<br></br>
-> **Default Value**: false (Optional)<br></br>
-> `Config Param: USE_LOG_RECORD_READER_SCAN_V2`<br></br>
-> `Since Version: 0.13.0`<br></br>
 
 ---
 
@@ -2414,6 +2389,14 @@ The filesystem retry related config options, to help deal with runtime exception
 Configurations that control write behavior on Hudi tables. These can be directly passed down from even higher level frameworks (e.g Spark datasources, Flink sink) and utilities (e.g DeltaStreamer).
 
 `Config Class`: org.apache.hudi.config.HoodieWriteConfig<br></br>
+> #### hoodie.datasource.write.record.merger.impls
+> List of HoodieMerger implementations constituting Hudi's merging strategy -- based on the engine used. These merger impls will filter by hoodie.datasource.write.record.merger.strategy Hudi will pick most efficient implementation to perform merging/combining of the records (during update, reading MOR table, etc)<br></br>
+> **Default Value**: org.apache.hudi.common.model.HoodieAvroRecordMerger (Optional)<br></br>
+> `Config Param: RECORD_MERGER_IMPLS`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
 > #### hoodie.combine.before.upsert
 > When upserted records share same key, controls whether they should be first combined (i.e de-duplicated) before writing to storage. This should be turned off only if you are absolutely certain that there are no duplicates incoming,  otherwise it can lead to duplicate keys and violate the uniqueness guarantees.<br></br>
 > **Default Value**: true (Optional)<br></br>
@@ -2459,10 +2442,26 @@ Configurations that control write behavior on Hudi tables. These can be directly
 
 ---
 
+> #### hoodie.write.executor.disruptor.buffer.limit.bytes
+> The size of the Disruptor Executor ring buffer, must be power of 2<br></br>
+> **Default Value**: 1024 (Optional)<br></br>
+> `Config Param: WRITE_EXECUTOR_DISRUPTOR_BUFFER_LIMIT_BYTES`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
 > #### hoodie.table.base.file.format
 > Base file format to store all the base file data.<br></br>
 > **Default Value**: PARQUET (Optional)<br></br>
 > `Config Param: BASE_FILE_FORMAT`<br></br>
+
+---
+
+> #### hoodie.write.concurrency.early.conflict.detection.strategy
+> The class name of the early conflict detection strategy to use. This should be a subclass of `org.apache.hudi.common.conflict.detection.EarlyConflictDetectionStrategy`.<br></br>
+> **Default Value**: N/A (Required)<br></br>
+> `Config Param: EARLY_CONFLICT_DETECTION_STRATEGY_CLASS_NAME`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
@@ -2482,7 +2481,7 @@ Configurations that control write behavior on Hudi tables. These can be directly
 
 > #### hoodie.insert.shuffle.parallelism
 > Parallelism for inserting records into the table. Inserts can shuffle data before writing to tune file sizes and optimize the storage layout.<br></br>
-> **Default Value**: 200 (Optional)<br></br>
+> **Default Value**: 0 (Optional)<br></br>
 > `Config Param: INSERT_PARALLELISM_VALUE`<br></br>
 
 ---
@@ -2631,16 +2630,32 @@ Configurations that control write behavior on Hudi tables. These can be directly
 
 ---
 
+> #### hoodie.write.executor.disruptor.wait.strategy
+> Strategy employed for making Disruptor Executor wait on a cursor. Other options are SLEEPING_WAIT, it attempts to be conservative with CPU usage by using a simple busy wait loopYIELDING_WAIT, it is designed for cases where there is the option to burn CPU cycles with the goal of improving latencyBUSY_SPIN_WAIT, it can be used in low-latency systems, but puts the highest constraints on the deployment environment<br></br>
+> **Default Value**: BLOCKING_WAIT (Optional)<br></br>
+> `Config Param: WRITE_EXECUTOR_DISRUPTOR_WAIT_STRATEGY`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
+> #### hoodie.write.concurrency.async.conflict.detector.initial_delay_ms
+> Used for timeline-server-based markers with `AsyncTimelineServerBasedDetectionStrategy`. The time in milliseconds to delay the first execution of async marker-based conflict detection.<br></br>
+> **Default Value**: 0 (Optional)<br></br>
+> `Config Param: ASYNC_CONFLICT_DETECTOR_INITIAL_DELAY_MS`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
 > #### hoodie.bulkinsert.shuffle.parallelism
 > For large initial imports using bulk_insert operation, controls the parallelism to use for sort modes or custom partitioning donebefore writing records to the table.<br></br>
-> **Default Value**: 200 (Optional)<br></br>
+> **Default Value**: 0 (Optional)<br></br>
 > `Config Param: BULKINSERT_PARALLELISM_VALUE`<br></br>
 
 ---
 
 > #### hoodie.delete.shuffle.parallelism
 > Parallelism used for “delete” operation. Delete operations also performs shuffles, similar to upsert operation.<br></br>
-> **Default Value**: 200 (Optional)<br></br>
+> **Default Value**: 0 (Optional)<br></br>
 > `Config Param: DELETE_PARALLELISM_VALUE`<br></br>
 
 ---
@@ -2649,6 +2664,14 @@ Configurations that control write behavior on Hudi tables. These can be directly
 > Maximum number of checks, for consistency of written data.<br></br>
 > **Default Value**: 7 (Optional)<br></br>
 > `Config Param: MAX_CONSISTENCY_CHECKS`<br></br>
+
+---
+
+> #### hoodie.write.concurrency.early.conflict.detection.enable
+> Whether to enable early conflict detection based on markers. It eagerly detects writing conflict before create markers and fails fast if a conflict is detected, to release cluster compute resources as soon as possible.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: EARLY_CONFLICT_DETECTION_ENABLE`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
@@ -2673,13 +2696,6 @@ Configurations that control write behavior on Hudi tables. These can be directly
 
 ---
 
-> #### hoodie.datasource.write.merger.impls
-> List of HoodieMerger implementations constituting Hudi's merging strategy -- based on the engine used. These merger impls will filter by hoodie.datasource.write.merger.strategy Hudi will pick most efficient implementation to perform merging/combining of the records (during update, reading MOR table, etc)<br></br>
-> **Default Value**: org.apache.hudi.common.model.HoodieAvroRecordMerger (Optional)<br></br>
-> `Config Param: MERGER_IMPLS`<br></br>
-
----
-
 > #### hoodie.datasource.write.precombine.field
 > Field used in preCombining before actual write. When two records have the same key value, we will pick the one with the largest value for the precombine field, determined by Object.compareTo(..)<br></br>
 > **Default Value**: ts (Optional)<br></br>
@@ -2694,6 +2710,22 @@ Configurations that control write behavior on Hudi tables. These can be directly
 
 ---
 
+> #### hoodie.write.concurrency.early.conflict.check.commit.conflict
+> Whether to enable commit conflict checking or not during early conflict detection.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: EARLY_CONFLICT_DETECTION_CHECK_COMMIT_CONFLICT`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
+> #### hoodie.datasource.write.record.merger.strategy
+> Id of merger strategy. Hudi will pick HoodieRecordMerger implementations in hoodie.datasource.write.record.merger.impls which has the same merger strategy id<br></br>
+> **Default Value**: eeb8d96f-b1e4-49fd-bbf8-28ac514178e5 (Optional)<br></br>
+> `Config Param: RECORD_MERGER_STRATEGY`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
 > #### hoodie.avro.schema
 > Schema string representing the current write schema of the table. Hudi passes this to implementations of HoodieRecordPayload to convert incoming records to avro. This is also used as the write schema evolving records during an update.<br></br>
 > **Default Value**: N/A (Required)<br></br>
@@ -2705,6 +2737,14 @@ Configurations that control write behavior on Hudi tables. These can be directly
 > Controls whether a write operation should auto commit. This can be turned off to perform inspection of the uncommitted write before deciding to commit.<br></br>
 > **Default Value**: true (Optional)<br></br>
 > `Config Param: AUTO_COMMIT_ENABLE`<br></br>
+
+---
+
+> #### hoodie.write.executor.type
+> Set executor which orchestrates concurrent producers and consumers communicating through a message queue.BOUNDED_IN_MEMORY(default): Use LinkedBlockingQueue as a bounded in-memory queue, this queue will use extra lock to balance producers and consumerDISRUPTOR: Use disruptor which a lock free message queue as inner message, this queue may gain better writing performance if lock was the bottleneck. SIMPLE: Executor with no inner message queue and no inner lock. Consuming and writing records from iterator directly. Compared with BIM and DISRUPTOR, this queue has no need for additional memory and cpu resources due to lock or multithreading, but also lost some benefits such as speed limit. Although DISRUPTOR_EXECUTOR and SIMPLE are still in experimental.<br></br>
+> **Default Value**: SIMPLE (Optional)<br></br>
+> `Config Param: WRITE_EXECUTOR_TYPE`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
@@ -2734,12 +2774,13 @@ Configurations that control write behavior on Hudi tables. These can be directly
 > Table services such as compaction and clustering can fail and prevent syncing to the metaclient. Set this to true to fail writes when table services fail<br></br>
 > **Default Value**: true (Optional)<br></br>
 > `Config Param: FAIL_ON_INLINE_TABLE_SERVICE_EXCEPTION`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
 > #### hoodie.upsert.shuffle.parallelism
 > Parallelism to use for upsert operation on the table. Upserts can shuffle data to perform index lookups, file sizing, bin packing records optimallyinto file groups.<br></br>
-> **Default Value**: 200 (Optional)<br></br>
+> **Default Value**: 0 (Optional)<br></br>
 > `Config Param: UPSERT_PARALLELISM_VALUE`<br></br>
 
 ---
@@ -2772,13 +2813,6 @@ Configurations that control write behavior on Hudi tables. These can be directly
 
 ---
 
-> #### hoodie.write.executor.disruptor.buffer.size
-> The size of the Disruptor Executor ring buffer, must be power of 2<br></br>
-> **Default Value**: 1024 (Optional)<br></br>
-> `Config Param: WRITE_DISRUPTOR_BUFFER_SIZE`<br></br>
-
----
-
 > #### hoodie.client.heartbeat.tolerable.misses
 > Number of heartbeat misses, before a writer is deemed not alive and all pending writes are aborted.<br></br>
 > **Default Value**: 2 (Optional)<br></br>
@@ -2805,6 +2839,14 @@ Configurations that control write behavior on Hudi tables. These can be directly
 > **Default Value**: true (Optional)<br></br>
 > `Config Param: RELEASE_RESOURCE_ENABLE`<br></br>
 > `Since Version: 0.11.0`<br></br>
+
+---
+
+> #### hoodie.write.concurrency.async.conflict.detector.period_ms
+> Used for timeline-server-based markers with `AsyncTimelineServerBasedDetectionStrategy`. The period in milliseconds between successive executions of async marker-based conflict detection.<br></br>
+> **Default Value**: 30000 (Optional)<br></br>
+> `Config Param: ASYNC_CONFLICT_DETECTOR_PERIOD_MS`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
@@ -2836,27 +2878,6 @@ Configurations that control write behavior on Hudi tables. These can be directly
 
 ---
 
-> #### hoodie.datasource.write.merger.strategy
-> Id of merger strategy. Hudi will pick HoodieRecordMerger implementations in hoodie.datasource.write.merger.impls which has the same merger strategy id<br></br>
-> **Default Value**: eeb8d96f-b1e4-49fd-bbf8-28ac514178e5 (Optional)<br></br>
-> `Config Param: MERGER_STRATEGY`<br></br>
-
----
-
-> #### hoodie.write.executor.disruptor.wait.strategy
-> Strategy employed for making Disruptor Executor wait on a cursor. Other options are SLEEPING_WAIT, it attempts to be conservative with CPU usage by using a simple busy wait loopYIELDING_WAIT, it is designed for cases where there is the option to burn CPU cycles with the goal of improving latencyBUSY_SPIN_WAIT, it can be used in low-latency systems, but puts the highest constraints on the deployment environment<br></br>
-> **Default Value**: BLOCKING_WAIT (Optional)<br></br>
-> `Config Param: WRITE_WAIT_STRATEGY`<br></br>
-
----
-
-> #### hoodie.write.executor.type
-> Set executor which orchestrates concurrent producers and consumers communicating through a message queue.BOUNDED_IN_MEMORY(default): Use LinkedBlockingQueue as a bounded in-memory queue, this queue will use extra lock to balance producers and consumerDISRUPTOR: Use disruptor which a lock free message queue as inner message, this queue may gain better writing performance if lock was the bottleneck. SIMPLE: Executor with no inner message queue and no inner lock. Consuming and writing records from iterator directly. Compared with BIM and DISRUPTOR, this queue has no need for additional memory and cpu resources due to lock or multithreading, but also lost some benefits such as speed limit. Although DISRUPTOR_EXECUTOR and SIMPLE are still in experimental.<br></br>
-> **Default Value**: BOUNDED_IN_MEMORY (Optional)<br></br>
-> `Config Param: EXECUTOR_TYPE`<br></br>
-
----
-
 > #### hoodie.allow.operation.metadata.field
 > Whether to include '_hoodie_operation' in the metadata fields. Once enabled, all the changes of a record are persisted to the delta log directly without merge<br></br>
 > **Default Value**: false (Optional)<br></br>
@@ -2876,6 +2897,59 @@ Configurations that control write behavior on Hudi tables. These can be directly
 > When enabled, records in older schema are rewritten into newer schema during upsert,delete and background compaction,clustering operations.<br></br>
 > **Default Value**: false (Optional)<br></br>
 > `Config Param: AVRO_EXTERNAL_SCHEMA_TRANSFORMATION_ENABLE`<br></br>
+
+---
+
+### Metastore Configs {#Metastore-Configs}
+
+Configurations used by the Hudi Metastore.
+
+`Config Class`: org.apache.hudi.common.config.HoodieMetaserverConfig<br></br>
+> #### hoodie.metaserver.connect.retry.delay
+> Number of seconds for the client to wait between consecutive connection attempts<br></br>
+> **Default Value**: 1 (Optional)<br></br>
+> `Config Param: METASERVER_CONNECTION_RETRY_DELAY`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
+> #### hoodie.metaserver.uris
+> Metastore server uris<br></br>
+> **Default Value**: thrift://localhost:9090 (Optional)<br></br>
+> `Config Param: METASERVER_URLS`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
+> #### hoodie.table.name
+> Table name that will be used for registering with Hive. Needs to be same across runs.<br></br>
+> **Default Value**: N/A (Required)<br></br>
+> `Config Param: TABLE_NAME`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
+> #### hoodie.database.name
+> Database name that will be used for incremental query.If different databases have the same table name during incremental query, we can set it to limit the table name under a specific database<br></br>
+> **Default Value**: N/A (Required)<br></br>
+> `Config Param: DATABASE_NAME`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
+> #### hoodie.metaserver.enabled
+> Enable Hudi metaserver for storing Hudi tables' metadata.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: METASERVER_ENABLE`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
+> #### hoodie.metaserver.connect.retries
+> Number of retries while opening a connection to metastore<br></br>
+> **Default Value**: 3 (Optional)<br></br>
+> `Config Param: METASERVER_CONNECTION_RETRIES`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
@@ -3427,7 +3501,7 @@ Configs that control locking mechanisms required for concurrency control  betwee
 
 > #### hoodie.write.lock.client.num_retries
 > Maximum number of times to retry to acquire lock additionally from the lock manager.<br></br>
-> **Default Value**: 10 (Optional)<br></br>
+> **Default Value**: 50 (Optional)<br></br>
 > `Config Param: LOCK_ACQUIRE_CLIENT_NUM_RETRIES`<br></br>
 > `Since Version: 0.8.0`<br></br>
 
@@ -3555,7 +3629,7 @@ Configs that control locking mechanisms required for concurrency control  betwee
 
 > #### hoodie.write.lock.client.wait_time_ms_between_retry
 > Amount of time to wait between retries on the lock provider by the lock manager<br></br>
-> **Default Value**: 10000 (Optional)<br></br>
+> **Default Value**: 5000 (Optional)<br></br>
 > `Config Param: LOCK_ACQUIRE_CLIENT_RETRY_WAIT_TIME_IN_MILLIS`<br></br>
 > `Since Version: 0.8.0`<br></br>
 
@@ -3605,6 +3679,7 @@ Configurations that control compaction (merging of log files onto a new base fil
 > When set to true, logcompaction service is triggered after each write. While being  simpler operationally, this adds extra latency on the write path.<br></br>
 > **Default Value**: false (Optional)<br></br>
 > `Config Param: INLINE_LOG_COMPACT`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
@@ -3619,6 +3694,7 @@ Configurations that control compaction (merging of log files onto a new base fil
 > Only if the log file num is greater than the threshold, the file group will be compacted.<br></br>
 > **Default Value**: 0 (Optional)<br></br>
 > `Config Param: COMPACTION_LOG_FILE_NUM_THRESHOLD`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
@@ -3651,17 +3727,18 @@ Configurations that control compaction (merging of log files onto a new base fil
 
 ---
 
+> #### hoodie.optimized.log.blocks.scan.enable
+> New optimized scan for log blocks that handles all multi-writer use-cases while appending to log files. It also differentiates original blocks written by ingestion writers and compacted blocks written log compaction.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: ENABLE_OPTIMIZED_LOG_BLOCKS_SCAN`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
 > #### hoodie.log.compaction.blocks.threshold
 > Log compaction can be scheduled if the no. of log blocks crosses this threshold value. This is effective only when log compaction is enabled via hoodie.log.compaction.inline<br></br>
 > **Default Value**: 5 (Optional)<br></br>
 > `Config Param: LOG_COMPACTION_BLOCKS_THRESHOLD`<br></br>
-
----
-
-> #### hoodie.log.record.reader.use.scanV2
-> ScanV2 logic address all the multiwriter challenges while appending to log files. It also differentiates original blocks written by ingestion writers and compacted blocks written log compaction.<br></br>
-> **Default Value**: false (Optional)<br></br>
-> `Config Param: USE_LOG_RECORD_READER_SCAN_V2`<br></br>
 > `Since Version: 0.13.0`<br></br>
 
 ---
@@ -3790,6 +3867,7 @@ Configurations that control how file metadata is stored by Hudi, for transaction
 > Fraction of the file system view memory, to be used for holding log compaction related metadata.<br></br>
 > **Default Value**: 0.8 (Optional)<br></br>
 > `Config Param: SPILLABLE_LOG_COMPACTION_MEM_FRACTION`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
@@ -3994,6 +4072,7 @@ Configurations that control indexing behavior, which tags incoming records as ei
 > Only applies if bucket index engine is consistent hashing. Determine the lower bound of the number of buckets in the hudi table. Bucket resizing cannot be done lower than this min limit.<br></br>
 > **Default Value**: N/A (Required)<br></br>
 > `Config Param: BUCKET_INDEX_MIN_NUM_BUCKETS`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
@@ -4001,6 +4080,7 @@ Configurations that control indexing behavior, which tags incoming records as ei
 > Control if buckets should be merged when using consistent hashing bucket indexSpecifically, if a file slice size is smaller than `hoodie.xxxx.max.file.size` * threshold, then it will be consideredas a merge candidate.<br></br>
 > **Default Value**: 0.2 (Optional)<br></br>
 > `Config Param: BUCKET_MERGE_THRESHOLD`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
@@ -4015,6 +4095,7 @@ Configurations that control indexing behavior, which tags incoming records as ei
 > Only applies if bucket index engine is consistent hashing. Determine the upper bound of the number of buckets in the hudi table. Bucket resizing cannot be done higher than this max limit.<br></br>
 > **Default Value**: N/A (Required)<br></br>
 > `Config Param: BUCKET_INDEX_MAX_NUM_BUCKETS`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
@@ -4044,6 +4125,7 @@ Configurations that control indexing behavior, which tags incoming records as ei
 > Control if the bucket should be split when using consistent hashing bucket index.Specifically, if a file slice size reaches `hoodie.xxxx.max.file.size` * threshold, then split will be carried out.<br></br>
 > **Default Value**: 2.0 (Optional)<br></br>
 > `Config Param: BUCKET_SPLIT_THRESHOLD`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
@@ -4220,7 +4302,7 @@ Configurations that control the clustering table service in hudi, which optimize
 ---
 
 > #### hoodie.clustering.plan.partition.filter.mode
-> Partition filter mode used in the creation of clustering plan. Available values are - NONE: do not filter table partition and thus the clustering plan will include all partitions that have clustering candidate.RECENT_DAYS: keep a continuous range of partitions, worked together with configs 'hoodie.clustering.plan.strategy.daybased.lookback.partitions' and 'hoodie.clustering.plan.strategy.daybased.skipfromlatest.partitions.SELECTED_PARTITIONS: keep partitions that are in the specified range ['hoodie.clustering.plan.strategy.cluster.begin.partition', 'hoodie.clustering.plan.strategy.cluster.end.partition'].<br></br>
+> Partition filter mode used in the creation of clustering plan. Available values are - NONE: do not filter table partition and thus the clustering plan will include all partitions that have clustering candidate.RECENT_DAYS: keep a continuous range of partitions, worked together with configs 'hoodie.clustering.plan.strategy.daybased.lookback.partitions' and 'hoodie.clustering.plan.strategy.daybased.skipfromlatest.partitions.SELECTED_PARTITIONS: keep partitions that are in the specified range ['hoodie.clustering.plan.strategy.cluster.begin.partition', 'hoodie.clustering.plan.strategy.cluster.end.partition'].DAY_ROLLING: clustering partitions on a rolling basis by the hour to avoid clustering all partitions each time, which strategy sorts the partitions asc and chooses the partition of which index is divided by 24 and the remainder is equal to the current hour.<br></br>
 > **Default Value**: NONE (Optional)<br></br>
 > `Config Param: PLAN_PARTITION_FILTER_MODE_NAME`<br></br>
 > `Since Version: 0.11.0`<br></br>
@@ -4408,6 +4490,929 @@ Configurations that control how you want to bootstrap your existing tables for t
 
 ---
 
+## Metadata Sync Configs {#METADATA_SYNC}
+Please fill in the description for Config Group Name: Metadata Sync Configs
+
+### Global Hive Sync Configs {#Global-Hive-Sync-Configs}
+
+Global replication configurations used by the Hudi to sync metadata to Hive Metastore.
+
+`Config Class`: org.apache.hudi.hive.replication.GlobalHiveSyncConfig<br></br>
+> #### hoodie.datasource.meta.sync.enable
+> Enable Syncing the Hudi Table with an external meta store or data catalog.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_ENABLED`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.use_pre_apache_input_format
+> Flag to choose InputFormat under com.uber.hoodie package instead of org.apache.hudi package. Use this when you are in the process of migrating from com.uber.hoodie to org.apache.hudi. Stop using this after you migrated the table definition to org.apache.hudi input format<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: HIVE_USE_PRE_APACHE_INPUT_FORMAT`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.sync_comment
+> Whether to sync the table column comments while syncing the table.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: HIVE_SYNC_COMMENT`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.password
+> hive password to use<br></br>
+> **Default Value**: hive (Optional)<br></br>
+> `Config Param: HIVE_PASS`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.support_timestamp
+> ‘INT64’ with original type TIMESTAMP_MICROS is converted to hive ‘timestamp’ type. Disabled by default for backward compatibility.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: HIVE_SUPPORT_TIMESTAMP_TYPE`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.create_managed_table
+> Whether to sync the table as managed table.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: HIVE_CREATE_MANAGED_TABLE`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.table
+> The name of the destination table that we should sync the hudi table to.<br></br>
+> **Default Value**: unknown (Optional)<br></br>
+> `Config Param: META_SYNC_TABLE_NAME`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.partition_extractor_class
+> Class which implements PartitionValueExtractor to extract the partition values, default 'org.apache.hudi.hive.MultiPartKeysValueExtractor'.<br></br>
+> **Default Value**: org.apache.hudi.hive.MultiPartKeysValueExtractor (Optional)<br></br>
+> `Config Param: META_SYNC_PARTITION_EXTRACTOR_CLASS`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.serde_properties
+> Serde properties to hive table.<br></br>
+> **Default Value**: N/A (Required)<br></br>
+> `Config Param: HIVE_TABLE_SERDE_PROPERTIES`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.enable
+> When set to true, register/sync the table to Apache Hive metastore.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: HIVE_SYNC_ENABLED`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.ignore_exceptions
+> Ignore exceptions when syncing with Hive.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: HIVE_IGNORE_EXCEPTIONS`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.assume_date_partitioning
+> Assume partitioning is yyyy/MM/dd<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_ASSUME_DATE_PARTITION`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.bucket_sync
+> Whether sync hive metastore bucket specification when using bucket index.The specification is 'CLUSTERED BY (trace_id) SORTED BY (trace_id ASC) INTO 65536 BUCKETS'<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: HIVE_SYNC_BUCKET_SYNC`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.auto_create_database
+> Auto create hive database if does not exists<br></br>
+> **Default Value**: true (Optional)<br></br>
+> `Config Param: HIVE_AUTO_CREATE_DATABASE`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.skip_ro_suffix
+> Skip the _ro suffix for Read optimized table, when registering<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: HIVE_SKIP_RO_SUFFIX_FOR_READ_OPTIMIZED_TABLE`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.schema_string_length_thresh
+> <br></br>
+> **Default Value**: 4000 (Optional)<br></br>
+> `Config Param: HIVE_SYNC_SCHEMA_STRING_LENGTH_THRESHOLD`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.database
+> The name of the destination database that we should sync the hudi table to.<br></br>
+> **Default Value**: default (Optional)<br></br>
+> `Config Param: META_SYNC_DATABASE_NAME`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.table_properties
+> Additional properties to store with table.<br></br>
+> **Default Value**: N/A (Required)<br></br>
+> `Config Param: HIVE_TABLE_PROPERTIES`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.jdbcurl
+> Hive metastore url<br></br>
+> **Default Value**: jdbc:hive2://localhost:10000 (Optional)<br></br>
+> `Config Param: HIVE_URL`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.batch_num
+> The number of partitions one batch when synchronous partitions to hive.<br></br>
+> **Default Value**: 1000 (Optional)<br></br>
+> `Config Param: HIVE_BATCH_SYNC_PARTITION_NUM`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.filter_pushdown_max_size
+> Max size limit to push down partition filters, if the estimate push down filters exceed this size, will directly try to fetch all partitions<br></br>
+> **Default Value**: 1000 (Optional)<br></br>
+> `Config Param: HIVE_SYNC_FILTER_PUSHDOWN_MAX_SIZE`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.metastore.uris
+> Hive metastore url<br></br>
+> **Default Value**: thrift://localhost:9083 (Optional)<br></br>
+> `Config Param: METASTORE_URIS`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.use_jdbc
+> Use JDBC when hive synchronization is enabled<br></br>
+> **Default Value**: true (Optional)<br></br>
+> `Config Param: HIVE_USE_JDBC`<br></br>
+> `Deprecated Version: 0.9.0`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.sync_as_datasource
+> <br></br>
+> **Default Value**: true (Optional)<br></br>
+> `Config Param: HIVE_SYNC_AS_DATA_SOURCE_TABLE`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.table.strategy
+> Hive table synchronization strategy. Available option: ONLY_RO, ONLY_RT, ALL.<br></br>
+> **Default Value**: ALL (Optional)<br></br>
+> `Config Param: HIVE_SYNC_TABLE_STRATEGY`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
+> #### hoodie.datasource.meta_sync.condition.sync
+> If true, only sync on conditions like schema change or partition change.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_CONDITIONAL_SYNC`<br></br>
+
+---
+
+> #### hoodie.meta.sync.decode_partition
+> If true, meta sync will url-decode the partition path, as it is deemed as url-encoded. Default to false.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_DECODE_PARTITION`<br></br>
+
+---
+
+> #### hoodie.meta_sync.spark.version
+> The spark version used when syncing with a metastore.<br></br>
+> **Default Value**:  (Optional)<br></br>
+> `Config Param: META_SYNC_SPARK_VERSION`<br></br>
+
+---
+
+> #### hoodie.meta_sync.global.replicate.timestamp
+> <br></br>
+> **Default Value**: N/A (Required)<br></br>
+> `Config Param: META_SYNC_GLOBAL_REPLICATE_TIMESTAMP`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.mode
+> Mode to choose for Hive ops. Valid values are hms, jdbc and hiveql.<br></br>
+> **Default Value**: N/A (Required)<br></br>
+> `Config Param: HIVE_SYNC_MODE`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.filter_pushdown_enabled
+> Whether to enable push down partitions by filter<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: HIVE_SYNC_FILTER_PUSHDOWN_ENABLED`<br></br>
+
+---
+
+> #### hoodie.datasource.meta.sync.base.path
+> Base path of the hoodie table to sync<br></br>
+> **Default Value**:  (Optional)<br></br>
+> `Config Param: META_SYNC_BASE_PATH`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.base_file_format
+> Base file format for the sync.<br></br>
+> **Default Value**: PARQUET (Optional)<br></br>
+> `Config Param: META_SYNC_BASE_FILE_FORMAT`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.omit_metadata_fields
+> Whether to omit the hoodie metadata fields in the target table.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: HIVE_SYNC_OMIT_METADATA_FIELDS`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.bucket_sync_spec
+> The hive metastore bucket specification when using bucket index.The specification is 'CLUSTERED BY (trace_id) SORTED BY (trace_id ASC) INTO 65536 BUCKETS'<br></br>
+> **Default Value**:  (Optional)<br></br>
+> `Config Param: HIVE_SYNC_BUCKET_SYNC_SPEC`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.partition_fields
+> Field in the table to use for determining hive partition columns.<br></br>
+> **Default Value**:  (Optional)<br></br>
+> `Config Param: META_SYNC_PARTITION_FIELDS`<br></br>
+
+---
+
+> #### hoodie.meta.sync.metadata_file_listing
+> Enable the internal metadata table for file listing for syncing with metastores<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_USE_FILE_LISTING_FROM_METADATA`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.username
+> hive user name to use<br></br>
+> **Default Value**: hive (Optional)<br></br>
+> `Config Param: HIVE_USER`<br></br>
+
+---
+
+### Metadata Sync Configs {#Metadata-Sync-Configs}
+
+Configurations used by the Hudi to sync metadata to external metastores and catalogs.
+
+`Config Class`: org.apache.hudi.sync.common.HoodieSyncConfig<br></br>
+> #### hoodie.datasource.meta.sync.enable
+> Enable Syncing the Hudi Table with an external meta store or data catalog.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_ENABLED`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.assume_date_partitioning
+> Assume partitioning is yyyy/MM/dd<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_ASSUME_DATE_PARTITION`<br></br>
+
+---
+
+> #### hoodie.datasource.meta.sync.base.path
+> Base path of the hoodie table to sync<br></br>
+> **Default Value**:  (Optional)<br></br>
+> `Config Param: META_SYNC_BASE_PATH`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.base_file_format
+> Base file format for the sync.<br></br>
+> **Default Value**: PARQUET (Optional)<br></br>
+> `Config Param: META_SYNC_BASE_FILE_FORMAT`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.database
+> The name of the destination database that we should sync the hudi table to.<br></br>
+> **Default Value**: default (Optional)<br></br>
+> `Config Param: META_SYNC_DATABASE_NAME`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.table
+> The name of the destination table that we should sync the hudi table to.<br></br>
+> **Default Value**: unknown (Optional)<br></br>
+> `Config Param: META_SYNC_TABLE_NAME`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.partition_extractor_class
+> Class which implements PartitionValueExtractor to extract the partition values, default 'org.apache.hudi.hive.MultiPartKeysValueExtractor'.<br></br>
+> **Default Value**: org.apache.hudi.hive.MultiPartKeysValueExtractor (Optional)<br></br>
+> `Config Param: META_SYNC_PARTITION_EXTRACTOR_CLASS`<br></br>
+
+---
+
+> #### hoodie.datasource.meta_sync.condition.sync
+> If true, only sync on conditions like schema change or partition change.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_CONDITIONAL_SYNC`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.partition_fields
+> Field in the table to use for determining hive partition columns.<br></br>
+> **Default Value**:  (Optional)<br></br>
+> `Config Param: META_SYNC_PARTITION_FIELDS`<br></br>
+
+---
+
+> #### hoodie.meta.sync.metadata_file_listing
+> Enable the internal metadata table for file listing for syncing with metastores<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_USE_FILE_LISTING_FROM_METADATA`<br></br>
+
+---
+
+> #### hoodie.meta.sync.decode_partition
+> If true, meta sync will url-decode the partition path, as it is deemed as url-encoded. Default to false.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_DECODE_PARTITION`<br></br>
+
+---
+
+> #### hoodie.meta_sync.spark.version
+> The spark version used when syncing with a metastore.<br></br>
+> **Default Value**:  (Optional)<br></br>
+> `Config Param: META_SYNC_SPARK_VERSION`<br></br>
+
+---
+
+### DataHub Sync Configs {#DataHub-Sync-Configs}
+
+Configurations used by the Hudi to sync metadata to DataHub.
+
+`Config Class`: org.apache.hudi.sync.datahub.config.DataHubSyncConfig<br></br>
+> #### hoodie.datasource.meta.sync.enable
+> Enable Syncing the Hudi Table with an external meta store or data catalog.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_ENABLED`<br></br>
+
+---
+
+> #### hoodie.meta.sync.datahub.dataplatform.name
+> String used to represent Hudi when creating its corresponding DataPlatform entity within Datahub<br></br>
+> **Default Value**: hudi (Optional)<br></br>
+> `Config Param: META_SYNC_DATAHUB_DATAPLATFORM_NAME`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.table
+> The name of the destination table that we should sync the hudi table to.<br></br>
+> **Default Value**: unknown (Optional)<br></br>
+> `Config Param: META_SYNC_TABLE_NAME`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.partition_extractor_class
+> Class which implements PartitionValueExtractor to extract the partition values, default 'org.apache.hudi.hive.MultiPartKeysValueExtractor'.<br></br>
+> **Default Value**: org.apache.hudi.hive.MultiPartKeysValueExtractor (Optional)<br></br>
+> `Config Param: META_SYNC_PARTITION_EXTRACTOR_CLASS`<br></br>
+
+---
+
+> #### hoodie.datasource.meta_sync.condition.sync
+> If true, only sync on conditions like schema change or partition change.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_CONDITIONAL_SYNC`<br></br>
+
+---
+
+> #### hoodie.meta.sync.decode_partition
+> If true, meta sync will url-decode the partition path, as it is deemed as url-encoded. Default to false.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_DECODE_PARTITION`<br></br>
+
+---
+
+> #### hoodie.meta_sync.spark.version
+> The spark version used when syncing with a metastore.<br></br>
+> **Default Value**:  (Optional)<br></br>
+> `Config Param: META_SYNC_SPARK_VERSION`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.assume_date_partitioning
+> Assume partitioning is yyyy/MM/dd<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_ASSUME_DATE_PARTITION`<br></br>
+
+---
+
+> #### hoodie.datasource.meta.sync.base.path
+> Base path of the hoodie table to sync<br></br>
+> **Default Value**:  (Optional)<br></br>
+> `Config Param: META_SYNC_BASE_PATH`<br></br>
+
+---
+
+> #### hoodie.meta.sync.datahub.emitter.server
+> Server URL of the DataHub instance.<br></br>
+> **Default Value**: N/A (Required)<br></br>
+> `Config Param: META_SYNC_DATAHUB_EMITTER_SERVER`<br></br>
+
+---
+
+> #### hoodie.meta.sync.datahub.dataset.env
+> Environment to use when pushing entities to Datahub<br></br>
+> **Default Value**: DEV (Optional)<br></br>
+> `Config Param: META_SYNC_DATAHUB_DATASET_ENV`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.base_file_format
+> Base file format for the sync.<br></br>
+> **Default Value**: PARQUET (Optional)<br></br>
+> `Config Param: META_SYNC_BASE_FILE_FORMAT`<br></br>
+
+---
+
+> #### hoodie.meta.sync.datahub.dataset.identifier.class
+> Pluggable class to help provide info to identify a DataHub Dataset.<br></br>
+> **Default Value**: org.apache.hudi.sync.datahub.config.HoodieDataHubDatasetIdentifier (Optional)<br></br>
+> `Config Param: META_SYNC_DATAHUB_DATASET_IDENTIFIER_CLASS`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.database
+> The name of the destination database that we should sync the hudi table to.<br></br>
+> **Default Value**: default (Optional)<br></br>
+> `Config Param: META_SYNC_DATABASE_NAME`<br></br>
+
+---
+
+> #### hoodie.meta.sync.datahub.emitter.supplier.class
+> Pluggable class to supply a DataHub REST emitter to connect to the DataHub instance. This overwrites other emitter configs.<br></br>
+> **Default Value**: N/A (Required)<br></br>
+> `Config Param: META_SYNC_DATAHUB_EMITTER_SUPPLIER_CLASS`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.partition_fields
+> Field in the table to use for determining hive partition columns.<br></br>
+> **Default Value**:  (Optional)<br></br>
+> `Config Param: META_SYNC_PARTITION_FIELDS`<br></br>
+
+---
+
+> #### hoodie.meta.sync.metadata_file_listing
+> Enable the internal metadata table for file listing for syncing with metastores<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_USE_FILE_LISTING_FROM_METADATA`<br></br>
+
+---
+
+> #### hoodie.meta.sync.datahub.emitter.token
+> Auth token to connect to the DataHub instance.<br></br>
+> **Default Value**: N/A (Required)<br></br>
+> `Config Param: META_SYNC_DATAHUB_EMITTER_TOKEN`<br></br>
+
+---
+
+### BigQuery Sync Configs {#BigQuery-Sync-Configs}
+
+Configurations used by the Hudi to sync metadata to Google BigQuery.
+
+`Config Class`: org.apache.hudi.gcp.bigquery.BigQuerySyncConfig<br></br>
+> #### hoodie.datasource.meta.sync.enable
+> Enable Syncing the Hudi Table with an external meta store or data catalog.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_ENABLED`<br></br>
+
+---
+
+> #### hoodie.gcp.bigquery.sync.base_path
+> Base path of the hoodie table to sync<br></br>
+> **Default Value**: N/A (Required)<br></br>
+> `Config Param: BIGQUERY_SYNC_SYNC_BASE_PATH`<br></br>
+
+---
+
+> #### hoodie.gcp.bigquery.sync.source_uri
+> Name of the source uri gcs path of the table<br></br>
+> **Default Value**: N/A (Required)<br></br>
+> `Config Param: BIGQUERY_SYNC_SOURCE_URI`<br></br>
+
+---
+
+> #### hoodie.gcp.bigquery.sync.assume_date_partitioning
+> Assume standard yyyy/mm/dd partitioning, this exists to support backward compatibility. If you use hoodie 0.3.x, do not set this parameter<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: BIGQUERY_SYNC_ASSUME_DATE_PARTITIONING`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.table
+> The name of the destination table that we should sync the hudi table to.<br></br>
+> **Default Value**: unknown (Optional)<br></br>
+> `Config Param: META_SYNC_TABLE_NAME`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.partition_extractor_class
+> Class which implements PartitionValueExtractor to extract the partition values, default 'org.apache.hudi.hive.MultiPartKeysValueExtractor'.<br></br>
+> **Default Value**: org.apache.hudi.hive.MultiPartKeysValueExtractor (Optional)<br></br>
+> `Config Param: META_SYNC_PARTITION_EXTRACTOR_CLASS`<br></br>
+
+---
+
+> #### hoodie.gcp.bigquery.sync.project_id
+> Name of the target project in BigQuery<br></br>
+> **Default Value**: N/A (Required)<br></br>
+> `Config Param: BIGQUERY_SYNC_PROJECT_ID`<br></br>
+
+---
+
+> #### hoodie.gcp.bigquery.sync.use_file_listing_from_metadata
+> Fetch file listing from Hudi's metadata<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: BIGQUERY_SYNC_USE_FILE_LISTING_FROM_METADATA`<br></br>
+
+---
+
+> #### hoodie.datasource.meta_sync.condition.sync
+> If true, only sync on conditions like schema change or partition change.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_CONDITIONAL_SYNC`<br></br>
+
+---
+
+> #### hoodie.gcp.bigquery.sync.dataset_name
+> Name of the target dataset in BigQuery<br></br>
+> **Default Value**: N/A (Required)<br></br>
+> `Config Param: BIGQUERY_SYNC_DATASET_NAME`<br></br>
+
+---
+
+> #### hoodie.gcp.bigquery.sync.dataset_location
+> Location of the target dataset in BigQuery<br></br>
+> **Default Value**: N/A (Required)<br></br>
+> `Config Param: BIGQUERY_SYNC_DATASET_LOCATION`<br></br>
+
+---
+
+> #### hoodie.meta.sync.decode_partition
+> If true, meta sync will url-decode the partition path, as it is deemed as url-encoded. Default to false.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_DECODE_PARTITION`<br></br>
+
+---
+
+> #### hoodie.meta_sync.spark.version
+> The spark version used when syncing with a metastore.<br></br>
+> **Default Value**:  (Optional)<br></br>
+> `Config Param: META_SYNC_SPARK_VERSION`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.assume_date_partitioning
+> Assume partitioning is yyyy/MM/dd<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_ASSUME_DATE_PARTITION`<br></br>
+
+---
+
+> #### hoodie.datasource.meta.sync.base.path
+> Base path of the hoodie table to sync<br></br>
+> **Default Value**:  (Optional)<br></br>
+> `Config Param: META_SYNC_BASE_PATH`<br></br>
+
+---
+
+> #### hoodie.gcp.bigquery.sync.table_name
+> Name of the target table in BigQuery<br></br>
+> **Default Value**: N/A (Required)<br></br>
+> `Config Param: BIGQUERY_SYNC_TABLE_NAME`<br></br>
+
+---
+
+> #### hoodie.gcp.bigquery.sync.source_uri_prefix
+> Name of the source uri gcs path prefix of the table<br></br>
+> **Default Value**: N/A (Required)<br></br>
+> `Config Param: BIGQUERY_SYNC_SOURCE_URI_PREFIX`<br></br>
+
+---
+
+> #### hoodie.gcp.bigquery.sync.partition_fields
+> Comma-delimited partition fields. Default to non-partitioned.<br></br>
+> **Default Value**: N/A (Required)<br></br>
+> `Config Param: BIGQUERY_SYNC_PARTITION_FIELDS`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.base_file_format
+> Base file format for the sync.<br></br>
+> **Default Value**: PARQUET (Optional)<br></br>
+> `Config Param: META_SYNC_BASE_FILE_FORMAT`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.database
+> The name of the destination database that we should sync the hudi table to.<br></br>
+> **Default Value**: default (Optional)<br></br>
+> `Config Param: META_SYNC_DATABASE_NAME`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.partition_fields
+> Field in the table to use for determining hive partition columns.<br></br>
+> **Default Value**:  (Optional)<br></br>
+> `Config Param: META_SYNC_PARTITION_FIELDS`<br></br>
+
+---
+
+> #### hoodie.meta.sync.metadata_file_listing
+> Enable the internal metadata table for file listing for syncing with metastores<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_USE_FILE_LISTING_FROM_METADATA`<br></br>
+
+---
+
+### Hive Sync Configs {#Hive-Sync-Configs}
+
+Configurations used by the Hudi to sync metadata to Hive Metastore.
+
+`Config Class`: org.apache.hudi.hive.HiveSyncConfig<br></br>
+> #### hoodie.datasource.meta.sync.enable
+> Enable Syncing the Hudi Table with an external meta store or data catalog.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_ENABLED`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.use_pre_apache_input_format
+> Flag to choose InputFormat under com.uber.hoodie package instead of org.apache.hudi package. Use this when you are in the process of migrating from com.uber.hoodie to org.apache.hudi. Stop using this after you migrated the table definition to org.apache.hudi input format<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: HIVE_USE_PRE_APACHE_INPUT_FORMAT`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.sync_comment
+> Whether to sync the table column comments while syncing the table.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: HIVE_SYNC_COMMENT`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.password
+> hive password to use<br></br>
+> **Default Value**: hive (Optional)<br></br>
+> `Config Param: HIVE_PASS`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.support_timestamp
+> ‘INT64’ with original type TIMESTAMP_MICROS is converted to hive ‘timestamp’ type. Disabled by default for backward compatibility.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: HIVE_SUPPORT_TIMESTAMP_TYPE`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.create_managed_table
+> Whether to sync the table as managed table.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: HIVE_CREATE_MANAGED_TABLE`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.table
+> The name of the destination table that we should sync the hudi table to.<br></br>
+> **Default Value**: unknown (Optional)<br></br>
+> `Config Param: META_SYNC_TABLE_NAME`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.partition_extractor_class
+> Class which implements PartitionValueExtractor to extract the partition values, default 'org.apache.hudi.hive.MultiPartKeysValueExtractor'.<br></br>
+> **Default Value**: org.apache.hudi.hive.MultiPartKeysValueExtractor (Optional)<br></br>
+> `Config Param: META_SYNC_PARTITION_EXTRACTOR_CLASS`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.serde_properties
+> Serde properties to hive table.<br></br>
+> **Default Value**: N/A (Required)<br></br>
+> `Config Param: HIVE_TABLE_SERDE_PROPERTIES`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.enable
+> When set to true, register/sync the table to Apache Hive metastore.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: HIVE_SYNC_ENABLED`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.ignore_exceptions
+> Ignore exceptions when syncing with Hive.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: HIVE_IGNORE_EXCEPTIONS`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.assume_date_partitioning
+> Assume partitioning is yyyy/MM/dd<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_ASSUME_DATE_PARTITION`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.bucket_sync
+> Whether sync hive metastore bucket specification when using bucket index.The specification is 'CLUSTERED BY (trace_id) SORTED BY (trace_id ASC) INTO 65536 BUCKETS'<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: HIVE_SYNC_BUCKET_SYNC`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.auto_create_database
+> Auto create hive database if does not exists<br></br>
+> **Default Value**: true (Optional)<br></br>
+> `Config Param: HIVE_AUTO_CREATE_DATABASE`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.skip_ro_suffix
+> Skip the _ro suffix for Read optimized table, when registering<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: HIVE_SKIP_RO_SUFFIX_FOR_READ_OPTIMIZED_TABLE`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.schema_string_length_thresh
+> <br></br>
+> **Default Value**: 4000 (Optional)<br></br>
+> `Config Param: HIVE_SYNC_SCHEMA_STRING_LENGTH_THRESHOLD`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.database
+> The name of the destination database that we should sync the hudi table to.<br></br>
+> **Default Value**: default (Optional)<br></br>
+> `Config Param: META_SYNC_DATABASE_NAME`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.table_properties
+> Additional properties to store with table.<br></br>
+> **Default Value**: N/A (Required)<br></br>
+> `Config Param: HIVE_TABLE_PROPERTIES`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.jdbcurl
+> Hive metastore url<br></br>
+> **Default Value**: jdbc:hive2://localhost:10000 (Optional)<br></br>
+> `Config Param: HIVE_URL`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.batch_num
+> The number of partitions one batch when synchronous partitions to hive.<br></br>
+> **Default Value**: 1000 (Optional)<br></br>
+> `Config Param: HIVE_BATCH_SYNC_PARTITION_NUM`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.filter_pushdown_max_size
+> Max size limit to push down partition filters, if the estimate push down filters exceed this size, will directly try to fetch all partitions<br></br>
+> **Default Value**: 1000 (Optional)<br></br>
+> `Config Param: HIVE_SYNC_FILTER_PUSHDOWN_MAX_SIZE`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.metastore.uris
+> Hive metastore url<br></br>
+> **Default Value**: thrift://localhost:9083 (Optional)<br></br>
+> `Config Param: METASTORE_URIS`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.use_jdbc
+> Use JDBC when hive synchronization is enabled<br></br>
+> **Default Value**: true (Optional)<br></br>
+> `Config Param: HIVE_USE_JDBC`<br></br>
+> `Deprecated Version: 0.9.0`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.sync_as_datasource
+> <br></br>
+> **Default Value**: true (Optional)<br></br>
+> `Config Param: HIVE_SYNC_AS_DATA_SOURCE_TABLE`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.table.strategy
+> Hive table synchronization strategy. Available option: ONLY_RO, ONLY_RT, ALL.<br></br>
+> **Default Value**: ALL (Optional)<br></br>
+> `Config Param: HIVE_SYNC_TABLE_STRATEGY`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
+> #### hoodie.datasource.meta_sync.condition.sync
+> If true, only sync on conditions like schema change or partition change.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_CONDITIONAL_SYNC`<br></br>
+
+---
+
+> #### hoodie.meta.sync.decode_partition
+> If true, meta sync will url-decode the partition path, as it is deemed as url-encoded. Default to false.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_DECODE_PARTITION`<br></br>
+
+---
+
+> #### hoodie.meta_sync.spark.version
+> The spark version used when syncing with a metastore.<br></br>
+> **Default Value**:  (Optional)<br></br>
+> `Config Param: META_SYNC_SPARK_VERSION`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.mode
+> Mode to choose for Hive ops. Valid values are hms, jdbc and hiveql.<br></br>
+> **Default Value**: N/A (Required)<br></br>
+> `Config Param: HIVE_SYNC_MODE`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.filter_pushdown_enabled
+> Whether to enable push down partitions by filter<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: HIVE_SYNC_FILTER_PUSHDOWN_ENABLED`<br></br>
+
+---
+
+> #### hoodie.datasource.meta.sync.base.path
+> Base path of the hoodie table to sync<br></br>
+> **Default Value**:  (Optional)<br></br>
+> `Config Param: META_SYNC_BASE_PATH`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.base_file_format
+> Base file format for the sync.<br></br>
+> **Default Value**: PARQUET (Optional)<br></br>
+> `Config Param: META_SYNC_BASE_FILE_FORMAT`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.omit_metadata_fields
+> Whether to omit the hoodie metadata fields in the target table.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: HIVE_SYNC_OMIT_METADATA_FIELDS`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.bucket_sync_spec
+> The hive metastore bucket specification when using bucket index.The specification is 'CLUSTERED BY (trace_id) SORTED BY (trace_id ASC) INTO 65536 BUCKETS'<br></br>
+> **Default Value**:  (Optional)<br></br>
+> `Config Param: HIVE_SYNC_BUCKET_SYNC_SPEC`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.partition_fields
+> Field in the table to use for determining hive partition columns.<br></br>
+> **Default Value**:  (Optional)<br></br>
+> `Config Param: META_SYNC_PARTITION_FIELDS`<br></br>
+
+---
+
+> #### hoodie.meta.sync.metadata_file_listing
+> Enable the internal metadata table for file listing for syncing with metastores<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: META_SYNC_USE_FILE_LISTING_FROM_METADATA`<br></br>
+
+---
+
+> #### hoodie.datasource.hive_sync.username
+> hive user name to use<br></br>
+> **Default Value**: hive (Optional)<br></br>
+> `Config Param: HIVE_USER`<br></br>
+
+---
+
 ## Metrics Configs {#METRICS}
 These set of configs are used to enable monitoring and reporting of keyHudi stats and metrics.
 
@@ -4550,6 +5555,7 @@ Enables reporting on Hudi metrics. Hudi publishes metrics on every commit, clean
 > Enable metrics for locking infra. Useful when operating in multiwriter mode<br></br>
 > **Default Value**: false (Optional)<br></br>
 > `Config Param: LOCK_METRICS_ENABLE`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
