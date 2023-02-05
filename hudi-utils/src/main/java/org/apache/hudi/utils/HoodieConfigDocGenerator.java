@@ -92,6 +92,14 @@ public class HoodieConfigDocGenerator {
     populateSparkConfigs(contentMap);
 
     // Automated: Scan through all HoodieConfig superclasses using reflection
+    // first pass: collect
+    // config -> (groupName, subGroupName (optional))
+    // DynamoDBConfig -> ("write client", "lock")
+    // StorageConfig -> ("write client", null/"none")
+    // map: group -> subgroup -> config-property
+    
+    // second pass: sort and merge
+    // map: group -> stringbuilder
     for (Class<? extends HoodieConfig> subType : subTypes) {
       //Set<Class<? extends HoodieConfig>> subsubTypes = reflections.getSubTypesOf(subType);
       LOG.info("### Config class " + subType.getName());// + ": " + subsubTypes);

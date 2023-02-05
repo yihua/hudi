@@ -4,25 +4,45 @@ keywords: [ configurations, default, flink options, spark, configs, parameters ]
 permalink: /docs/configurations.html
 summary: This page covers the different ways of configuring your job to write/read Hudi tables. At a high level, you can control behaviour at few levels.
 toc: true
-last_modified_at: 2023-02-04T13:08:18.599
+last_modified_at: 2023-02-04T18:00:50.593
 ---
 
 This page covers the different ways of configuring your job to write/read Hudi tables. At a high level, you can control behaviour at few levels.
 
+- [**Environment Config**](#ENVIRONMENT_CONFIG): Hudi supports passing configurations via a configuration file `hudi-default.conf` in which each line consists of a key and a value separated by whitespace or = sign. For example:
+```
+hoodie.datasource.hive_sync.mode               jdbc
+hoodie.datasource.hive_sync.jdbcurl            jdbc:hive2://localhost:10000
+hoodie.datasource.hive_sync.support_timestamp  false
+```
+It helps to have a central configuration file for your common cross job configurations/tunings, so all the jobs on your cluster can utilize it. It also works with Spark SQL DML/DDL, and helps avoid having to pass configs inside the SQL statements.
+
+By default, Hudi would load the configuration file under `/etc/hudi/conf` directory. You can specify a different configuration directory location by setting the `HUDI_CONF_DIR` environment variable.
 - [**Spark Datasource Configs**](#SPARK_DATASOURCE): These configs control the Hudi Spark Datasource, providing ability to define keys/partitioning, pick out the write operation, specify how to merge records or choosing query type to read.
 - [**Flink Sql Configs**](#FLINK_SQL): These configs control the Hudi Flink SQL source/sink connectors, providing ability to define record keys, pick out the write operation, specify how to merge records, enable/disable asynchronous compaction or choosing query type to read.
 - [**Write Client Configs**](#WRITE_CLIENT): Internally, the Hudi datasource uses a RDD based HoodieWriteClient API to actually perform writes to storage. These configs provide deep control over lower level aspects like file sizing, compression, parallelism, compaction, write schema, cleaning etc. Although Hudi provides sane defaults, from time-time these configs may need to be tweaked to optimize for specific workloads.
-- [**Metadata Sync Configs**](#METADATA_SYNC): Please fill in the description for Config Group Name: Metadata Sync Configs
+- [**Metastore and Catalog Sync Configs**](#META_SYNC): Configurations used by the Hudi to sync metadata to external metastores and catalogs.
 - [**Metrics Configs**](#METRICS): These set of configs are used to enable monitoring and reporting of keyHudi stats and metrics.
 - [**Record Payload Config**](#RECORD_PAYLOAD): This is the lowest level of customization offered by Hudi. Record payloads define how to produce new values to upsert based on incoming new record and stored old record. Hudi provides default implementations such as OverwriteWithLatestAvroPayload which simply update table with the latest/last-written record. This can be overridden to a custom class extending HoodieRecordPayload class, on both datasource and WriteClient levels.
 - [**Kafka Connect Configs**](#KAFKA_CONNECT): These set of configs are used for Kafka Connect Sink Connector for writing Hudi Tables
-- [**Amazon Web Services Configs**](#AWS): Please fill in the description for Config Group Name: Amazon Web Services Configs
+- [**Amazon Web Services Configs**](#AWS): Configurations specific to Amazon Web Services.
 
 ## Externalized Config File
 Instead of directly passing configuration settings to every Hudi job, you can also centrally set them in a configuration
 file `hudi-default.conf`. By default, Hudi would load the configuration file under `/etc/hudi/conf` directory. You can
 specify a different configuration directory location by setting the `HUDI_CONF_DIR` environment variable. This can be
 useful for uniformly enforcing repeated configs (like Hive sync or write/index tuning), across your entire data lake.
+
+## Environment Config {#ENVIRONMENT_CONFIG}
+Hudi supports passing configurations via a configuration file `hudi-default.conf` in which each line consists of a key and a value separated by whitespace or = sign. For example:
+```
+hoodie.datasource.hive_sync.mode               jdbc
+hoodie.datasource.hive_sync.jdbcurl            jdbc:hive2://localhost:10000
+hoodie.datasource.hive_sync.support_timestamp  false
+```
+It helps to have a central configuration file for your common cross job configurations/tunings, so all the jobs on your cluster can utilize it. It also works with Spark SQL DML/DDL, and helps avoid having to pass configs inside the SQL statements.
+
+By default, Hudi would load the configuration file under `/etc/hudi/conf` directory. You can specify a different configuration directory location by setting the `HUDI_CONF_DIR` environment variable.
 
 ## Spark Datasource Configs {#SPARK_DATASOURCE}
 These configs control the Hudi Spark Datasource, providing ability to define keys/partitioning, pick out the write operation, specify how to merge records or choosing query type to read.
@@ -1145,7 +1165,7 @@ Actual value will be obtained by invoking .toString() on the field value. Nested
 ---
 
 > #### hoodie.datasource.write.keygenerator.type
-> Key generator type, that implements will extract the key out of incoming record<br></br>
+> Key generator type, that implements will extract the key out of incoming record. **Note** This is being actively worked on. Please use `hoodie.datasource.write.keygenerator.class` instead.<br></br>
 > **Default Value**: SIMPLE (Optional)<br></br>
 > `Config Param: KEYGEN_TYPE`<br></br>
 
@@ -1497,7 +1517,7 @@ Configurations that control storage layout and data distribution, which defines 
 
 ### Write commit callback configs {#Write-commit-callback-configs}
 
-Controls callback behavior into HTTP endpoints, to push  notifications on commits on hudi tables.
+
 
 `Config Class`: org.apache.hudi.config.HoodieWriteCommitCallbackConfig<br></br>
 > #### hoodie.write.commit.callback.on
@@ -1637,230 +1657,6 @@ Cleaning (reclamation of older/unused file groups/slices).
 
 ---
 
-### Table Configurations {#Table-Configurations}
-
-Configurations that persist across writes and read on a Hudi table  like  base, log file formats, table name, creation schema, table version layouts.  Configurations are loaded from hoodie.properties, these properties are usually set during initializing a path as hoodie base path and rarely changes during the lifetime of the table. Writers/Queries' configurations are validated against these  each time for compatibility.
-
-`Config Class`: org.apache.hudi.common.table.HoodieTableConfig<br></br>
-> #### hoodie.table.precombine.field
-> Field used in preCombining before actual write. By default, when two records have the same key value, the largest value for the precombine field determined by Object.compareTo(..), is picked.<br></br>
-> **Default Value**: N/A (Required)<br></br>
-> `Config Param: PRECOMBINE_FIELD`<br></br>
-
----
-
-> #### hoodie.table.cdc.enabled
-> When enable, persist the change data if necessary, and can be queried as a CDC query mode.<br></br>
-> **Default Value**: false (Optional)<br></br>
-> `Config Param: CDC_ENABLED`<br></br>
-> `Since Version: 0.13.0`<br></br>
-
----
-
-> #### hoodie.table.cdc.supplemental.logging.mode
-> Setting 'op_key_only' persists the 'op' and the record key only, setting 'data_before' persists the additional 'before' image, and setting 'data_before_after' persists the additional 'before' and 'after' images.<br></br>
-> **Default Value**: op_key_only (Optional)<br></br>
-> `Config Param: CDC_SUPPLEMENTAL_LOGGING_MODE`<br></br>
-> `Since Version: 0.13.0`<br></br>
-
----
-
-> #### hoodie.archivelog.folder
-> path under the meta folder, to store archived timeline instants at.<br></br>
-> **Default Value**: archived (Optional)<br></br>
-> `Config Param: ARCHIVELOG_FOLDER`<br></br>
-
----
-
-> #### hoodie.table.secondary.indexes.metadata
-> The metadata of secondary indexes<br></br>
-> **Default Value**: N/A (Required)<br></br>
-> `Config Param: SECONDARY_INDEXES_METADATA`<br></br>
-> `Since Version: 0.13.0`<br></br>
-
----
-
-> #### hoodie.table.type
-> The table type for the underlying data, for this write. This can’t change between writes.<br></br>
-> **Default Value**: COPY_ON_WRITE (Optional)<br></br>
-> `Config Param: TYPE`<br></br>
-
----
-
-> #### hoodie.table.timeline.timezone
-> User can set hoodie commit timeline timezone, such as utc, local and so on. local is default<br></br>
-> **Default Value**: LOCAL (Optional)<br></br>
-> `Config Param: TIMELINE_TIMEZONE`<br></br>
-
----
-
-> #### hoodie.partition.metafile.use.base.format
-> If true, partition metafiles are saved in the same format as base-files for this dataset (e.g. Parquet / ORC). If false (default) partition metafiles are saved as properties files.<br></br>
-> **Default Value**: false (Optional)<br></br>
-> `Config Param: PARTITION_METAFILE_USE_BASE_FORMAT`<br></br>
-
----
-
-> #### hoodie.table.checksum
-> Table checksum is used to guard against partial writes in HDFS. It is added as the last entry in hoodie.properties and then used to validate while reading table config.<br></br>
-> **Default Value**: N/A (Required)<br></br>
-> `Config Param: TABLE_CHECKSUM`<br></br>
-> `Since Version: 0.11.0`<br></br>
-
----
-
-> #### hoodie.table.create.schema
-> Schema used when creating the table, for the first time.<br></br>
-> **Default Value**: N/A (Required)<br></br>
-> `Config Param: CREATE_SCHEMA`<br></br>
-
----
-
-> #### hoodie.table.recordkey.fields
-> Columns used to uniquely identify the table. Concatenated values of these fields are used as  the record key component of HoodieKey.<br></br>
-> **Default Value**: N/A (Required)<br></br>
-> `Config Param: RECORDKEY_FIELDS`<br></br>
-
----
-
-> #### hoodie.table.log.file.format
-> Log format used for the delta logs.<br></br>
-> **Default Value**: HOODIE_LOG (Optional)<br></br>
-> `Config Param: LOG_FILE_FORMAT`<br></br>
-
----
-
-> #### hoodie.bootstrap.index.enable
-> Whether or not, this is a bootstrapped table, with bootstrap base data and an mapping index defined, default true.<br></br>
-> **Default Value**: true (Optional)<br></br>
-> `Config Param: BOOTSTRAP_INDEX_ENABLE`<br></br>
-
----
-
-> #### hoodie.table.metadata.partitions
-> Comma-separated list of metadata partitions that have been completely built and in-sync with data table. These partitions are ready for use by the readers<br></br>
-> **Default Value**: N/A (Required)<br></br>
-> `Config Param: TABLE_METADATA_PARTITIONS`<br></br>
-> `Since Version: 0.11.0`<br></br>
-
----
-
-> #### hoodie.table.metadata.partitions.inflight
-> Comma-separated list of metadata partitions whose building is in progress. These partitions are not yet ready for use by the readers.<br></br>
-> **Default Value**: N/A (Required)<br></br>
-> `Config Param: TABLE_METADATA_PARTITIONS_INFLIGHT`<br></br>
-> `Since Version: 0.11.0`<br></br>
-
----
-
-> #### hoodie.table.partition.fields
-> Fields used to partition the table. Concatenated values of these fields are used as the partition path, by invoking toString()<br></br>
-> **Default Value**: N/A (Required)<br></br>
-> `Config Param: PARTITION_FIELDS`<br></br>
-
----
-
-> #### hoodie.populate.meta.fields
-> When enabled, populates all meta fields. When disabled, no meta fields are populated and incremental queries will not be functional. This is only meant to be used for append only/immutable data for batch processing<br></br>
-> **Default Value**: true (Optional)<br></br>
-> `Config Param: POPULATE_META_FIELDS`<br></br>
-
----
-
-> #### hoodie.compaction.payload.class
-> Payload class to use for performing compactions, i.e merge delta logs with current base file and then  produce a new base file.<br></br>
-> **Default Value**: org.apache.hudi.common.model.OverwriteWithLatestAvroPayload (Optional)<br></br>
-> `Config Param: PAYLOAD_CLASS_NAME`<br></br>
-
----
-
-> #### hoodie.bootstrap.index.class
-> Implementation to use, for mapping base files to bootstrap base file, that contain actual data.<br></br>
-> **Default Value**: org.apache.hudi.common.bootstrap.index.HFileBootstrapIndex (Optional)<br></br>
-> `Config Param: BOOTSTRAP_INDEX_CLASS_NAME`<br></br>
-
----
-
-> #### hoodie.datasource.write.partitionpath.urlencode
-> Should we url encode the partition path value, before creating the folder structure.<br></br>
-> **Default Value**: false (Optional)<br></br>
-> `Config Param: URL_ENCODE_PARTITIONING`<br></br>
-
----
-
-> #### hoodie.datasource.write.hive_style_partitioning
-> Flag to indicate whether to use Hive style partitioning.
-If set true, the names of partition folders follow <partition_column_name>=<partition_value> format.
-By default false (the names of partition folders are only partition values)<br></br>
-> **Default Value**: false (Optional)<br></br>
-> `Config Param: HIVE_STYLE_PARTITIONING_ENABLE`<br></br>
-
----
-
-> #### hoodie.table.keygenerator.class
-> Key Generator class property for the hoodie table<br></br>
-> **Default Value**: N/A (Required)<br></br>
-> `Config Param: KEY_GENERATOR_CLASS_NAME`<br></br>
-
----
-
-> #### hoodie.table.version
-> Version of table, used for running upgrade/downgrade steps between releases with potentially breaking/backwards compatible changes.<br></br>
-> **Default Value**: ZERO (Optional)<br></br>
-> `Config Param: VERSION`<br></br>
-
----
-
-> #### hoodie.table.base.file.format
-> Base file format to store all the base file data.<br></br>
-> **Default Value**: PARQUET (Optional)<br></br>
-> `Config Param: BASE_FILE_FORMAT`<br></br>
-
----
-
-> #### hoodie.bootstrap.base.path
-> Base path of the dataset that needs to be bootstrapped as a Hudi table<br></br>
-> **Default Value**: N/A (Required)<br></br>
-> `Config Param: BOOTSTRAP_BASE_PATH`<br></br>
-
----
-
-> #### hoodie.datasource.write.drop.partition.columns
-> When set to true, will not write the partition columns into hudi. By default, false.<br></br>
-> **Default Value**: false (Optional)<br></br>
-> `Config Param: DROP_PARTITION_COLUMNS`<br></br>
-
----
-
-> #### hoodie.database.name
-> Database name that will be used for incremental query.If different databases have the same table name during incremental query, we can set it to limit the table name under a specific database<br></br>
-> **Default Value**: N/A (Required)<br></br>
-> `Config Param: DATABASE_NAME`<br></br>
-
----
-
-> #### hoodie.timeline.layout.version
-> Version of timeline used, by the table.<br></br>
-> **Default Value**: N/A (Required)<br></br>
-> `Config Param: TIMELINE_LAYOUT_VERSION`<br></br>
-
----
-
-> #### hoodie.table.name
-> Table name that will be used for registering with Hive. Needs to be same across runs.<br></br>
-> **Default Value**: N/A (Required)<br></br>
-> `Config Param: NAME`<br></br>
-
----
-
-> #### hoodie.compaction.record.merger.strategy
-> Id of merger strategy. Hudi will pick HoodieRecordMerger implementations in hoodie.datasource.write.record.merger.impls which has the same merger strategy id<br></br>
-> **Default Value**: eeb8d96f-b1e4-49fd-bbf8-28ac514178e5 (Optional)<br></br>
-> `Config Param: RECORD_MERGER_STRATEGY`<br></br>
-> `Since Version: 0.13.0`<br></br>
-
----
-
 ### Memory Configurations {#Memory-Configurations}
 
 Controls memory usage for compaction and merges, performed internally by Hudi.
@@ -1903,7 +1699,7 @@ Controls memory usage for compaction and merges, performed internally by Hudi.
 
 > #### hoodie.memory.spillable.map.path
 > Default file path for spillable map<br></br>
-> **Default Value**: /tmp/ (Optional)<br></br>
+> **Default Value**: N/A (Required)<br></br>
 > `Config Param: SPILLABLE_MAP_BASE_PATH`<br></br>
 
 ---
@@ -1921,7 +1717,7 @@ Configs that control DynamoDB based locking mechanisms required for concurrency 
 
 `Config Class`: org.apache.hudi.config.DynamoDbBasedLockConfig<br></br>
 > #### hoodie.write.lock.dynamodb.billing_mode
-> For DynamoDB based lock provider, by default it is PAY_PER_REQUEST mode<br></br>
+> For DynamoDB based lock provider, by default it is `PAY_PER_REQUEST` mode. Alternative is `PROVISIONED`.<br></br>
 > **Default Value**: PAY_PER_REQUEST (Optional)<br></br>
 > `Config Param: DYNAMODB_LOCK_BILLING_MODE`<br></br>
 > `Since Version: 0.10.0`<br></br>
@@ -2676,7 +2472,7 @@ Configurations that control write behavior on Hudi tables. These can be directly
 ---
 
 > #### hoodie.datasource.write.keygenerator.type
-> Easily configure one the built-in key generators, instead of specifying the key generator class.Currently supports SIMPLE, COMPLEX, TIMESTAMP, CUSTOM, NON_PARTITION, GLOBAL_DELETE<br></br>
+> Easily configure one the built-in key generators, instead of specifying the key generator class.Currently supports SIMPLE, COMPLEX, TIMESTAMP, CUSTOM, NON_PARTITION, GLOBAL_DELETE. **Note** This is being actively worked on. Please use `hoodie.datasource.write.keygenerator.class` instead.<br></br>
 > **Default Value**: SIMPLE (Optional)<br></br>
 > `Config Param: KEYGENERATOR_TYPE`<br></br>
 
@@ -2824,6 +2620,14 @@ Configurations that control write behavior on Hudi tables. These can be directly
 > Enable different concurrency modes. Options are SINGLE_WRITER: Only one active writer to the table. Maximizes throughputOPTIMISTIC_CONCURRENCY_CONTROL: Multiple writers can operate on the table and exactly one of them succeed if a conflict (writes affect the same file group) is detected.<br></br>
 > **Default Value**: SINGLE_WRITER (Optional)<br></br>
 > `Config Param: WRITE_CONCURRENCY_MODE`<br></br>
+
+---
+
+> #### hoodie.datasource.write.schema.allow.auto.evolution.column.drop
+> Controls whether table's schema is allowed to automatically evolve when incoming batch's schema can have any of the columns dropped. By default, Hudi will not allow this kind of (auto) schema evolution. Set this config to true to allow table's schema to be updated automatically when columns are dropped from the new incoming batch.<br></br>
+> **Default Value**: false (Optional)<br></br>
+> `Config Param: SCHEMA_ALLOW_AUTO_EVOLUTION_COLUMN_DROP`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
@@ -3478,9 +3282,9 @@ Configurations that control aspects around writing, sizing, reading base and log
 
 ---
 
-### Locks Configurations {#Locks-Configurations}
+### Common Lock Configurations {#Common-Lock-Configurations}
 
-Configs that control locking mechanisms required for concurrency control  between writers to a Hudi table. Concurrency between Hudi's own table services  are auto managed internally.
+
 
 `Config Class`: org.apache.hudi.config.HoodieLockConfig<br></br>
 > #### hoodie.write.lock.zookeeper.base_path
@@ -3943,9 +3747,9 @@ Configurations that control how file metadata is stored by Hudi, for transaction
 
 ---
 
-### Index Configs {#Index-Configs}
+### Common Index Configs {#Common-Index-Configs}
 
-Configurations that control indexing behavior, which tags incoming records as either inserts or updates to older records.
+
 
 `Config Class`: org.apache.hudi.config.HoodieIndexConfig<br></br>
 > #### hoodie.bloom.index.keys.per.bucket
@@ -4490,8 +4294,8 @@ Configurations that control how you want to bootstrap your existing tables for t
 
 ---
 
-## Metadata Sync Configs {#METADATA_SYNC}
-Please fill in the description for Config Group Name: Metadata Sync Configs
+## Metastore and Catalog Sync Configs {#META_SYNC}
+Configurations used by the Hudi to sync metadata to external metastores and catalogs.
 
 ### Global Hive Sync Configs {#Global-Hive-Sync-Configs}
 
@@ -4767,9 +4571,9 @@ Global replication configurations used by the Hudi to sync metadata to Hive Meta
 
 ---
 
-### Metadata Sync Configs {#Metadata-Sync-Configs}
+### Common Metadata Sync Configs {#Common-Metadata-Sync-Configs}
 
-Configurations used by the Hudi to sync metadata to external metastores and catalogs.
+
 
 `Config Class`: org.apache.hudi.sync.common.HoodieSyncConfig<br></br>
 > #### hoodie.datasource.meta.sync.enable
@@ -4945,17 +4749,17 @@ Configurations used by the Hudi to sync metadata to DataHub.
 
 ---
 
-> #### hoodie.meta.sync.datahub.dataset.identifier.class
-> Pluggable class to help provide info to identify a DataHub Dataset.<br></br>
-> **Default Value**: org.apache.hudi.sync.datahub.config.HoodieDataHubDatasetIdentifier (Optional)<br></br>
-> `Config Param: META_SYNC_DATAHUB_DATASET_IDENTIFIER_CLASS`<br></br>
-
----
-
 > #### hoodie.datasource.hive_sync.database
 > The name of the destination database that we should sync the hudi table to.<br></br>
 > **Default Value**: default (Optional)<br></br>
 > `Config Param: META_SYNC_DATABASE_NAME`<br></br>
+
+---
+
+> #### hoodie.meta.sync.datahub.dataset.identifier.class
+> Pluggable class to help provide info to identify a DataHub Dataset.<br></br>
+> **Default Value**: org.apache.hudi.sync.datahub.config.HoodieDataHubDatasetIdentifier (Optional)<br></br>
+> `Config Param: META_SYNC_DATAHUB_DATASET_IDENTIFIER_CLASS`<br></br>
 
 ---
 
@@ -5817,7 +5621,7 @@ Configurations for Kafka Connect Sink Connector for Hudi.
 ---
 
 ## Amazon Web Services Configs {#AWS}
-Please fill in the description for Config Group Name: Amazon Web Services Configs
+Configurations specific to Amazon Web Services.
 
 ### Amazon Web Services Configs {#Amazon-Web-Services-Configs}
 
