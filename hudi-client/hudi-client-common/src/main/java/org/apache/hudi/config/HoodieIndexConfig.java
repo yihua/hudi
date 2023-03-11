@@ -181,13 +181,21 @@ public class HoodieIndexConfig extends HoodieConfig {
       .key("hoodie.simple.index.parallelism")
       .defaultValue("100")
       .withDocumentation("Only applies if index type is SIMPLE. "
-          + "This is the amount of parallelism for index lookup, which involves a Spark Shuffle");
+          + "This limits the parallelism of fetching records from the base files of affected "
+          + "partitions. The index picks the configured parallelism if the number of base "
+          + "files is larger than this configured value; otherwise, the number of base files "
+          + "is used as the parallelism. If the indexing stage is slow due to the limited "
+          + "parallelism, you can increase this.");
 
   public static final ConfigProperty<String> GLOBAL_SIMPLE_INDEX_PARALLELISM = ConfigProperty
       .key("hoodie.global.simple.index.parallelism")
       .defaultValue("100")
       .withDocumentation("Only applies if index type is GLOBAL_SIMPLE. "
-          + "This is the amount of parallelism for index lookup, which involves a Spark Shuffle");
+          + "This limits the parallelism of fetching records from the base files of all table "
+          + "partitions. The index picks the configured parallelism if the number of base "
+          + "files is larger than this configured value; otherwise, the number of base files "
+          + "is used as the parallelism. If the indexing stage is slow due to the limited "
+          + "parallelism, you can increase this.");
 
   // 1B bloom filter checks happen in 250 seconds. 500ms to read a bloom filter.
   // 10M checks in 2500ms, thus amortizing the cost of reading bloom filter across partitions.
