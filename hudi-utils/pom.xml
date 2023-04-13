@@ -46,6 +46,12 @@
             <groupId>org.apache.hudi</groupId>
             <artifactId>hudi-common</artifactId>
             <version>${hudi.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.glassfish</groupId>
+                    <artifactId>javax.el</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- Hudi spark datasource for Spark Configs -->
@@ -53,18 +59,36 @@
             <groupId>org.apache.hudi</groupId>
             <artifactId>hudi-spark_${scala.binary.version}</artifactId>
             <version>${hudi.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.glassfish</groupId>
+                    <artifactId>javax.el</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <dependency>
             <groupId>org.apache.hudi</groupId>
             <artifactId>hudi-aws</artifactId>
             <version>${hudi.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.glassfish</groupId>
+                    <artifactId>javax.el</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <dependency>
             <groupId>org.apache.hudi</groupId>
             <artifactId>hudi-spark-common_${scala.binary.version}</artifactId>
             <version>${hudi.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.glassfish</groupId>
+                    <artifactId>javax.el</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- Hudi flink datasource for Flink Configs -->
@@ -72,6 +96,12 @@
           <groupId>org.apache.hudi</groupId>
           <artifactId>hudi-flink</artifactId>
           <version>${hudi.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.glassfish</groupId>
+                    <artifactId>javax.el</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <dependency>

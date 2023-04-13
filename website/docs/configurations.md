@@ -6,7 +6,7 @@ summary: This page covers the different ways of configuring your job to write/re
 toc: true
 toc_min_heading_level: 2
 toc_max_heading_level: 4
-last_modified_at: 2023-02-22T16:51:12.818
+last_modified_at: 2023-04-13T11:34:25.975
 ---
 
 This page covers the different ways of configuring your job to write/read Hudi tables. At a high level, you can control behaviour at few levels.
@@ -28,6 +28,7 @@ By default, Hudi would load the configuration file under `/etc/hudi/conf` direct
 - [**Record Payload Config**](#RECORD_PAYLOAD): This is the lowest level of customization offered by Hudi. Record payloads define how to produce new values to upsert based on incoming new record and stored old record. Hudi provides default implementations such as OverwriteWithLatestAvroPayload which simply update table with the latest/last-written record. This can be overridden to a custom class extending HoodieRecordPayload class, on both datasource and WriteClient levels.
 - [**Kafka Connect Configs**](#KAFKA_CONNECT): These set of configs are used for Kafka Connect Sink Connector for writing Hudi Tables
 - [**Amazon Web Services Configs**](#AWS): Configurations specific to Amazon Web Services.
+- [**DeltaStreamer Configs**](#DELTA_STREAMER): Please fill in the description for Config Group Name: DeltaStreamer Configs
 
 ## Externalized Config File
 Instead of directly passing configuration settings to every Hudi job, you can also centrally set them in a configuration
@@ -237,7 +238,7 @@ Options useful for writing tables via `write.format.option(...)`
 ---
 
 > ### hoodie.datasource.write.partitionpath.field
-> Partition path field. Value to be used at the partitionPath component of HoodieKey. Actual value obtained by invoking .toString()<br></br>
+> Partition path field. Value to be used at the partitionPath component of HoodieKey. Actual value ontained by invoking .toString()<br></br>
 > `Default Value: N/A `**(Required)**<br></br>
 > `Config Param: PARTITIONPATH_FIELD`<br></br>
 
@@ -886,7 +887,7 @@ This also directly translates into how much you can incrementally pull on this t
 ---
 
 > #### clustering.plan.partition.filter.mode
-> Partition filter mode used in the creation of clustering plan. Available values are - NONE: do not filter table partition and thus the clustering plan will include all partitions that have clustering candidate.RECENT_DAYS: keep a continuous range of partitions, worked together with configs 'hoodie.clustering.plan.strategy.daybased.lookback.partitions' and 'hoodie.clustering.plan.strategy.daybased.skipfromlatest.partitions.SELECTED_PARTITIONS: keep partitions that are in the specified range ['hoodie.clustering.plan.strategy.cluster.begin.partition', 'hoodie.clustering.plan.strategy.cluster.end.partition'].DAY_ROLLING: clustering partitions on a rolling basis by the hour to avoid clustering all partitions each time, which strategy sorts the partitions asc and chooses the partition of which index is divided by 24 and the remainder is equal to the current hour.<br></br>
+> Partition filter mode used in the creation of clustering plan. Available values are - NONE: do not filter table partition and thus the clustering plan will include all partitions that have clustering candidate.RECENT_DAYS: keep a continuous range of partitions, worked together with configs 'clustering.plan.strategy.daybased.lookback.partitions' and 'clustering.plan.strategy.daybased.skipfromlatest.partitions.SELECTED_PARTITIONS: keep partitions that are in the specified range ['clustering.plan.strategy.cluster.begin.partition', 'clustering.plan.strategy.cluster.end.partition'].DAY_ROLLING: clustering partitions on a rolling basis by the hour to avoid clustering all partitions each time, which strategy sorts the partitions asc and chooses the partition of which index is divided by 24 and the remainder is equal to the current hour.<br></br>
 > `Default Value: NONE (Optional)`<br></br>
 > `Config Param: CLUSTERING_PLAN_PARTITION_FILTER_MODE_NAME`<br></br>
 
@@ -896,6 +897,20 @@ This also directly translates into how much you can incrementally pull on this t
 > Config to provide a strategy class (subclass of ClusteringPlanStrategy) to create clustering plan i.e select what file groups are being clustered. Default strategy, looks at the last N (determined by clustering.plan.strategy.daybased.lookback.partitions) day based partitions picks the small file slices within those partitions.<br></br>
 > `Default Value: org.apache.hudi.client.clustering.plan.strategy.FlinkSizeBasedClusteringPlanStrategy (Optional)`<br></br>
 > `Config Param: CLUSTERING_PLAN_STRATEGY_CLASS`<br></br>
+
+---
+
+> #### clustering.plan.strategy.cluster.begin.partition
+> Begin partition used to filter partition (inclusive)<br></br>
+> `Default Value:  (Optional)`<br></br>
+> `Config Param: CLUSTERING_PLAN_STRATEGY_CLUSTER_BEGIN_PARTITION`<br></br>
+
+---
+
+> #### clustering.plan.strategy.cluster.end.partition
+> End partition used to filter partition (inclusive)<br></br>
+> `Default Value:  (Optional)`<br></br>
+> `Config Param: CLUSTERING_PLAN_STRATEGY_CLUSTER_END_PARTITION`<br></br>
 
 ---
 
@@ -917,6 +932,20 @@ This also directly translates into how much you can incrementally pull on this t
 > Maximum number of groups to create as part of ClusteringPlan. Increasing groups will increase parallelism, default is 30<br></br>
 > `Default Value: 30 (Optional)`<br></br>
 > `Config Param: CLUSTERING_MAX_NUM_GROUPS`<br></br>
+
+---
+
+> #### clustering.plan.strategy.partition.regex.pattern
+> Filter clustering partitions that matched regex pattern<br></br>
+> `Default Value:  (Optional)`<br></br>
+> `Config Param: CLUSTERING_PLAN_STRATEGY_PARTITION_REGEX_PATTERN`<br></br>
+
+---
+
+> #### clustering.plan.strategy.partition.selected
+> Partitions to run clustering<br></br>
+> `Default Value:  (Optional)`<br></br>
+> `Config Param: CLUSTERING_PLAN_STRATEGY_PARTITION_SELECTED`<br></br>
 
 ---
 
@@ -1255,7 +1284,7 @@ if same key record with different partition path came in, default true<br></br>
 
 > #### metadata.enabled
 > Enable the internal metadata table which serves table metadata like level file listings, default disabled<br></br>
-> `Default Value: false (Optional)`<br></br>
+> `Default Value: true (Optional)`<br></br>
 > `Config Param: METADATA_ENABLED`<br></br>
 
 ---
@@ -1306,18 +1335,16 @@ determined by Object.compareTo(..)<br></br>
 ---
 
 > #### read.streaming.skip_clustering
-> Whether to skip clustering instants for streaming read,
-to avoid reading duplicates<br></br>
+> Whether to skip clustering instants to avoid reading base files of clustering operations for streaming read to improve read performance.<br></br>
 > `Default Value: false (Optional)`<br></br>
 > `Config Param: READ_STREAMING_SKIP_CLUSTERING`<br></br>
 
 ---
 
 > #### read.streaming.skip_compaction
-> Whether to skip compaction instants for streaming read,
-there are two cases that this option can be used to avoid reading duplicates:
-1) you are definitely sure that the consumer reads faster than any compaction instants, usually with delta time compaction strategy that is long enough, for e.g, one week;
-2) changelog mode is enabled, this option is a solution to keep data integrity<br></br>
+> Whether to skip compaction instants and avoid reading compacted base files for streaming read to improve read performance.
+This option can be used to avoid reading duplicates when changelog mode is enabled, it is a solution to keep data integrity
+<br></br>
 > `Default Value: false (Optional)`<br></br>
 > `Config Param: READ_STREAMING_SKIP_COMPACT`<br></br>
 
@@ -1372,6 +1399,20 @@ there are two cases that this option can be used to avoid reading duplicates:
 
 ---
 
+> #### write.bulk_insert.sort_input.by_record_key
+> Whether to sort the inputs by record keys for bulk insert tasks, default false<br></br>
+> `Default Value: false (Optional)`<br></br>
+> `Config Param: WRITE_BULK_INSERT_SORT_INPUT_BY_RECORD_KEY`<br></br>
+
+---
+
+> #### write.client.id
+> Unique identifier used to distinguish different writer pipelines for concurrent mode<br></br>
+> `Default Value:  (Optional)`<br></br>
+> `Config Param: WRITE_CLIENT_ID`<br></br>
+
+---
+
 > #### write.commit.ack.timeout
 > Timeout limit for a writer task after it finishes a checkpoint and
 waits for the instant commit success, only for internal use<br></br>
@@ -1381,9 +1422,9 @@ waits for the instant commit success, only for internal use<br></br>
 ---
 
 > #### write.ignore.failed
-> Flag to indicate whether to ignore any non exception error (e.g. writestatus error). within a checkpoint batch.
-By default false.  Turning this on, could hide the write status errors while the spark checkpoint moves ahead. 
-  So, would recommend users to use this with caution.<br></br>
+> Flag to indicate whether to ignore any non exception error (e.g. writestatus error). within a checkpoint batch. 
+By default false. Turning this on, could hide the write status errors while the flink checkpoint moves ahead. 
+So, would recommend users to use this with caution.<br></br>
 > `Default Value: false (Optional)`<br></br>
 > `Config Param: IGNORE_FAILED`<br></br>
 
@@ -1590,14 +1631,14 @@ Cleaning (reclamation of older/unused file groups/slices).
 ---
 
 > ### hoodie.cleaner.parallelism
-> Parallelism for the cleaning operation. Increase this if cleaning becomes slow.<br></br>
+> This config controls the behavior of both the cleaning plan and cleaning execution. Deriving the cleaning plan is parallelized at the table partition level, i.e., each table partition is processed by one Spark task to figure out the files to clean. The cleaner picks the configured parallelism if the number of table partitions is larger than this configured value. The parallelism is assigned to the number of table partitions if it is smaller than the configured value. The clean execution, i.e., the file deletion, is parallelized at file level, which is the unit of Spark task distribution. Similarly, the actual parallelism cannot exceed the configured value if the number of files is larger. If cleaning plan or execution is slow due to limited parallelism, you can increase this to tune the performance..<br></br>
 > `Default Value: 200 (Optional)`<br></br>
 > `Config Param: CLEANER_PARALLELISM_VALUE`<br></br>
 
 ---
 
 > ### hoodie.cleaner.policy
-> Cleaning policy to be used. The cleaner service deletes older file slices files to re-claim space. By default, cleaner spares the file slices written by the last N commits, determined by  hoodie.cleaner.commits.retained Long running query plans may often refer to older file slices and will break if those are cleaned, before the query has had   a chance to run. So, it is good to make sure that the data is retained for more than the maximum query execution time<br></br>
+> Cleaning policy to be used. The cleaner service deletes older file slices files to re-claim space. Long running query plans may often refer to older file slices and will break if those are cleaned, before the query has had a chance to run. So, it is good to make sure that the data is retained for more than the maximum query execution time. By default, the cleaning policy is determined based on one of the following configs explicitly set by the user (at most one of them can be set; otherwise, KEEP_LATEST_COMMITS cleaning policy is used): (1) "hoodie.cleaner.commits.retained": the KEEP_LATEST_COMMITS cleaning policy is used, which keeps the file slices written by the last N commits, determined by "hoodie.cleaner.commits.retained"; (2) "hoodie.cleaner.hours.retained": the KEEP_LATEST_BY_HOURS cleaning policy is used, which keeps the file slices written in the last N hours based on the commit time, determined by "hoodie.cleaner.hours.retained"; (3) "hoodie.cleaner.fileversions.retained": the KEEP_LATEST_FILE_VERSIONS cleaning policy is used, which keeps the last N versions of the file slices written, determined by "hoodie.cleaner.fileversions.retained".<br></br>
 > `Default Value: KEEP_LATEST_COMMITS (Optional)`<br></br>
 > `Config Param: CLEANER_POLICY`<br></br>
 
@@ -1618,6 +1659,13 @@ Controls memory usage for compaction and merges, performed internally by Hudi.
 > Maximum amount of memory used  in bytes for compaction operations in bytes , before spilling to local storage.<br></br>
 > `Default Value: N/A `**(Required)**<br></br>
 > `Config Param: MAX_MEMORY_FOR_COMPACTION`<br></br>
+
+---
+
+> ### hoodie.memory.spillable.map.path
+> Default file path for spillable map<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SPILLABLE_MAP_BASE_PATH`<br></br>
 
 ---
 
@@ -1646,13 +1694,6 @@ Controls memory usage for compaction and merges, performed internally by Hudi.
 > Maximum amount of memory used  in bytes for merge operations, before spilling to local storage.<br></br>
 > `Default Value: 1073741824 (Optional)`<br></br>
 > `Config Param: MAX_MEMORY_FOR_MERGE`<br></br>
-
----
-
-> ### hoodie.memory.spillable.map.path
-> Default file path for spillable map<br></br>
-> `Default Value: /tmp/ (Optional)`<br></br>
-> `Config Param: SPILLABLE_MAP_BASE_PATH`<br></br>
 
 ---
 
@@ -1691,7 +1732,7 @@ Configurations that control archival.
 ---
 
 > ### hoodie.archive.delete.parallelism
-> Parallelism for deleting archived hoodie commits.<br></br>
+> When performing archival operation, Hudi needs to delete the files of the archived instants in the active timeline in .hoodie folder. The file deletion also happens after merging small archived files into larger ones if enabled. This config limits the Spark parallelism for deleting files in both cases, i.e., parallelism of deleting files does not go above the configured value and the parallelism is the number of files to delete if smaller than the configured value.  If you see that the file deletion in archival operation is slow because of the limited parallelism, you can increase this to tune the performance.<br></br>
 > `Default Value: 100 (Optional)`<br></br>
 > `Config Param: DELETE_ARCHIVED_INSTANT_PARALLELISM_VALUE`<br></br>
 
@@ -1736,6 +1777,396 @@ Configurations that control archival.
 > Similar to hoodie.keep.max.commits, but controls the minimum number of instants to retain in the active timeline.<br></br>
 > `Default Value: 20 (Optional)`<br></br>
 > `Config Param: MIN_COMMITS_TO_KEEP`<br></br>
+
+---
+
+### Metastore Configs {#Metastore-Configs}
+Configurations used by the Hudi Metastore.
+
+`Config Class`: org.apache.hudi.common.config.HoodieMetaserverConfig<br></br>
+> ### hoodie.database.name
+> Database name that will be used for incremental query.If different databases have the same table name during incremental query, we can set it to limit the table name under a specific database<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: DATABASE_NAME`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
+> ### hoodie.table.name
+> Table name that will be used for registering with Hive. Needs to be same across runs.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: TABLE_NAME`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
+> ### hoodie.metaserver.connect.retries
+> Number of retries while opening a connection to metastore<br></br>
+> `Default Value: 3 (Optional)`<br></br>
+> `Config Param: METASERVER_CONNECTION_RETRIES`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
+> ### hoodie.metaserver.connect.retry.delay
+> Number of seconds for the client to wait between consecutive connection attempts<br></br>
+> `Default Value: 1 (Optional)`<br></br>
+> `Config Param: METASERVER_CONNECTION_RETRY_DELAY`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
+> ### hoodie.metaserver.enabled
+> Enable Hudi metaserver for storing Hudi tables' metadata.<br></br>
+> `Default Value: false (Optional)`<br></br>
+> `Config Param: METASERVER_ENABLE`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
+> ### hoodie.metaserver.uris
+> Metastore server uris<br></br>
+> `Default Value: thrift://localhost:9090 (Optional)`<br></br>
+> `Config Param: METASERVER_URLS`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
+### Key Generator Options {#Key-Generator-Options}
+Hudi maintains keys (record key + partition path) for uniquely identifying a particular record. This config allows developers to setup the Key generator class that will extract these out of incoming records.
+
+`Config Class`: org.apache.hudi.keygen.constant.KeyGeneratorOptions<br></br>
+> ### hoodie.datasource.write.partitionpath.field
+> Partition path field. Value to be used at the partitionPath component of HoodieKey. Actual value ontained by invoking .toString()<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: PARTITIONPATH_FIELD_NAME`<br></br>
+
+---
+
+> ### hoodie.datasource.write.recordkey.field
+> Record key field. Value to be used as the `recordKey` component of `HoodieKey`.
+Actual value will be obtained by invoking .toString() on the field value. Nested fields can be specified using
+the dot notation eg: `a.b.c`<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: RECORDKEY_FIELD_NAME`<br></br>
+
+---
+
+> ### hoodie.datasource.write.hive_style_partitioning
+> Flag to indicate whether to use Hive style partitioning.
+If set true, the names of partition folders follow <partition_column_name>=<partition_value> format.
+By default false (the names of partition folders are only partition values)<br></br>
+> `Default Value: false (Optional)`<br></br>
+> `Config Param: HIVE_STYLE_PARTITIONING_ENABLE`<br></br>
+
+---
+
+> ### hoodie.datasource.write.keygenerator.consistent.logical.timestamp.enabled
+> When set to true, consistent value will be generated for a logical timestamp type column, like timestamp-millis and timestamp-micros, irrespective of whether row-writer is enabled. Disabled by default so as not to break the pipeline that deploy either fully row-writer path or non row-writer path. For example, if it is kept disabled then record key of timestamp type with value `2016-12-29 09:54:00` will be written as timestamp `2016-12-29 09:54:00.0` in row-writer path, while it will be written as long value `1483023240000000` in non row-writer path. If enabled, then the timestamp value will be written in both the cases.<br></br>
+> `Default Value: false (Optional)`<br></br>
+> `Config Param: KEYGENERATOR_CONSISTENT_LOGICAL_TIMESTAMP_ENABLED`<br></br>
+
+---
+
+> ### hoodie.datasource.write.partitionpath.urlencode
+> Should we url encode the partition path value, before creating the folder structure.<br></br>
+> `Default Value: false (Optional)`<br></br>
+> `Config Param: URL_ENCODE_PARTITIONING`<br></br>
+
+---
+
+### Storage Configs {#Storage-Configs}
+Configurations that control aspects around writing, sizing, reading base and log files.
+
+`Config Class`: org.apache.hudi.common.config.HoodieStorageConfig<br></br>
+> ### hoodie.logfile.data.block.format
+> Format of the data block within delta logs. Following formats are currently supported "avro", "hfile", "parquet"<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: LOGFILE_DATA_BLOCK_FORMAT`<br></br>
+
+---
+
+> ### hoodie.hfile.block.size
+> Lower values increase the size in bytes of metadata tracked within HFile, but can offer potentially faster lookup times.<br></br>
+> `Default Value: 1048576 (Optional)`<br></br>
+> `Config Param: HFILE_BLOCK_SIZE`<br></br>
+
+---
+
+> ### hoodie.hfile.compression.algorithm
+> Compression codec to use for hfile base files.<br></br>
+> `Default Value: GZ (Optional)`<br></br>
+> `Config Param: HFILE_COMPRESSION_ALGORITHM_NAME`<br></br>
+
+---
+
+> ### hoodie.hfile.max.file.size
+> Target file size in bytes for HFile base files.<br></br>
+> `Default Value: 125829120 (Optional)`<br></br>
+> `Config Param: HFILE_MAX_FILE_SIZE`<br></br>
+
+---
+
+> ### hoodie.logfile.data.block.max.size
+> LogFile Data block max size in bytes. This is the maximum size allowed for a single data block to be appended to a log file. This helps to make sure the data appended to the log file is broken up into sizable blocks to prevent from OOM errors. This size should be greater than the JVM memory.<br></br>
+> `Default Value: 268435456 (Optional)`<br></br>
+> `Config Param: LOGFILE_DATA_BLOCK_MAX_SIZE`<br></br>
+
+---
+
+> ### hoodie.logfile.max.size
+> LogFile max size in bytes. This is the maximum size allowed for a log file before it is rolled over to the next version.<br></br>
+> `Default Value: 1073741824 (Optional)`<br></br>
+> `Config Param: LOGFILE_MAX_SIZE`<br></br>
+
+---
+
+> ### hoodie.logfile.to.parquet.compression.ratio
+> Expected additional compression as records move from log files to parquet. Used for merge_on_read table to send inserts into log files & control the size of compacted parquet file.<br></br>
+> `Default Value: 0.35 (Optional)`<br></br>
+> `Config Param: LOGFILE_TO_PARQUET_COMPRESSION_RATIO_FRACTION`<br></br>
+
+---
+
+> ### hoodie.orc.block.size
+> ORC block size, recommended to be aligned with the target file size.<br></br>
+> `Default Value: 125829120 (Optional)`<br></br>
+> `Config Param: ORC_BLOCK_SIZE`<br></br>
+
+---
+
+> ### hoodie.orc.compression.codec
+> Compression codec to use for ORC base files.<br></br>
+> `Default Value: ZLIB (Optional)`<br></br>
+> `Config Param: ORC_COMPRESSION_CODEC_NAME`<br></br>
+
+---
+
+> ### hoodie.orc.max.file.size
+> Target file size in bytes for ORC base files.<br></br>
+> `Default Value: 125829120 (Optional)`<br></br>
+> `Config Param: ORC_FILE_MAX_SIZE`<br></br>
+
+---
+
+> ### hoodie.orc.stripe.size
+> Size of the memory buffer in bytes for writing<br></br>
+> `Default Value: 67108864 (Optional)`<br></br>
+> `Config Param: ORC_STRIPE_SIZE`<br></br>
+
+---
+
+> ### hoodie.parquet.block.size
+> Parquet RowGroup size in bytes. It's recommended to make this large enough that scan costs can be amortized by packing enough column values into a single row group.<br></br>
+> `Default Value: 125829120 (Optional)`<br></br>
+> `Config Param: PARQUET_BLOCK_SIZE`<br></br>
+
+---
+
+> ### hoodie.parquet.compression.codec
+> Compression Codec for parquet files<br></br>
+> `Default Value: gzip (Optional)`<br></br>
+> `Config Param: PARQUET_COMPRESSION_CODEC_NAME`<br></br>
+
+---
+
+> ### hoodie.parquet.compression.ratio
+> Expected compression of parquet data used by Hudi, when it tries to size new parquet files. Increase this value, if bulk_insert is producing smaller than expected sized files<br></br>
+> `Default Value: 0.1 (Optional)`<br></br>
+> `Config Param: PARQUET_COMPRESSION_RATIO_FRACTION`<br></br>
+
+---
+
+> ### hoodie.parquet.dictionary.enabled
+> Whether to use dictionary encoding<br></br>
+> `Default Value: true (Optional)`<br></br>
+> `Config Param: PARQUET_DICTIONARY_ENABLED`<br></br>
+
+---
+
+> ### hoodie.parquet.field_id.write.enabled
+> Would only be effective with Spark 3.3+. Sets spark.sql.parquet.fieldId.write.enabled. If enabled, Spark will write out parquet native field ids that are stored inside StructField's metadata as parquet.field.id to parquet files.<br></br>
+> `Default Value: true (Optional)`<br></br>
+> `Config Param: PARQUET_FIELD_ID_WRITE_ENABLED`<br></br>
+> `Since Version: 0.12.0`<br></br>
+
+---
+
+> ### hoodie.parquet.max.file.size
+> Target size in bytes for parquet files produced by Hudi write phases. For DFS, this needs to be aligned with the underlying filesystem block size for optimal performance.<br></br>
+> `Default Value: 125829120 (Optional)`<br></br>
+> `Config Param: PARQUET_MAX_FILE_SIZE`<br></br>
+
+---
+
+> ### hoodie.parquet.outputtimestamptype
+> Sets spark.sql.parquet.outputTimestampType. Parquet timestamp type to use when Spark writes data to Parquet files.<br></br>
+> `Default Value: TIMESTAMP_MICROS (Optional)`<br></br>
+> `Config Param: PARQUET_OUTPUT_TIMESTAMP_TYPE`<br></br>
+
+---
+
+> ### hoodie.parquet.page.size
+> Parquet page size in bytes. Page is the unit of read within a parquet file. Within a block, pages are compressed separately.<br></br>
+> `Default Value: 1048576 (Optional)`<br></br>
+> `Config Param: PARQUET_PAGE_SIZE`<br></br>
+
+---
+
+> ### hoodie.parquet.writelegacyformat.enabled
+> Sets spark.sql.parquet.writeLegacyFormat. If true, data will be written in a way of Spark 1.4 and earlier. For example, decimal values will be written in Parquet's fixed-length byte array format which other systems such as Apache Hive and Apache Impala use. If false, the newer format in Parquet will be used. For example, decimals will be written in int-based format.<br></br>
+> `Default Value: false (Optional)`<br></br>
+> `Config Param: PARQUET_WRITE_LEGACY_FORMAT_ENABLED`<br></br>
+
+---
+
+### File System View Storage Configurations {#File-System-View-Storage-Configurations}
+Configurations that control how file metadata is stored by Hudi, for transaction processing and queries.
+
+`Config Class`: org.apache.hudi.common.table.view.FileSystemViewStorageConfig<br></br>
+> ### hoodie.filesystem.remote.backup.view.enable
+> Config to control whether backup needs to be configured if clients were not able to reach timeline service.<br></br>
+> `Default Value: true (Optional)`<br></br>
+> `Config Param: REMOTE_BACKUP_VIEW_ENABLE`<br></br>
+
+---
+
+> ### hoodie.filesystem.view.incr.timeline.sync.enable
+> Controls whether or not, the file system view is incrementally updated as new actions are performed on the timeline.<br></br>
+> `Default Value: false (Optional)`<br></br>
+> `Config Param: INCREMENTAL_TIMELINE_SYNC_ENABLE`<br></br>
+
+---
+
+> ### hoodie.filesystem.view.remote.host
+> We expect this to be rarely hand configured.<br></br>
+> `Default Value: localhost (Optional)`<br></br>
+> `Config Param: REMOTE_HOST_NAME`<br></br>
+
+---
+
+> ### hoodie.filesystem.view.remote.port
+> Port to serve file system view queries, when remote. We expect this to be rarely hand configured.<br></br>
+> `Default Value: 26754 (Optional)`<br></br>
+> `Config Param: REMOTE_PORT_NUM`<br></br>
+
+---
+
+> ### hoodie.filesystem.view.remote.retry.enable
+> Whether to enable API request retry for remote file system view.<br></br>
+> `Default Value: false (Optional)`<br></br>
+> `Config Param: REMOTE_RETRY_ENABLE`<br></br>
+> `Since Version: 0.12.1`<br></br>
+
+---
+
+> ### hoodie.filesystem.view.remote.retry.exceptions
+> The class name of the Exception that needs to be re-tryed, separated by commas. Default is empty which means retry all the IOException and RuntimeException from Remote Request.<br></br>
+> `Default Value:  (Optional)`<br></br>
+> `Config Param: RETRY_EXCEPTIONS`<br></br>
+> `Since Version: 0.12.1`<br></br>
+
+---
+
+> ### hoodie.filesystem.view.remote.retry.initial_interval_ms
+> Amount of time (in ms) to wait, before retry to do operations on storage.<br></br>
+> `Default Value: 100 (Optional)`<br></br>
+> `Config Param: REMOTE_INITIAL_RETRY_INTERVAL_MS`<br></br>
+> `Since Version: 0.12.1`<br></br>
+
+---
+
+> ### hoodie.filesystem.view.remote.retry.max_interval_ms
+> Maximum amount of time (in ms), to wait for next retry.<br></br>
+> `Default Value: 2000 (Optional)`<br></br>
+> `Config Param: REMOTE_MAX_RETRY_INTERVAL_MS`<br></br>
+> `Since Version: 0.12.1`<br></br>
+
+---
+
+> ### hoodie.filesystem.view.remote.retry.max_numbers
+> Maximum number of retry for API requests against a remote file system view. e.g timeline server.<br></br>
+> `Default Value: 3 (Optional)`<br></br>
+> `Config Param: REMOTE_MAX_RETRY_NUMBERS`<br></br>
+> `Since Version: 0.12.1`<br></br>
+
+---
+
+> ### hoodie.filesystem.view.remote.timeout.secs
+> Timeout in seconds, to wait for API requests against a remote file system view. e.g timeline server.<br></br>
+> `Default Value: 300 (Optional)`<br></br>
+> `Config Param: REMOTE_TIMEOUT_SECS`<br></br>
+
+---
+
+> ### hoodie.filesystem.view.rocksdb.base.path
+> Path on local storage to use, when storing file system view in embedded kv store/rocksdb.<br></br>
+> `Default Value: /tmp/hoodie_timeline_rocksdb (Optional)`<br></br>
+> `Config Param: ROCKSDB_BASE_PATH`<br></br>
+
+---
+
+> ### hoodie.filesystem.view.secondary.type
+> Specifies the secondary form of storage for file system view, if the primary (e.g timeline server)  is unavailable.<br></br>
+> `Default Value: MEMORY (Optional)`<br></br>
+> `Config Param: SECONDARY_VIEW_TYPE`<br></br>
+
+---
+
+> ### hoodie.filesystem.view.spillable.bootstrap.base.file.mem.fraction
+> Fraction of the file system view memory, to be used for holding mapping to bootstrap base files.<br></br>
+> `Default Value: 0.05 (Optional)`<br></br>
+> `Config Param: BOOTSTRAP_BASE_FILE_MEM_FRACTION`<br></br>
+
+---
+
+> ### hoodie.filesystem.view.spillable.clustering.mem.fraction
+> Fraction of the file system view memory, to be used for holding clustering related metadata.<br></br>
+> `Default Value: 0.01 (Optional)`<br></br>
+> `Config Param: SPILLABLE_CLUSTERING_MEM_FRACTION`<br></br>
+
+---
+
+> ### hoodie.filesystem.view.spillable.compaction.mem.fraction
+> Fraction of the file system view memory, to be used for holding compaction related metadata.<br></br>
+> `Default Value: 0.8 (Optional)`<br></br>
+> `Config Param: SPILLABLE_COMPACTION_MEM_FRACTION`<br></br>
+
+---
+
+> ### hoodie.filesystem.view.spillable.dir
+> Path on local storage to use, when file system view is held in a spillable map.<br></br>
+> `Default Value: /tmp/ (Optional)`<br></br>
+> `Config Param: SPILLABLE_DIR`<br></br>
+
+---
+
+> ### hoodie.filesystem.view.spillable.log.compaction.mem.fraction
+> Fraction of the file system view memory, to be used for holding log compaction related metadata.<br></br>
+> `Default Value: 0.8 (Optional)`<br></br>
+> `Config Param: SPILLABLE_LOG_COMPACTION_MEM_FRACTION`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
+> ### hoodie.filesystem.view.spillable.mem
+> Amount of memory to be used in bytes for holding file system view, before spilling to disk.<br></br>
+> `Default Value: 104857600 (Optional)`<br></br>
+> `Config Param: SPILLABLE_MEMORY`<br></br>
+
+---
+
+> ### hoodie.filesystem.view.spillable.replaced.mem.fraction
+> Fraction of the file system view memory, to be used for holding replace commit related metadata.<br></br>
+> `Default Value: 0.01 (Optional)`<br></br>
+> `Config Param: SPILLABLE_REPLACED_MEM_FRACTION`<br></br>
+
+---
+
+> ### hoodie.filesystem.view.type
+> File system view provides APIs for viewing the files on the underlying lake storage,  as file groups and file slices. This config controls how such a view is held. Options include MEMORY,SPILLABLE_DISK,EMBEDDED_KV_STORE,REMOTE_ONLY,REMOTE_FIRST which provide different trade offs for memory usage and API request performance.<br></br>
+> `Default Value: MEMORY (Optional)`<br></br>
+> `Config Param: VIEW_TYPE`<br></br>
 
 ---
 
@@ -1791,22 +2222,6 @@ Configurations used by the Hudi Metadata Table. This table maintains the metadat
 
 ---
 
-> ### hoodie.metadata.clean.async
-> Enable asynchronous cleaning for metadata table. This is an internal config and setting this will not overwrite the value actually used.<br></br>
-> `Default Value: false (Optional)`<br></br>
-> `Config Param: ASYNC_CLEAN_ENABLE`<br></br>
-> `Since Version: 0.7.0`<br></br>
-
----
-
-> ### hoodie.metadata.cleaner.commits.retained
-> Number of commits to retain, without cleaning, on metadata table. This is an internal config and setting this will not overwrite the actual value used.<br></br>
-> `Default Value: 3 (Optional)`<br></br>
-> `Config Param: CLEANER_COMMITS_RETAINED`<br></br>
-> `Since Version: 0.7.0`<br></br>
-
----
-
 > ### hoodie.metadata.compact.max.delta.commits
 > Controls how often the metadata table is compacted.<br></br>
 > `Default Value: 10 (Optional)`<br></br>
@@ -1828,14 +2243,6 @@ Configurations used by the Hudi Metadata Table. This table maintains the metadat
 > `Default Value: true (Optional)`<br></br>
 > `Config Param: ENABLE`<br></br>
 > `Since Version: 0.7.0`<br></br>
-
----
-
-> ### hoodie.metadata.enable.full.scan.log.files
-> Enable full scanning of log files while reading log records. If disabled, Hudi does look up of only interested entries. This is an internal config and setting this will not overwrite the actual value used.<br></br>
-> `Default Value: true (Optional)`<br></br>
-> `Config Param: ENABLE_FULL_SCAN_LOG_FILES`<br></br>
-> `Since Version: 0.10.0`<br></br>
 
 ---
 
@@ -1948,14 +2355,6 @@ Configurations used by the Hudi Metadata Table. This table maintains the metadat
 > `Default Value: false (Optional)`<br></br>
 > `Config Param: ENABLE_OPTIMIZED_LOG_BLOCKS_SCAN`<br></br>
 > `Since Version: 0.13.0`<br></br>
-
----
-
-> ### hoodie.metadata.populate.meta.fields
-> When enabled, populates all meta fields. When disabled, no meta fields are populated. This is an internal config and setting this will not overwrite the actual value used.<br></br>
-> `Default Value: false (Optional)`<br></br>
-> `Config Param: POPULATE_META_FIELDS`<br></br>
-> `Since Version: 0.10.0`<br></br>
 
 ---
 
@@ -2165,13 +2564,13 @@ Configurations that control write behavior on Hudi tables. These can be directly
 
 > ### hoodie.avro.schema.validate
 > Validate the schema used for the write against the latest schema, for backwards compatibility.<br></br>
-> `Default Value: false (Optional)`<br></br>
+> `Default Value: true (Optional)`<br></br>
 > `Config Param: AVRO_SCHEMA_VALIDATE_ENABLE`<br></br>
 
 ---
 
 > ### hoodie.bulkinsert.shuffle.parallelism
-> For large initial imports using bulk_insert operation, controls the parallelism to use for sort modes or custom partitioning donebefore writing records to the table.<br></br>
+> For large initial imports using bulk_insert operation, controls the parallelism to use for sort modes or custom partitioning done before writing records to the table. Before 0.13.0 release, if users do not configure it, Hudi would use 200 as the default shuffle parallelism. From 0.13.0 onwards Hudi by default automatically uses the parallelism deduced by Spark based on the source data or the parallelism based on the logical plan for row writer. If the shuffle parallelism is explicitly configured by the user, the user-configured parallelism is used in defining the actual parallelism. If you observe small files from the bulk insert operation, we suggest configuring this shuffle parallelism explicitly, so that the parallelism is around total_input_data_size/120MB.<br></br>
 > `Default Value: 0 (Optional)`<br></br>
 > `Config Param: BULKINSERT_PARALLELISM_VALUE`<br></br>
 
@@ -2286,7 +2685,7 @@ Configurations that control write behavior on Hudi tables. These can be directly
 ---
 
 > ### hoodie.delete.shuffle.parallelism
-> Parallelism used for “delete” operation. Delete operations also performs shuffles, similar to upsert operation.<br></br>
+> Parallelism used for delete operation. Delete operations also performs shuffles, similar to upsert operation. Before 0.13.0 release, if users do not configure it, Hudi would use 200 as the default shuffle parallelism. From 0.13.0 onwards Hudi by default automatically uses the parallelism deduced by Spark based on the source data. If the shuffle parallelism is explicitly configured by the user, the user-configured parallelism is used in defining the actual parallelism.<br></br>
 > `Default Value: 0 (Optional)`<br></br>
 > `Config Param: DELETE_PARALLELISM_VALUE`<br></br>
 
@@ -2365,7 +2764,7 @@ Configurations that control write behavior on Hudi tables. These can be directly
 ---
 
 > ### hoodie.insert.shuffle.parallelism
-> Parallelism for inserting records into the table. Inserts can shuffle data before writing to tune file sizes and optimize the storage layout.<br></br>
+> Parallelism for inserting records into the table. Inserts can shuffle data before writing to tune file sizes and optimize the storage layout. Before 0.13.0 release, if users do not configure it, Hudi would use 200 as the default shuffle parallelism. From 0.13.0 onwards Hudi by default automatically uses the parallelism deduced by Spark based on the source data. If the shuffle parallelism is explicitly configured by the user, the user-configured parallelism is used in defining the actual parallelism. If you observe small files from the insert operation, we suggest configuring this shuffle parallelism explicitly, so that the parallelism is around total_input_data_size/120MB.<br></br>
 > `Default Value: 0 (Optional)`<br></br>
 > `Config Param: INSERT_PARALLELISM_VALUE`<br></br>
 
@@ -2424,7 +2823,7 @@ Configurations that control write behavior on Hudi tables. These can be directly
 ---
 
 > ### hoodie.rollback.parallelism
-> Parallelism for rollback of commits. Rollbacks perform delete of files or logging delete blocks to file groups on storage in parallel.<br></br>
+> This config controls the parallelism for rollback of commits. Rollbacks perform deletion of files or logging delete blocks to file groups on storage in parallel. The configure value limits the parallelism so that the number of Spark tasks do not exceed the value. If rollback is slow due to the limited parallelism, you can increase this to tune the performance.<br></br>
 > `Default Value: 100 (Optional)`<br></br>
 > `Config Param: ROLLBACK_PARALLELISM_VALUE`<br></br>
 
@@ -2441,6 +2840,13 @@ Configurations that control write behavior on Hudi tables. These can be directly
 > cache query internalSchemas in driver/executor side<br></br>
 > `Default Value: false (Optional)`<br></br>
 > `Config Param: ENABLE_INTERNAL_SCHEMA_CACHE`<br></br>
+
+---
+
+> ### hoodie.sensitive.config.keys
+> Comma separated list of filters for sensitive config keys. Delta Streamer will not print any configuration which contains the configured filter. For example with a configured filter `ssl`, value for config `ssl.trustore.location` would be masked.<br></br>
+> `Default Value: ssl,tls,sasl,auth,credentials (Optional)`<br></br>
+> `Config Param: SENSITIVE_CONFIG_KEYS_FILTER`<br></br>
 
 ---
 
@@ -2476,7 +2882,7 @@ Configurations that control write behavior on Hudi tables. These can be directly
 ---
 
 > ### hoodie.upsert.shuffle.parallelism
-> Parallelism to use for upsert operation on the table. Upserts can shuffle data to perform index lookups, file sizing, bin packing records optimallyinto file groups.<br></br>
+> Parallelism to use for upsert operation on the table. Upserts can shuffle data to perform index lookups, file sizing, bin packing records optimally into file groups. Before 0.13.0 release, if users do not configure it, Hudi would use 200 as the default shuffle parallelism. From 0.13.0 onwards Hudi by default automatically uses the parallelism deduced by Spark based on the source data. If the shuffle parallelism is explicitly configured by the user, the user-configured parallelism is used in defining the actual parallelism. If you observe small files from the upsert operation, we suggest configuring this shuffle parallelism explicitly, so that the parallelism is around total_input_data_size/120MB.<br></br>
 > `Default Value: 0 (Optional)`<br></br>
 > `Config Param: UPSERT_PARALLELISM_VALUE`<br></br>
 
@@ -2553,7 +2959,7 @@ Configurations that control write behavior on Hudi tables. These can be directly
 ---
 
 > ### hoodie.write.executor.type
-> Set executor which orchestrates concurrent producers and consumers communicating through a message queue.BOUNDED_IN_MEMORY(default): Use LinkedBlockingQueue as a bounded in-memory queue, this queue will use extra lock to balance producers and consumerDISRUPTOR: Use disruptor which a lock free message queue as inner message, this queue may gain better writing performance if lock was the bottleneck. SIMPLE: Executor with no inner message queue and no inner lock. Consuming and writing records from iterator directly. Compared with BIM and DISRUPTOR, this queue has no need for additional memory and cpu resources due to lock or multithreading, but also lost some benefits such as speed limit. Although DISRUPTOR_EXECUTOR and SIMPLE are still in experimental.<br></br>
+> Set executor which orchestrates concurrent producers and consumers communicating through a message queue.BOUNDED_IN_MEMORY: Use LinkedBlockingQueue as a bounded in-memory queue, this queue will use extra lock to balance producers and consumerDISRUPTOR: Use disruptor which a lock free message queue as inner message, this queue may gain better writing performance if lock was the bottleneck. SIMPLE(default): Executor with no inner message queue and no inner lock. Consuming and writing records from iterator directly. Compared with BIM and DISRUPTOR, this queue has no need for additional memory and cpu resources due to lock or multithreading, but also lost some benefits such as speed limit. Although DISRUPTOR is still experimental.<br></br>
 > `Default Value: SIMPLE (Optional)`<br></br>
 > `Config Param: WRITE_EXECUTOR_TYPE`<br></br>
 > `Since Version: 0.13.0`<br></br>
@@ -2575,250 +2981,17 @@ Configurations that control write behavior on Hudi tables. These can be directly
 
 ---
 
+> ### hoodie.write.tagged.record.storage.level
+> Determine what level of persistence is used to cache write RDDs. Refer to org.apache.spark.storage.StorageLevel for different values<br></br>
+> `Default Value: MEMORY_AND_DISK_SER (Optional)`<br></br>
+> `Config Param: TAGGED_RECORD_STORAGE_LEVEL_VALUE`<br></br>
+
+---
+
 > ### hoodie.writestatus.class
 > Subclass of org.apache.hudi.client.WriteStatus to be used to collect information about a write. Can be overridden to collection additional metrics/statistics about the data if needed.<br></br>
 > `Default Value: org.apache.hudi.client.WriteStatus (Optional)`<br></br>
 > `Config Param: WRITE_STATUS_CLASS_NAME`<br></br>
-
----
-
-### Metastore Configs {#Metastore-Configs}
-Configurations used by the Hudi Metastore.
-
-`Config Class`: org.apache.hudi.common.config.HoodieMetaserverConfig<br></br>
-> ### hoodie.database.name
-> Database name that will be used for incremental query.If different databases have the same table name during incremental query, we can set it to limit the table name under a specific database<br></br>
-> `Default Value: N/A `**(Required)**<br></br>
-> `Config Param: DATABASE_NAME`<br></br>
-> `Since Version: 0.13.0`<br></br>
-
----
-
-> ### hoodie.table.name
-> Table name that will be used for registering with Hive. Needs to be same across runs.<br></br>
-> `Default Value: N/A `**(Required)**<br></br>
-> `Config Param: TABLE_NAME`<br></br>
-> `Since Version: 0.13.0`<br></br>
-
----
-
-> ### hoodie.metaserver.connect.retries
-> Number of retries while opening a connection to metastore<br></br>
-> `Default Value: 3 (Optional)`<br></br>
-> `Config Param: METASERVER_CONNECTION_RETRIES`<br></br>
-> `Since Version: 0.13.0`<br></br>
-
----
-
-> ### hoodie.metaserver.connect.retry.delay
-> Number of seconds for the client to wait between consecutive connection attempts<br></br>
-> `Default Value: 1 (Optional)`<br></br>
-> `Config Param: METASERVER_CONNECTION_RETRY_DELAY`<br></br>
-> `Since Version: 0.13.0`<br></br>
-
----
-
-> ### hoodie.metaserver.enabled
-> Enable Hudi metaserver for storing Hudi tables' metadata.<br></br>
-> `Default Value: false (Optional)`<br></br>
-> `Config Param: METASERVER_ENABLE`<br></br>
-> `Since Version: 0.13.0`<br></br>
-
----
-
-> ### hoodie.metaserver.uris
-> Metastore server uris<br></br>
-> `Default Value: thrift://localhost:9090 (Optional)`<br></br>
-> `Config Param: METASERVER_URLS`<br></br>
-> `Since Version: 0.13.0`<br></br>
-
----
-
-### Key Generator Options {#Key-Generator-Options}
-Hudi maintains keys (record key + partition path) for uniquely identifying a particular record. This config allows developers to setup the Key generator class that will extract these out of incoming records.
-
-`Config Class`: org.apache.hudi.keygen.constant.KeyGeneratorOptions<br></br>
-> ### hoodie.datasource.write.partitionpath.field
-> Partition path field. Value to be used at the partitionPath component of HoodieKey. Actual value obtained by invoking .toString()<br></br>
-> `Default Value: N/A `**(Required)**<br></br>
-> `Config Param: PARTITIONPATH_FIELD_NAME`<br></br>
-
----
-
-> ### hoodie.datasource.write.recordkey.field
-> Record key field. Value to be used as the `recordKey` component of `HoodieKey`.
-Actual value will be obtained by invoking .toString() on the field value. Nested fields can be specified using
-the dot notation eg: `a.b.c`<br></br>
-> `Default Value: N/A `**(Required)**<br></br>
-> `Config Param: RECORDKEY_FIELD_NAME`<br></br>
-
----
-
-> ### hoodie.datasource.write.hive_style_partitioning
-> Flag to indicate whether to use Hive style partitioning.
-If set true, the names of partition folders follow <partition_column_name>=<partition_value> format.
-By default false (the names of partition folders are only partition values)<br></br>
-> `Default Value: false (Optional)`<br></br>
-> `Config Param: HIVE_STYLE_PARTITIONING_ENABLE`<br></br>
-
----
-
-> ### hoodie.datasource.write.keygenerator.consistent.logical.timestamp.enabled
-> When set to true, consistent value will be generated for a logical timestamp type column, like timestamp-millis and timestamp-micros, irrespective of whether row-writer is enabled. Disabled by default so as not to break the pipeline that deploy either fully row-writer path or non row-writer path. For example, if it is kept disabled then record key of timestamp type with value `2016-12-29 09:54:00` will be written as timestamp `2016-12-29 09:54:00.0` in row-writer path, while it will be written as long value `1483023240000000` in non row-writer path. If enabled, then the timestamp value will be written in both the cases.<br></br>
-> `Default Value: false (Optional)`<br></br>
-> `Config Param: KEYGENERATOR_CONSISTENT_LOGICAL_TIMESTAMP_ENABLED`<br></br>
-
----
-
-> ### hoodie.datasource.write.partitionpath.urlencode
-> Should we url encode the partition path value, before creating the folder structure.<br></br>
-> `Default Value: false (Optional)`<br></br>
-> `Config Param: URL_ENCODE_PARTITIONING`<br></br>
-
----
-
-### Storage Configs {#Storage-Configs}
-Configurations that control aspects around writing, sizing, reading base and log files.
-
-`Config Class`: org.apache.hudi.common.config.HoodieStorageConfig<br></br>
-> ### hoodie.logfile.data.block.format
-> Format of the data block within delta logs. Following formats are currently supported "avro", "hfile", "parquet"<br></br>
-> `Default Value: N/A `**(Required)**<br></br>
-> `Config Param: LOGFILE_DATA_BLOCK_FORMAT`<br></br>
-
----
-
-> ### hoodie.hfile.block.size
-> Lower values increase the size in bytes of metadata tracked within HFile, but can offer potentially faster lookup times.<br></br>
-> `Default Value: 1048576 (Optional)`<br></br>
-> `Config Param: HFILE_BLOCK_SIZE`<br></br>
-
----
-
-> ### hoodie.hfile.compression.algorithm
-> Compression codec to use for hfile base files.<br></br>
-> `Default Value: GZ (Optional)`<br></br>
-> `Config Param: HFILE_COMPRESSION_ALGORITHM_NAME`<br></br>
-
----
-
-> ### hoodie.hfile.max.file.size
-> Target file size in bytes for HFile base files.<br></br>
-> `Default Value: 125829120 (Optional)`<br></br>
-> `Config Param: HFILE_MAX_FILE_SIZE`<br></br>
-
----
-
-> ### hoodie.logfile.data.block.max.size
-> LogFile Data block max size in bytes. This is the maximum size allowed for a single data block to be appended to a log file. This helps to make sure the data appended to the log file is broken up into sizable blocks to prevent from OOM errors. This size should be greater than the JVM memory.<br></br>
-> `Default Value: 268435456 (Optional)`<br></br>
-> `Config Param: LOGFILE_DATA_BLOCK_MAX_SIZE`<br></br>
-
----
-
-> ### hoodie.logfile.max.size
-> LogFile max size in bytes. This is the maximum size allowed for a log file before it is rolled over to the next version.<br></br>
-> `Default Value: 1073741824 (Optional)`<br></br>
-> `Config Param: LOGFILE_MAX_SIZE`<br></br>
-
----
-
-> ### hoodie.logfile.to.parquet.compression.ratio
-> Expected additional compression as records move from log files to parquet. Used for merge_on_read table to send inserts into log files & control the size of compacted parquet file.<br></br>
-> `Default Value: 0.35 (Optional)`<br></br>
-> `Config Param: LOGFILE_TO_PARQUET_COMPRESSION_RATIO_FRACTION`<br></br>
-
----
-
-> ### hoodie.orc.block.size
-> ORC block size, recommended to be aligned with the target file size.<br></br>
-> `Default Value: 125829120 (Optional)`<br></br>
-> `Config Param: ORC_BLOCK_SIZE`<br></br>
-
----
-
-> ### hoodie.orc.compression.codec
-> Compression codec to use for ORC base files.<br></br>
-> `Default Value: ZLIB (Optional)`<br></br>
-> `Config Param: ORC_COMPRESSION_CODEC_NAME`<br></br>
-
----
-
-> ### hoodie.orc.max.file.size
-> Target file size in bytes for ORC base files.<br></br>
-> `Default Value: 125829120 (Optional)`<br></br>
-> `Config Param: ORC_FILE_MAX_SIZE`<br></br>
-
----
-
-> ### hoodie.orc.stripe.size
-> Size of the memory buffer in bytes for writing<br></br>
-> `Default Value: 67108864 (Optional)`<br></br>
-> `Config Param: ORC_STRIPE_SIZE`<br></br>
-
----
-
-> ### hoodie.parquet.block.size
-> Parquet RowGroup size in bytes. It's recommended to make this large enough that scan costs can be amortized by packing enough column values into a single row group.<br></br>
-> `Default Value: 125829120 (Optional)`<br></br>
-> `Config Param: PARQUET_BLOCK_SIZE`<br></br>
-
----
-
-> ### hoodie.parquet.compression.codec
-> Compression Codec for parquet files<br></br>
-> `Default Value: gzip (Optional)`<br></br>
-> `Config Param: PARQUET_COMPRESSION_CODEC_NAME`<br></br>
-
----
-
-> ### hoodie.parquet.compression.ratio
-> Expected compression of parquet data used by Hudi, when it tries to size new parquet files. Increase this value, if bulk_insert is producing smaller than expected sized files<br></br>
-> `Default Value: 0.1 (Optional)`<br></br>
-> `Config Param: PARQUET_COMPRESSION_RATIO_FRACTION`<br></br>
-
----
-
-> ### hoodie.parquet.dictionary.enabled
-> Whether to use dictionary encoding<br></br>
-> `Default Value: true (Optional)`<br></br>
-> `Config Param: PARQUET_DICTIONARY_ENABLED`<br></br>
-
----
-
-> ### hoodie.parquet.field_id.write.enabled
-> Would only be effective with Spark 3.3+. Sets spark.sql.parquet.fieldId.write.enabled. If enabled, Spark will write out parquet native field ids that are stored inside StructField's metadata as parquet.field.id to parquet files.<br></br>
-> `Default Value: true (Optional)`<br></br>
-> `Config Param: PARQUET_FIELD_ID_WRITE_ENABLED`<br></br>
-> `Since Version: 0.12.0`<br></br>
-
----
-
-> ### hoodie.parquet.max.file.size
-> Target size in bytes for parquet files produced by Hudi write phases. For DFS, this needs to be aligned with the underlying filesystem block size for optimal performance.<br></br>
-> `Default Value: 125829120 (Optional)`<br></br>
-> `Config Param: PARQUET_MAX_FILE_SIZE`<br></br>
-
----
-
-> ### hoodie.parquet.outputtimestamptype
-> Sets spark.sql.parquet.outputTimestampType. Parquet timestamp type to use when Spark writes data to Parquet files.<br></br>
-> `Default Value: TIMESTAMP_MICROS (Optional)`<br></br>
-> `Config Param: PARQUET_OUTPUT_TIMESTAMP_TYPE`<br></br>
-
----
-
-> ### hoodie.parquet.page.size
-> Parquet page size in bytes. Page is the unit of read within a parquet file. Within a block, pages are compressed separately.<br></br>
-> `Default Value: 1048576 (Optional)`<br></br>
-> `Config Param: PARQUET_PAGE_SIZE`<br></br>
-
----
-
-> ### hoodie.parquet.writelegacyformat.enabled
-> Sets spark.sql.parquet.writeLegacyFormat. If true, data will be written in a way of Spark 1.4 and earlier. For example, decimal values will be written in Parquet's fixed-length byte array format which other systems such as Apache Hive and Apache Impala use. If false, the newer format in Parquet will be used. For example, decimals will be written in int-based format.<br></br>
-> `Default Value: false (Optional)`<br></br>
-> `Config Param: PARQUET_WRITE_LEGACY_FORMAT_ENABLED`<br></br>
 
 ---
 
@@ -2887,14 +3060,6 @@ Configurations that control compaction (merging of log files onto a new base fil
 > Only if the log file size is greater than the threshold in bytes, the file group will be compacted.<br></br>
 > `Default Value: 0 (Optional)`<br></br>
 > `Config Param: COMPACTION_LOG_FILE_SIZE_THRESHOLD`<br></br>
-
----
-
-> ### hoodie.compaction.preserve.commit.metadata
-> When rewriting data, preserves existing hoodie_commit_time<br></br>
-> `Default Value: true (Optional)`<br></br>
-> `Config Param: PRESERVE_COMMIT_METADATA`<br></br>
-> `Since Version: 0.11.0`<br></br>
 
 ---
 
@@ -2975,156 +3140,6 @@ Configurations that control compaction (merging of log files onto a new base fil
 > We use the previous commits' metadata to calculate the estimated record size and use it  to bin pack records into partitions. If the previous commit is too small to make an accurate estimation,  Hudi will search commits in the reverse order, until we find a commit that has totalBytesWritten  larger than (PARQUET_SMALL_FILE_LIMIT_BYTES * this_threshold)<br></br>
 > `Default Value: 1.0 (Optional)`<br></br>
 > `Config Param: RECORD_SIZE_ESTIMATION_THRESHOLD`<br></br>
-
----
-
-### File System View Storage Configurations {#File-System-View-Storage-Configurations}
-Configurations that control how file metadata is stored by Hudi, for transaction processing and queries.
-
-`Config Class`: org.apache.hudi.common.table.view.FileSystemViewStorageConfig<br></br>
-> ### hoodie.filesystem.remote.backup.view.enable
-> Config to control whether backup needs to be configured if clients were not able to reach timeline service.<br></br>
-> `Default Value: true (Optional)`<br></br>
-> `Config Param: REMOTE_BACKUP_VIEW_ENABLE`<br></br>
-
----
-
-> ### hoodie.filesystem.view.incr.timeline.sync.enable
-> Controls whether or not, the file system view is incrementally updated as new actions are performed on the timeline.<br></br>
-> `Default Value: false (Optional)`<br></br>
-> `Config Param: INCREMENTAL_TIMELINE_SYNC_ENABLE`<br></br>
-
----
-
-> ### hoodie.filesystem.view.remote.host
-> We expect this to be rarely hand configured.<br></br>
-> `Default Value: localhost (Optional)`<br></br>
-> `Config Param: REMOTE_HOST_NAME`<br></br>
-
----
-
-> ### hoodie.filesystem.view.remote.port
-> Port to serve file system view queries, when remote. We expect this to be rarely hand configured.<br></br>
-> `Default Value: 26754 (Optional)`<br></br>
-> `Config Param: REMOTE_PORT_NUM`<br></br>
-
----
-
-> ### hoodie.filesystem.view.remote.retry.enable
-> Whether to enable API request retry for remote file system view.<br></br>
-> `Default Value: false (Optional)`<br></br>
-> `Config Param: REMOTE_RETRY_ENABLE`<br></br>
-> `Since Version: 0.12.1`<br></br>
-
----
-
-> ### hoodie.filesystem.view.remote.retry.exceptions
-> The class name of the Exception that needs to be re-tryed, separated by commas. Default is empty which means retry all the IOException and RuntimeException from Remote Request.<br></br>
-> `Default Value:  (Optional)`<br></br>
-> `Config Param: RETRY_EXCEPTIONS`<br></br>
-> `Since Version: 0.12.1`<br></br>
-
----
-
-> ### hoodie.filesystem.view.remote.retry.initial_interval_ms
-> Amount of time (in ms) to wait, before retry to do operations on storage.<br></br>
-> `Default Value: 100 (Optional)`<br></br>
-> `Config Param: REMOTE_INITIAL_RETRY_INTERVAL_MS`<br></br>
-> `Since Version: 0.12.1`<br></br>
-
----
-
-> ### hoodie.filesystem.view.remote.retry.max_interval_ms
-> Maximum amount of time (in ms), to wait for next retry.<br></br>
-> `Default Value: 2000 (Optional)`<br></br>
-> `Config Param: REMOTE_MAX_RETRY_INTERVAL_MS`<br></br>
-> `Since Version: 0.12.1`<br></br>
-
----
-
-> ### hoodie.filesystem.view.remote.retry.max_numbers
-> Maximum number of retry for API requests against a remote file system view. e.g timeline server.<br></br>
-> `Default Value: 3 (Optional)`<br></br>
-> `Config Param: REMOTE_MAX_RETRY_NUMBERS`<br></br>
-> `Since Version: 0.12.1`<br></br>
-
----
-
-> ### hoodie.filesystem.view.remote.timeout.secs
-> Timeout in seconds, to wait for API requests against a remote file system view. e.g timeline server.<br></br>
-> `Default Value: 300 (Optional)`<br></br>
-> `Config Param: REMOTE_TIMEOUT_SECS`<br></br>
-
----
-
-> ### hoodie.filesystem.view.rocksdb.base.path
-> Path on local storage to use, when storing file system view in embedded kv store/rocksdb.<br></br>
-> `Default Value: /tmp/hoodie_timeline_rocksdb (Optional)`<br></br>
-> `Config Param: ROCKSDB_BASE_PATH`<br></br>
-
----
-
-> ### hoodie.filesystem.view.secondary.type
-> Specifies the secondary form of storage for file system view, if the primary (e.g timeline server)  is unavailable.<br></br>
-> `Default Value: MEMORY (Optional)`<br></br>
-> `Config Param: SECONDARY_VIEW_TYPE`<br></br>
-
----
-
-> ### hoodie.filesystem.view.spillable.bootstrap.base.file.mem.fraction
-> Fraction of the file system view memory, to be used for holding mapping to bootstrap base files.<br></br>
-> `Default Value: 0.05 (Optional)`<br></br>
-> `Config Param: BOOTSTRAP_BASE_FILE_MEM_FRACTION`<br></br>
-
----
-
-> ### hoodie.filesystem.view.spillable.clustering.mem.fraction
-> Fraction of the file system view memory, to be used for holding clustering related metadata.<br></br>
-> `Default Value: 0.01 (Optional)`<br></br>
-> `Config Param: SPILLABLE_CLUSTERING_MEM_FRACTION`<br></br>
-
----
-
-> ### hoodie.filesystem.view.spillable.compaction.mem.fraction
-> Fraction of the file system view memory, to be used for holding compaction related metadata.<br></br>
-> `Default Value: 0.8 (Optional)`<br></br>
-> `Config Param: SPILLABLE_COMPACTION_MEM_FRACTION`<br></br>
-
----
-
-> ### hoodie.filesystem.view.spillable.dir
-> Path on local storage to use, when file system view is held in a spillable map.<br></br>
-> `Default Value: /tmp/ (Optional)`<br></br>
-> `Config Param: SPILLABLE_DIR`<br></br>
-
----
-
-> ### hoodie.filesystem.view.spillable.log.compaction.mem.fraction
-> Fraction of the file system view memory, to be used for holding log compaction related metadata.<br></br>
-> `Default Value: 0.8 (Optional)`<br></br>
-> `Config Param: SPILLABLE_LOG_COMPACTION_MEM_FRACTION`<br></br>
-> `Since Version: 0.13.0`<br></br>
-
----
-
-> ### hoodie.filesystem.view.spillable.mem
-> Amount of memory to be used in bytes for holding file system view, before spilling to disk.<br></br>
-> `Default Value: 104857600 (Optional)`<br></br>
-> `Config Param: SPILLABLE_MEMORY`<br></br>
-
----
-
-> ### hoodie.filesystem.view.spillable.replaced.mem.fraction
-> Fraction of the file system view memory, to be used for holding replace commit related metadata.<br></br>
-> `Default Value: 0.01 (Optional)`<br></br>
-> `Config Param: SPILLABLE_REPLACED_MEM_FRACTION`<br></br>
-
----
-
-> ### hoodie.filesystem.view.type
-> File system view provides APIs for viewing the files on the underlying lake storage,  as file groups and file slices. This config controls how such a view is held. Options include MEMORY,SPILLABLE_DISK,EMBEDDED_KV_STORE,REMOTE_ONLY,REMOTE_FIRST which provide different trade offs for memory usage and API request performance.<br></br>
-> `Default Value: MEMORY (Optional)`<br></br>
-> `Config Param: VIEW_TYPE`<br></br>
 
 ---
 
@@ -3260,6 +3275,14 @@ Configurations that control the clustering table service in hudi, which optimize
 
 ---
 
+> ### hoodie.clustering.plan.strategy.single.group.clustering.enabled
+> Whether to generate clustering plan when there is only one file group involved, by default true<br></br>
+> `Default Value: true (Optional)`<br></br>
+> `Config Param: PLAN_STRATEGY_SINGLE_GROUP_CLUSTERING_ENABLED`<br></br>
+> `Since Version: 0.14.0`<br></br>
+
+---
+
 > ### hoodie.clustering.plan.strategy.small.file.limit
 > Files smaller than the size in bytes specified here are candidates for clustering<br></br>
 > `Default Value: 314572800 (Optional)`<br></br>
@@ -3273,14 +3296,6 @@ Configurations that control the clustering table service in hudi, which optimize
 > `Default Value: 1073741824 (Optional)`<br></br>
 > `Config Param: PLAN_STRATEGY_TARGET_FILE_MAX_BYTES`<br></br>
 > `Since Version: 0.7.0`<br></br>
-
----
-
-> ### hoodie.clustering.preserve.commit.metadata
-> When rewriting data, preserves existing hoodie_commit_time<br></br>
-> `Default Value: true (Optional)`<br></br>
-> `Config Param: PRESERVE_COMMIT_METADATA`<br></br>
-> `Since Version: 0.9.0`<br></br>
 
 ---
 
@@ -3417,7 +3432,7 @@ Configurations that control how you want to bootstrap your existing tables for t
 ---
 
 > ### hoodie.bootstrap.index.class
-> Implementation to use, for mapping a skeleton base file to a boostrap base file.<br></br>
+> Implementation to use, for mapping a skeleton base file to a bootstrap base file.<br></br>
 > `Default Value: org.apache.hudi.common.bootstrap.index.HFileBootstrapIndex (Optional)`<br></br>
 > `Config Param: INDEX_CLASS_NAME`<br></br>
 > `Since Version: 0.6.0`<br></br>
@@ -3457,7 +3472,7 @@ Configurations that control how you want to bootstrap your existing tables for t
 ---
 
 > ### hoodie.bootstrap.parallelism
-> Parallelism value to be used to bootstrap data into hudi<br></br>
+> For metadata-only bootstrap, Hudi parallelizes the operation so that each table partition is handled by one Spark task. This config limits the number of parallelism. We pick the configured parallelism if the number of table partitions is larger than this configured value. The parallelism is assigned to the number of table partitions if it is smaller than the configured value. For full-record bootstrap, i.e., BULK_INSERT operation of the records, this configured value is passed as the BULK_INSERT shuffle parallelism (`hoodie.bulkinsert.shuffle.parallelism`), determining the BULK_INSERT write behavior. If you see that the bootstrap is slow due to the limited parallelism, you can increase this.<br></br>
 > `Default Value: 1500 (Optional)`<br></br>
 > `Config Param: PARALLELISM_VALUE`<br></br>
 > `Since Version: 0.6.0`<br></br>
@@ -3473,7 +3488,7 @@ Configurations that control how you want to bootstrap your existing tables for t
 ---
 
 ### Commit Callback Configs {#COMMIT_CALLBACK}
-Configurations controling callback behavior into HTTP endpoints, to push notifications on commits on hudi tables.
+Configurations controlling callback behavior into HTTP endpoints, to push notifications on commits on hudi tables.
 
 #### Write commit callback configs {#Write-commit-callback-configs}
 
@@ -3504,8 +3519,8 @@ Configurations controling callback behavior into HTTP endpoints, to push notific
 ---
 
 > #### hoodie.write.commit.callback.http.timeout.seconds
-> Callback timeout in seconds. 3 by default<br></br>
-> `Default Value: 3 (Optional)`<br></br>
+> Callback timeout in seconds.<br></br>
+> `Default Value: 30 (Optional)`<br></br>
 > `Config Param: CALLBACK_HTTP_TIMEOUT_IN_SECONDS`<br></br>
 > `Since Version: 0.6.0`<br></br>
 
@@ -3743,7 +3758,7 @@ Configurations that control locking mechanisms required for concurrency control 
 ---
 
 > #### hoodie.write.lock.filesystem.expire
-> For DFS based lock providers, expire time in minutes, must be a nonnegative number, default means no expire<br></br>
+> For DFS based lock providers, expire time in minutes, must be a non-negative number, default means no expire<br></br>
 > `Default Value: 0 (Optional)`<br></br>
 > `Config Param: FILESYSTEM_LOCK_EXPIRE`<br></br>
 > `Since Version: 0.12.0`<br></br>
@@ -3752,7 +3767,7 @@ Configurations that control locking mechanisms required for concurrency control 
 
 > #### hoodie.write.lock.max_wait_time_ms_between_retry
 > Maximum amount of time to wait between retries by lock provider client. This bounds the maximum delay from the exponential backoff. Currently used by ZK based lock provider only.<br></br>
-> `Default Value: 5000 (Optional)`<br></br>
+> `Default Value: 16000 (Optional)`<br></br>
 > `Config Param: LOCK_ACQUIRE_RETRY_MAX_WAIT_TIME_IN_MILLIS`<br></br>
 > `Since Version: 0.8.0`<br></br>
 
@@ -3826,14 +3841,6 @@ Configs that control DynamoDB based locking mechanisms required for concurrency 
 
 ---
 
-> #### hoodie.write.lock.dynamodb.table
-> For DynamoDB based lock provider, the name of the DynamoDB table acting as lock table<br></br>
-> `Default Value: N/A `**(Required)**<br></br>
-> `Config Param: DYNAMODB_LOCK_TABLE_NAME`<br></br>
-> `Since Version: 0.10.0`<br></br>
-
----
-
 > #### hoodie.write.lock.dynamodb.billing_mode
 > For DynamoDB based lock provider, by default it is `PAY_PER_REQUEST` mode. Alternative is `PROVISIONED`.<br></br>
 > `Default Value: PAY_PER_REQUEST (Optional)`<br></br>
@@ -3866,9 +3873,17 @@ Configs that control DynamoDB based locking mechanisms required for concurrency 
 
 ---
 
+> #### hoodie.write.lock.dynamodb.table
+> For DynamoDB based lock provider, the name of the DynamoDB table acting as lock table<br></br>
+> `Default Value: hudi_locks (Optional)`<br></br>
+> `Config Param: DYNAMODB_LOCK_TABLE_NAME`<br></br>
+> `Since Version: 0.10.0`<br></br>
+
+---
+
 > #### hoodie.write.lock.dynamodb.table_creation_timeout
 > For DynamoDB based lock provider, the maximum number of milliseconds to wait for creating DynamoDB table<br></br>
-> `Default Value: 600000 (Optional)`<br></br>
+> `Default Value: 120000 (Optional)`<br></br>
 > `Config Param: DYNAMODB_LOCK_TABLE_CREATION_TIMEOUT`<br></br>
 > `Since Version: 0.10.0`<br></br>
 
@@ -3955,7 +3970,7 @@ Configurations that control indexing behavior, which tags incoming records as ei
 ---
 
 > #### hoodie.bloom.index.parallelism
-> Only applies if index type is BLOOM. This is the amount of parallelism for index lookup, which involves a shuffle. By default, this is auto computed based on input workload characteristics.<br></br>
+> Only applies if index type is BLOOM. This is the amount of parallelism for index lookup, which involves a shuffle. By default, this is auto computed based on input workload characteristics. If the parallelism is explicitly configured by the user, the user-configured value is used in defining the actual parallelism. If the indexing stage is slow due to the limited parallelism, you can increase this to tune the performance.<br></br>
 > `Default Value: 0 (Optional)`<br></br>
 > `Config Param: BLOOM_INDEX_PARALLELISM`<br></br>
 
@@ -4021,7 +4036,7 @@ Configurations that control indexing behavior, which tags incoming records as ei
 ---
 
 > #### hoodie.global.simple.index.parallelism
-> Only applies if index type is GLOBAL_SIMPLE. This is the amount of parallelism for index lookup, which involves a Spark Shuffle<br></br>
+> Only applies if index type is GLOBAL_SIMPLE. This limits the parallelism of fetching records from the base files of all table partitions. The index picks the configured parallelism if the number of base files is larger than this configured value; otherwise, the number of base files is used as the parallelism. If the indexing stage is slow due to the limited parallelism, you can increase this to tune the performance.<br></br>
 > `Default Value: 100 (Optional)`<br></br>
 > `Config Param: GLOBAL_SIMPLE_INDEX_PARALLELISM`<br></br>
 
@@ -4064,14 +4079,14 @@ Configurations that control indexing behavior, which tags incoming records as ei
 ---
 
 > #### hoodie.simple.index.parallelism
-> Only applies if index type is SIMPLE. This is the amount of parallelism for index lookup, which involves a Spark Shuffle<br></br>
+> Only applies if index type is SIMPLE. This limits the parallelism of fetching records from the base files of affected partitions. The index picks the configured parallelism if the number of base files is larger than this configured value; otherwise, the number of base files is used as the parallelism. If the indexing stage is slow due to the limited parallelism, you can increase this to tune the performance.<br></br>
 > `Default Value: 100 (Optional)`<br></br>
 > `Config Param: SIMPLE_INDEX_PARALLELISM`<br></br>
 
 ---
 
 > #### hoodie.simple.index.update.partition.path
-> Similar to Key: 'hoodie.bloom.index.update.partition.path' , default: true description: Only applies if index type is GLOBAL_BLOOM. When set to true, an update including the partition path of a record that already exists will result in inserting the incoming record into the new partition and deleting the original record in the old partition. When set to false, the original record will only be updated in the old partition since version: version is not defined deprecated after: version is not defined), but for simple index.<br></br>
+> Similar to Key: 'hoodie.bloom.index.update.partition.path' , default: true , isAdvanced: true , description: Only applies if index type is GLOBAL_BLOOM. When set to true, an update including the partition path of a record that already exists will result in inserting the incoming record into the new partition and deleting the original record in the old partition. When set to false, the original record will only be updated in the old partition since version: version is not defined deprecated after: version is not defined), but for simple index.<br></br>
 > `Default Value: true (Optional)`<br></br>
 > `Config Param: SIMPLE_INDEX_UPDATE_PARTITION_PATH_ENABLE`<br></br>
 
@@ -4778,31 +4793,10 @@ Configurations used by the Hudi to sync metadata to DataHub.
 Configurations used by the Hudi to sync metadata to Google BigQuery.
 
 `Config Class`: org.apache.hudi.gcp.bigquery.BigQuerySyncConfig<br></br>
-> ### hoodie.gcp.bigquery.sync.base_path
-> Base path of the hoodie table to sync<br></br>
-> `Default Value: N/A `**(Required)**<br></br>
-> `Config Param: BIGQUERY_SYNC_SYNC_BASE_PATH`<br></br>
-
----
-
 > ### hoodie.gcp.bigquery.sync.dataset_location
 > Location of the target dataset in BigQuery<br></br>
 > `Default Value: N/A `**(Required)**<br></br>
 > `Config Param: BIGQUERY_SYNC_DATASET_LOCATION`<br></br>
-
----
-
-> ### hoodie.gcp.bigquery.sync.dataset_name
-> Name of the target dataset in BigQuery<br></br>
-> `Default Value: N/A `**(Required)**<br></br>
-> `Config Param: BIGQUERY_SYNC_DATASET_NAME`<br></br>
-
----
-
-> ### hoodie.gcp.bigquery.sync.partition_fields
-> Comma-delimited partition fields. Default to non-partitioned.<br></br>
-> `Default Value: N/A `**(Required)**<br></br>
-> `Config Param: BIGQUERY_SYNC_PARTITION_FIELDS`<br></br>
 
 ---
 
@@ -4824,13 +4818,6 @@ Configurations used by the Hudi to sync metadata to Google BigQuery.
 > Name of the source uri gcs path prefix of the table<br></br>
 > `Default Value: N/A `**(Required)**<br></br>
 > `Config Param: BIGQUERY_SYNC_SOURCE_URI_PREFIX`<br></br>
-
----
-
-> ### hoodie.gcp.bigquery.sync.table_name
-> Name of the target table in BigQuery<br></br>
-> `Default Value: N/A `**(Required)**<br></br>
-> `Config Param: BIGQUERY_SYNC_TABLE_NAME`<br></br>
 
 ---
 
@@ -4901,6 +4888,34 @@ Configurations used by the Hudi to sync metadata to Google BigQuery.
 > Assume standard yyyy/mm/dd partitioning, this exists to support backward compatibility. If you use hoodie 0.3.x, do not set this parameter<br></br>
 > `Default Value: false (Optional)`<br></br>
 > `Config Param: BIGQUERY_SYNC_ASSUME_DATE_PARTITIONING`<br></br>
+
+---
+
+> ### hoodie.gcp.bigquery.sync.base_path
+> Base path of the hoodie table to sync<br></br>
+> `Default Value:  (Optional)`<br></br>
+> `Config Param: BIGQUERY_SYNC_SYNC_BASE_PATH`<br></br>
+
+---
+
+> ### hoodie.gcp.bigquery.sync.dataset_name
+> Name of the target dataset in BigQuery<br></br>
+> `Default Value:  (Optional)`<br></br>
+> `Config Param: BIGQUERY_SYNC_DATASET_NAME`<br></br>
+
+---
+
+> ### hoodie.gcp.bigquery.sync.partition_fields
+> Comma-delimited partition fields. Default to non-partitioned.<br></br>
+> `Default Value:  (Optional)`<br></br>
+> `Config Param: BIGQUERY_SYNC_PARTITION_FIELDS`<br></br>
+
+---
+
+> ### hoodie.gcp.bigquery.sync.table_name
+> Name of the target table in BigQuery<br></br>
+> `Default Value:  (Optional)`<br></br>
+> `Config Param: BIGQUERY_SYNC_TABLE_NAME`<br></br>
 
 ---
 
@@ -5201,6 +5216,170 @@ Configurations used by the Hudi to sync metadata to Hive Metastore.
 ## Metrics Configs {#METRICS}
 These set of configs are used to enable monitoring and reporting of keyHudi stats and metrics.
 
+### Metrics Configurations for Amazon CloudWatch {#Metrics-Configurations-for-Amazon-CloudWatch}
+Enables reporting on Hudi metrics using Amazon CloudWatch.  Hudi publishes metrics on every commit, clean, rollback etc.
+
+`Config Class`: org.apache.hudi.config.metrics.HoodieMetricsCloudWatchConfig<br></br>
+> ### hoodie.metrics.cloudwatch.maxDatumsPerRequest
+> Max number of Datums per request<br></br>
+> `Default Value: 20 (Optional)`<br></br>
+> `Config Param: MAX_DATUMS_PER_REQUEST`<br></br>
+> `Since Version: 0.10.0`<br></br>
+
+---
+
+> ### hoodie.metrics.cloudwatch.metric.prefix
+> Metric prefix of reporter<br></br>
+> `Default Value:  (Optional)`<br></br>
+> `Config Param: METRIC_PREFIX`<br></br>
+> `Since Version: 0.10.0`<br></br>
+
+---
+
+> ### hoodie.metrics.cloudwatch.namespace
+> Namespace of reporter<br></br>
+> `Default Value: Hudi (Optional)`<br></br>
+> `Config Param: METRIC_NAMESPACE`<br></br>
+> `Since Version: 0.10.0`<br></br>
+
+---
+
+> ### hoodie.metrics.cloudwatch.report.period.seconds
+> Reporting interval in seconds<br></br>
+> `Default Value: 60 (Optional)`<br></br>
+> `Config Param: REPORT_PERIOD_SECONDS`<br></br>
+> `Since Version: 0.10.0`<br></br>
+
+---
+
+### Metrics Configurations {#Metrics-Configurations}
+Enables reporting on Hudi metrics. Hudi publishes metrics on every commit, clean, rollback etc. The following sections list the supported reporters.
+
+`Config Class`: org.apache.hudi.config.metrics.HoodieMetricsConfig<br></br>
+> ### hoodie.metrics.executor.enable
+> <br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: EXECUTOR_METRICS_ENABLE`<br></br>
+> `Since Version: 0.7.0`<br></br>
+
+---
+
+> ### hoodie.metrics.configs.properties
+> Comma separated list of config file paths for metric exporter configs<br></br>
+> `Default Value:  (Optional)`<br></br>
+> `Config Param: METRICS_REPORTER_FILE_BASED_CONFIGS_PATH`<br></br>
+> `Since Version: 0.14.0`<br></br>
+
+---
+
+> ### hoodie.metrics.lock.enable
+> Enable metrics for locking infra. Useful when operating in multiwriter mode<br></br>
+> `Default Value: false (Optional)`<br></br>
+> `Config Param: LOCK_METRICS_ENABLE`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
+> ### hoodie.metrics.on
+> Turn on/off metrics reporting. off by default.<br></br>
+> `Default Value: false (Optional)`<br></br>
+> `Config Param: TURN_METRICS_ON`<br></br>
+> `Since Version: 0.5.0`<br></br>
+
+---
+
+> ### hoodie.metrics.reporter.class
+> <br></br>
+> `Default Value:  (Optional)`<br></br>
+> `Config Param: METRICS_REPORTER_CLASS_NAME`<br></br>
+> `Since Version: 0.6.0`<br></br>
+
+---
+
+> ### hoodie.metrics.reporter.metricsname.prefix
+> The prefix given to the metrics names.<br></br>
+> `Default Value:  (Optional)`<br></br>
+> `Config Param: METRICS_REPORTER_PREFIX`<br></br>
+> `Since Version: 0.11.0`<br></br>
+
+---
+
+> ### hoodie.metrics.reporter.type
+> Type of metrics reporter.<br></br>
+> `Default Value: GRAPHITE (Optional)`<br></br>
+> `Config Param: METRICS_REPORTER_TYPE_VALUE`<br></br>
+> `Since Version: 0.5.0`<br></br>
+
+---
+
+### Metrics Configurations for Prometheus {#Metrics-Configurations-for-Prometheus}
+Enables reporting on Hudi metrics using Prometheus.  Hudi publishes metrics on every commit, clean, rollback etc.
+
+`Config Class`: org.apache.hudi.config.metrics.HoodieMetricsPrometheusConfig<br></br>
+> ### hoodie.metrics.prometheus.port
+> Port for prometheus server.<br></br>
+> `Default Value: 9090 (Optional)`<br></br>
+> `Config Param: PROMETHEUS_PORT_NUM`<br></br>
+> `Since Version: 0.6.0`<br></br>
+
+---
+
+> ### hoodie.metrics.pushgateway.delete.on.shutdown
+> Delete the pushgateway info or not when job shutdown, true by default.<br></br>
+> `Default Value: true (Optional)`<br></br>
+> `Config Param: PUSHGATEWAY_DELETE_ON_SHUTDOWN_ENABLE`<br></br>
+> `Since Version: 0.6.0`<br></br>
+
+---
+
+> ### hoodie.metrics.pushgateway.host
+> Hostname of the prometheus push gateway.<br></br>
+> `Default Value: localhost (Optional)`<br></br>
+> `Config Param: PUSHGATEWAY_HOST_NAME`<br></br>
+> `Since Version: 0.6.0`<br></br>
+
+---
+
+> ### hoodie.metrics.pushgateway.job.name
+> Name of the push gateway job.<br></br>
+> `Default Value:  (Optional)`<br></br>
+> `Config Param: PUSHGATEWAY_JOBNAME`<br></br>
+> `Since Version: 0.6.0`<br></br>
+
+---
+
+> ### hoodie.metrics.pushgateway.port
+> Port for the push gateway.<br></br>
+> `Default Value: 9091 (Optional)`<br></br>
+> `Config Param: PUSHGATEWAY_PORT_NUM`<br></br>
+> `Since Version: 0.6.0`<br></br>
+
+---
+
+> ### hoodie.metrics.pushgateway.random.job.name.suffix
+> Whether the pushgateway name need a random suffix , default true.<br></br>
+> `Default Value: true (Optional)`<br></br>
+> `Config Param: PUSHGATEWAY_RANDOM_JOBNAME_SUFFIX`<br></br>
+> `Since Version: 0.6.0`<br></br>
+
+---
+
+> ### hoodie.metrics.pushgateway.report.labels
+> Label for the metrics emitted to the Pushgateway. Labels can be specified with key:value pairs separated by commas<br></br>
+> `Default Value:  (Optional)`<br></br>
+> `Config Param: PUSHGATEWAY_LABELS`<br></br>
+> `Since Version: 0.14.0`<br></br>
+
+---
+
+> ### hoodie.metrics.pushgateway.report.period.seconds
+> Reporting interval in seconds.<br></br>
+> `Default Value: 30 (Optional)`<br></br>
+> `Config Param: PUSHGATEWAY_REPORT_PERIOD_IN_SECONDS`<br></br>
+> `Since Version: 0.6.0`<br></br>
+
+---
+
 ### Metrics Configurations for Datadog reporter {#Metrics-Configurations-for-Datadog-reporter}
 Enables reporting on Hudi metrics using the Datadog reporter type. Hudi publishes metrics on every commit, clean, rollback etc.
 
@@ -5277,94 +5456,6 @@ Enables reporting on Hudi metrics using the Datadog reporter type. Hudi publishe
 
 ---
 
-### Metrics Configurations for Amazon CloudWatch {#Metrics-Configurations-for-Amazon-CloudWatch}
-Enables reporting on Hudi metrics using Amazon CloudWatch.  Hudi publishes metrics on every commit, clean, rollback etc.
-
-`Config Class`: org.apache.hudi.config.metrics.HoodieMetricsCloudWatchConfig<br></br>
-> ### hoodie.metrics.cloudwatch.maxDatumsPerRequest
-> Max number of Datums per request<br></br>
-> `Default Value: 20 (Optional)`<br></br>
-> `Config Param: MAX_DATUMS_PER_REQUEST`<br></br>
-> `Since Version: 0.10.0`<br></br>
-
----
-
-> ### hoodie.metrics.cloudwatch.metric.prefix
-> Metric prefix of reporter<br></br>
-> `Default Value:  (Optional)`<br></br>
-> `Config Param: METRIC_PREFIX`<br></br>
-> `Since Version: 0.10.0`<br></br>
-
----
-
-> ### hoodie.metrics.cloudwatch.namespace
-> Namespace of reporter<br></br>
-> `Default Value: Hudi (Optional)`<br></br>
-> `Config Param: METRIC_NAMESPACE`<br></br>
-> `Since Version: 0.10.0`<br></br>
-
----
-
-> ### hoodie.metrics.cloudwatch.report.period.seconds
-> Reporting interval in seconds<br></br>
-> `Default Value: 60 (Optional)`<br></br>
-> `Config Param: REPORT_PERIOD_SECONDS`<br></br>
-> `Since Version: 0.10.0`<br></br>
-
----
-
-### Metrics Configurations {#Metrics-Configurations}
-Enables reporting on Hudi metrics. Hudi publishes metrics on every commit, clean, rollback etc. The following sections list the supported reporters.
-
-`Config Class`: org.apache.hudi.config.metrics.HoodieMetricsConfig<br></br>
-> ### hoodie.metrics.executor.enable
-> <br></br>
-> `Default Value: N/A `**(Required)**<br></br>
-> `Config Param: EXECUTOR_METRICS_ENABLE`<br></br>
-> `Since Version: 0.7.0`<br></br>
-
----
-
-> ### hoodie.metrics.lock.enable
-> Enable metrics for locking infra. Useful when operating in multiwriter mode<br></br>
-> `Default Value: false (Optional)`<br></br>
-> `Config Param: LOCK_METRICS_ENABLE`<br></br>
-> `Since Version: 0.13.0`<br></br>
-
----
-
-> ### hoodie.metrics.on
-> Turn on/off metrics reporting. off by default.<br></br>
-> `Default Value: false (Optional)`<br></br>
-> `Config Param: TURN_METRICS_ON`<br></br>
-> `Since Version: 0.5.0`<br></br>
-
----
-
-> ### hoodie.metrics.reporter.class
-> <br></br>
-> `Default Value:  (Optional)`<br></br>
-> `Config Param: METRICS_REPORTER_CLASS_NAME`<br></br>
-> `Since Version: 0.6.0`<br></br>
-
----
-
-> ### hoodie.metrics.reporter.metricsname.prefix
-> The prefix given to the metrics names.<br></br>
-> `Default Value:  (Optional)`<br></br>
-> `Config Param: METRICS_REPORTER_PREFIX`<br></br>
-> `Since Version: 0.11.0`<br></br>
-
----
-
-> ### hoodie.metrics.reporter.type
-> Type of metrics reporter.<br></br>
-> `Default Value: GRAPHITE (Optional)`<br></br>
-> `Config Param: METRICS_REPORTER_TYPE_VALUE`<br></br>
-> `Since Version: 0.5.0`<br></br>
-
----
-
 ### Metrics Configurations for Jmx {#Metrics-Configurations-for-Jmx}
 Enables reporting on Hudi metrics using Jmx.  Hudi publishes metrics on every commit, clean, rollback etc.
 
@@ -5382,66 +5473,6 @@ Enables reporting on Hudi metrics using Jmx.  Hudi publishes metrics on every co
 > `Default Value: 9889 (Optional)`<br></br>
 > `Config Param: JMX_PORT_NUM`<br></br>
 > `Since Version: 0.5.1`<br></br>
-
----
-
-### Metrics Configurations for Prometheus {#Metrics-Configurations-for-Prometheus}
-Enables reporting on Hudi metrics using Prometheus.  Hudi publishes metrics on every commit, clean, rollback etc.
-
-`Config Class`: org.apache.hudi.config.metrics.HoodieMetricsPrometheusConfig<br></br>
-> ### hoodie.metrics.prometheus.port
-> Port for prometheus server.<br></br>
-> `Default Value: 9090 (Optional)`<br></br>
-> `Config Param: PROMETHEUS_PORT_NUM`<br></br>
-> `Since Version: 0.6.0`<br></br>
-
----
-
-> ### hoodie.metrics.pushgateway.delete.on.shutdown
-> Delete the pushgateway info or not when job shutdown, true by default.<br></br>
-> `Default Value: true (Optional)`<br></br>
-> `Config Param: PUSHGATEWAY_DELETE_ON_SHUTDOWN_ENABLE`<br></br>
-> `Since Version: 0.6.0`<br></br>
-
----
-
-> ### hoodie.metrics.pushgateway.host
-> Hostname of the prometheus push gateway.<br></br>
-> `Default Value: localhost (Optional)`<br></br>
-> `Config Param: PUSHGATEWAY_HOST_NAME`<br></br>
-> `Since Version: 0.6.0`<br></br>
-
----
-
-> ### hoodie.metrics.pushgateway.job.name
-> Name of the push gateway job.<br></br>
-> `Default Value:  (Optional)`<br></br>
-> `Config Param: PUSHGATEWAY_JOBNAME`<br></br>
-> `Since Version: 0.6.0`<br></br>
-
----
-
-> ### hoodie.metrics.pushgateway.port
-> Port for the push gateway.<br></br>
-> `Default Value: 9091 (Optional)`<br></br>
-> `Config Param: PUSHGATEWAY_PORT_NUM`<br></br>
-> `Since Version: 0.6.0`<br></br>
-
----
-
-> ### hoodie.metrics.pushgateway.random.job.name.suffix
-> Whether the pushgateway name need a random suffix , default true.<br></br>
-> `Default Value: true (Optional)`<br></br>
-> `Config Param: PUSHGATEWAY_RANDOM_JOBNAME_SUFFIX`<br></br>
-> `Since Version: 0.6.0`<br></br>
-
----
-
-> ### hoodie.metrics.pushgateway.report.period.seconds
-> Reporting interval in seconds.<br></br>
-> `Default Value: 30 (Optional)`<br></br>
-> `Config Param: PUSHGATEWAY_REPORT_PERIOD_IN_SECONDS`<br></br>
-> `Since Version: 0.6.0`<br></br>
 
 ---
 
@@ -5621,6 +5652,882 @@ Amazon Web Services configurations to access resources like Amazon DynamoDB (for
 > `Default Value: N/A `**(Required)**<br></br>
 > `Config Param: AWS_SESSION_TOKEN`<br></br>
 > `Since Version: 0.10.0`<br></br>
+
+---
+
+## DeltaStreamer Configs {#DELTA_STREAMER}
+Please fill in the description for Config Group Name: DeltaStreamer Configs
+
+### DeltaStreamer SQL Transformer Configs {#DeltaStreamer-SQL-Transformer-Configs}
+Configurations controlling the behavior of SQL transformer in Deltastreamer.
+
+`Config Class`: org.apache.hudi.utilities.config.SqlTransformerConfig<br></br>
+> ### hoodie.deltastreamer.transformer.sql
+> SQL Query to be executed during write<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: TRANSFORMER_SQL`<br></br>
+
+---
+
+> ### hoodie.deltastreamer.transformer.sql.file
+> File with a SQL script to be executed during write<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: TRANSFORMER_SQL_FILE`<br></br>
+
+---
+
+### DeltaStreamer Configs {#DeltaStreamer-Configs}
+Configurations that control DeltaStreamer.
+
+`Config Class`: org.apache.hudi.utilities.config.HoodieDeltaStreamerConfig<br></br>
+> ### hoodie.deltastreamer.checkpoint.provider.path
+> The path for providing the checkpoints.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: CHECKPOINT_PROVIDER_PATH`<br></br>
+
+---
+
+> ### hoodie.deltastreamer.ingestion.tablesToBeIngested
+> Comma separated names of tables to be ingested in the format <database>.<table>, for example db1.table1,db1.table2<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: TABLES_TO_BE_INGESTED`<br></br>
+
+---
+
+> ### hoodie.deltastreamer.ingestion.targetBasePath
+> The path to which a particular table is ingested. The config is specific to HoodieMultiTableDeltaStreamer and overrides path determined using option `--base-path-prefix` for a table. This config is ignored for a single table deltastreamer<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: TARGET_BASE_PATH`<br></br>
+
+---
+
+> ### hoodie.deltastreamer.multiwriter.source.checkpoint.id
+> Unique Id to be used for multiwriter deltastreamer scenario. This is the scenario when multiple deltastreamers are used to write to the same target table. If you are just using a single deltastreamer for a table then you do not need to set this config.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: MUTLI_WRITER_SOURCE_CHECKPOINT_ID`<br></br>
+
+---
+
+> ### hoodie.deltastreamer.source.kafka.topic
+> Kafka topic name.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: KAFKA_TOPIC`<br></br>
+
+---
+
+> ### hoodie.deltastreamer.source.kafka.append.offsets
+> When enabled, appends kafka offset info like source offset(_hoodie_kafka_source_offset), partition (_hoodie_kafka_source_partition) and timestamp (_hoodie_kafka_source_timestamp) to the records. By default its disabled and no kafka offsets are added<br></br>
+> `Default Value: false (Optional)`<br></br>
+> `Config Param: KAFKA_APPEND_OFFSETS`<br></br>
+
+---
+
+> ### hoodie.deltastreamer.source.sanitize.invalid.char.mask
+> Defines the character sequence that replaces invalid characters in schema field names if hoodie.deltastreamer.source.sanitize.invalid.schema.field.names is enabled.<br></br>
+> `Default Value: __ (Optional)`<br></br>
+> `Config Param: SCHEMA_FIELD_NAME_INVALID_CHAR_MASK`<br></br>
+
+---
+
+> ### hoodie.deltastreamer.source.sanitize.invalid.schema.field.names
+> Sanitizes names of invalid schema fields both in the data read from source and also in the schema Replaces invalid characters with hoodie.deltastreamer.source.sanitize.invalid.char.mask. Invalid characters are by goes by avro naming convention (https://avro.apache.org/docs/current/spec.html#names).<br></br>
+> `Default Value: false (Optional)`<br></br>
+> `Config Param: SANITIZE_SCHEMA_FIELD_NAMES`<br></br>
+
+---
+
+### SQL Source Configs {#SQL-Source-Configs}
+Configurations controlling the behavior of SQL source in Deltastreamer.
+
+`Config Class`: org.apache.hudi.utilities.config.SqlSourceConfig<br></br>
+> ### hoodie.deltastreamer.source.sql.sql.query
+> SQL query for fetching source data.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SOURCE_SQL`<br></br>
+
+---
+
+#### Hudi Incremental Source Configs {#Hudi-Incremental-Source-Configs}
+Configurations controlling the behavior of incremental pulling from a Hudi table as a source in Deltastreamer.
+
+`Config Class`: org.apache.hudi.utilities.config.HoodieIncrSourceConfig<br></br>
+> #### hoodie.deltastreamer.source.hoodieincr.missing.checkpoint.strategy
+> Allows delta-streamer to decide the instant to consume from when checkpoint is not set.
+ Possible values: [READ_LATEST (Read from latest commit in hoodie source table), READ_UPTO_LATEST_COMMIT (Read everything upto latest commit)]<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: MISSING_CHECKPOINT_STRATEGY`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.hoodieincr.partition.extractor.class
+> PartitionValueExtractor class to extract partition fields from _hoodie_partition_path<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Note on Default Value: org.apache.hudi.hive.SlashEncodedDayPartitionValueExtractor`<br></br>
+> `Config Param: HOODIE_SRC_PARTITION_EXTRACTORCLASS`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.hoodieincr.partition.fields
+> Specifies partition fields that needs to be added to source table after parsing _hoodie_partition_path.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: HOODIE_SRC_PARTITION_FIELDS`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.hoodieincr.path
+> Base-path for the source Hudi table<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: HOODIE_SRC_BASE_PATH`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.hoodieincr.drop.all.meta.fields.from.source
+> Drops all meta fields from the source hudi table while ingesting into sink hudi table.<br></br>
+> `Default Value: false (Optional)`<br></br>
+> `Config Param: HOODIE_DROP_ALL_META_FIELDS_FROM_SOURCE`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.hoodieincr.file.format
+> This config is passed to the reader while loading dataset. Default value is parquet.<br></br>
+> `Default Value: parquet (Optional)`<br></br>
+> `Config Param: SOURCE_FILE_FORMAT`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.hoodieincr.num_instants
+> Max number of instants whose changes can be incrementally fetched<br></br>
+> `Default Value: 5 (Optional)`<br></br>
+> `Config Param: NUM_INSTANTS_PER_FETCH`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.hoodieincr.read_latest_on_missing_ckpt
+> If true, allows delta-streamer to incrementally fetch from latest committed instant when checkpoint is not provided. This config is deprecated. Please refer to hoodie.deltastreamer.source.hoodieincr.missing.checkpoint.strategy<br></br>
+> `Default Value: false (Optional)`<br></br>
+> `Config Param: READ_LATEST_INSTANT_ON_MISSING_CKPT`<br></br>
+
+---
+
+#### S3 Event-based Hudi Incremental Source Configs {#S3-Event-based-Hudi-Incremental-Source-Configs}
+Configurations controlling the behavior of incremental pulling from S3 events meta information from Hudi table as a source in Deltastreamer.
+
+`Config Class`: org.apache.hudi.utilities.config.S3EventsHoodieIncrSourceConfig<br></br>
+> #### hoodie.deltastreamer.source.s3incr.ignore.key.prefix
+> Control whether to ignore the s3 objects starting with this prefix<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: S3_IGNORE_KEY_PREFIX`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.s3incr.ignore.key.substring
+> Control whether to ignore the s3 objects with this substring<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: S3_IGNORE_KEY_SUBSTRING`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.s3incr.key.prefix
+> Control whether to filter the s3 objects starting with this prefix<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: S3_KEY_PREFIX`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.s3incr.spark.datasource.options
+> Json string, passed to the reader while loading dataset. Example delta streamer conf 
+ --hoodie-conf hoodie.deltastreamer.source.s3incr.spark.datasource.options={"header":"true","encoding":"UTF-8"}<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SPARK_DATASOURCE_OPTIONS`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.s3incr.check.file.exists
+> Control whether we do existence check for files before consuming them<br></br>
+> `Default Value: false (Optional)`<br></br>
+> `Config Param: S3_INCR_ENABLE_EXISTS_CHECK`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.s3incr.fs.prefix
+> The file system prefix.<br></br>
+> `Default Value: s3 (Optional)`<br></br>
+> `Config Param: S3_FS_PREFIX`<br></br>
+
+---
+
+#### Pulsar Source Configs {#Pulsar-Source-Configs}
+Configurations controlling the behavior of Pulsar source in Deltastreamer.
+
+`Config Class`: org.apache.hudi.utilities.config.PulsarSourceConfig<br></br>
+> #### hoodie.deltastreamer.source.pulsar.topic
+> Name of the target Pulsar topic to source data from<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: PULSAR_SOURCE_TOPIC_NAME`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.pulsar.endpoint.admin.url
+> URL of the target Pulsar endpoint (of the form 'pulsar://host:port'<br></br>
+> `Default Value: http://localhost:8080 (Optional)`<br></br>
+> `Config Param: PULSAR_SOURCE_ADMIN_ENDPOINT_URL`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.pulsar.endpoint.service.url
+> URL of the target Pulsar endpoint (of the form 'pulsar://host:port'<br></br>
+> `Default Value: pulsar://localhost:6650 (Optional)`<br></br>
+> `Config Param: PULSAR_SOURCE_SERVICE_ENDPOINT_URL`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.pulsar.maxRecords
+> Max number of records obtained in a single each batch<br></br>
+> `Default Value: 5000000 (Optional)`<br></br>
+> `Config Param: PULSAR_SOURCE_MAX_RECORDS_PER_BATCH_THRESHOLD`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.pulsar.offset.autoResetStrategy
+> Policy determining how offsets shall be automatically reset in case there's no checkpoint information present<br></br>
+> `Default Value: LATEST (Optional)`<br></br>
+> `Config Param: PULSAR_SOURCE_OFFSET_AUTO_RESET_STRATEGY`<br></br>
+
+---
+
+#### GCS Events Source Configs {#GCS-Events-Source-Configs}
+Configurations controlling the behavior of GCS Events Source in Deltastreamer.
+
+`Config Class`: org.apache.hudi.utilities.config.GCSEventsSourceConfig<br></br>
+> #### hoodie.deltastreamer.source.gcs.project.id
+> The GCP Project Id where the Pubsub Subscription to ingest from resides. Needed to connect to the Pubsub subscription<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: GOOGLE_PROJECT_ID`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.gcs.subscription.id
+> The GCP Pubsub subscription id for the GCS Notifications. Needed to connect to the Pubsub subscription<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: PUBSUB_SUBSCRIPTION_ID`<br></br>
+
+---
+
+#### Json Kafka Post Processor Configs {#Json-Kafka-Post-Processor-Configs}
+Configurations controlling the post processor of Json Kafka Source in Deltastreamer.
+
+`Config Class`: org.apache.hudi.utilities.config.JsonKafkaPostProcessorConfig<br></br>
+> #### hoodie.deltastreamer.source.json.kafka.post.processor.maxwell.database.regex
+> Database name regex<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: DATABASE_NAME_REGEX`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.json.kafka.post.processor.maxwell.table.regex
+> Table name regex<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: TABLE_NAME_REGEX`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.json.kafka.processor.class
+> Json kafka source post processor class name, post process data after consuming fromsource and before giving it to deltastreamer.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: JSON_KAFKA_PROCESSOR_CLASS`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.json.kafka.post.processor.maxwell.precombine.field.format
+> When the preCombine filed is in DATE_STRING format, use should tell hoodiewhat format it is. 'yyyy-MM-dd HH:mm:ss' by default<br></br>
+> `Default Value: yyyy-MM-dd HH:mm:ss (Optional)`<br></br>
+> `Config Param: PRECOMBINE_FIELD_FORMAT`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.json.kafka.post.processor.maxwell.precombine.field.type
+> Data type of the preCombine field. could be NON_TIMESTAMP, DATE_STRING,UNIX_TIMESTAMP or EPOCHMILLISECONDS. DATE_STRING by default<br></br>
+> `Default Value: DATE_STRING (Optional)`<br></br>
+> `Config Param: PRECOMBINE_FIELD_TYPE`<br></br>
+
+---
+
+#### JDBC Source Configs {#JDBC-Source-Configs}
+Configurations controlling the behavior of JDBC source in Deltastreamer.
+
+`Config Class`: org.apache.hudi.utilities.config.JdbcSourceConfig<br></br>
+> #### hoodie.deltastreamer.jdbc.driver.class
+> Driver class used for JDBC connection<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: DRIVER_CLASS`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.jdbc.extra.options.
+> Used to set any extra options the user specifies for jdbc<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: EXTRA_OPTIONS`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.jdbc.incr.fallback.to.full.fetch
+> If set true, makes incremental fetch to fallback to full fetch in case of any error<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: FALLBACK_TO_FULL_FETCH`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.jdbc.incr.pull
+> Will the JDBC source do an incremental pull?<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: IS_INCREMENTAL`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.jdbc.password
+> Password used for JDBC connection<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: PASSWORD`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.jdbc.password.file
+> Base-path for the JDBC password file.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: PASSWORD_FILE`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.jdbc.storage.level
+> Used to control the persistence level. Default value: MEMORY_AND_DISK_SER<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: STORAGE_LEVEL`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.jdbc.table.incr.column.name
+> If run in incremental mode, this field is to pull new data incrementally<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: INCREMENTAL_COLUMN`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.jdbc.table.name
+> RDBMS table to pull<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: RDBMS_TABLE_NAME`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.jdbc.url
+> JDBC url for the Hoodie datasource.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: URL`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.jdbc.user
+> Username used for JDBC connection<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: USER`<br></br>
+
+---
+
+#### Kafka Source Configs {#Kafka-Source-Configs}
+Configurations controlling the behavior of Kafka source in Deltastreamer.
+
+`Config Class`: org.apache.hudi.utilities.config.KafkaSourceConfig<br></br>
+> #### hoodie.deltastreamer.source.kafka.topic
+> Kafka topic name.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: KAFKA_TOPIC_NAME`<br></br>
+
+---
+
+> #### auto.offset.reset
+> Kafka consumer strategy for reading data.<br></br>
+> `Default Value: LATEST (Optional)`<br></br>
+> `Config Param: KAFKA_AUTO_OFFSET_RESET`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.kafka.source.maxEvents
+> Maximum number of records obtained in each batch.<br></br>
+> `Default Value: 5000000 (Optional)`<br></br>
+> `Config Param: MAX_EVENTS_FROM_KAFKA_SOURCE`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.kafka.checkpoint.type
+> Kafka checkpoint type.<br></br>
+> `Default Value: string (Optional)`<br></br>
+> `Config Param: KAFKA_CHECKPOINT_TYPE`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.kafka.enable.commit.offset
+> Automatically submits offset to kafka.<br></br>
+> `Default Value: false (Optional)`<br></br>
+> `Config Param: ENABLE_KAFKA_COMMIT_OFFSET`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.kafka.enable.failOnDataLoss
+> Fail when checkpoint goes out of bounds instead of seeking to earliest offsets.<br></br>
+> `Default Value: false (Optional)`<br></br>
+> `Config Param: ENABLE_FAIL_ON_DATA_LOSS`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.kafka.fetch_partition.time.out
+> Time out for fetching partitions. 5min by default<br></br>
+> `Default Value: 300000 (Optional)`<br></br>
+> `Config Param: KAFKA_FETCH_PARTITION_TIME_OUT`<br></br>
+
+---
+
+#### S3 Source Configs {#S3-Source-Configs}
+Configurations controlling the behavior of S3 source in Deltastreamer.
+
+`Config Class`: org.apache.hudi.utilities.config.S3SourceConfig<br></br>
+> #### hoodie.deltastreamer.s3.source.queue.fs
+> File system corresponding to queue. For example, for AWS SQS it is s3/s3a.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: S3_SOURCE_QUEUE_FS`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.s3.source.queue.long.poll.wait
+> Long poll wait time in seconds, If set as 0 then client will fetch on short poll basis.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: S3_QUEUE_LONG_POLL_WAIT`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.s3.source.queue.max.messages.per.batch
+> Max messages for each batch of delta streamer run. Source will process these maximum number of message at a time.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: S3_SOURCE_QUEUE_MAX_MESSAGES_PER_BATCH`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.s3.source.queue.max.messages.per.request
+> Max messages for each request<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: S3_SOURCE_QUEUE_MAX_MESSAGES_PER_REQUEST`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.s3.source.queue.region
+> Case-sensitive region name of the cloud provider for the queue. For example, "us-east-1".<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: S3_SOURCE_QUEUE_REGION`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.s3.source.queue.url
+> Queue url for cloud object events<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: S3_SOURCE_QUEUE_URL`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.s3.source.queue.visibility.timeout
+> Visibility timeout for messages in queue. After we consume the message, queue will move the consumed messages to in-flight state, these messages can't be consumed again by source for this timeout period.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: S3_SOURCE_QUEUE_VISIBILITY_TIMEOUT`<br></br>
+
+---
+
+#### Hive Incremental Pulling Source Configs {#Hive-Incremental-Pulling-Source-Configs}
+Configurations controlling the behavior of incremental pulling from a Hive table as a source in Deltastreamer.
+
+`Config Class`: org.apache.hudi.utilities.config.HiveIncrPullSourceConfig<br></br>
+> #### hoodie.deltastreamer.source.incrpull.root
+> The root path of Hive incremental pulling source.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: ROOT_INPUT_PATH`<br></br>
+
+---
+
+#### DFS Path Selector Configs {#DFS-Path-Selector-Configs}
+Configurations controlling the behavior of path selector for DFS source in Deltastreamer.
+
+`Config Class`: org.apache.hudi.utilities.config.DFSPathSelectorConfig<br></br>
+> #### hoodie.deltastreamer.source.dfs.root
+> Root path of the source on DFS<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: ROOT_INPUT_PATH`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.input.selector
+> Source input selector<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SOURCE_INPUT_SELECTOR`<br></br>
+
+---
+
+#### Cloud Source Configs {#Cloud-Source-Configs}
+Configs that are common during ingestion across different cloud stores
+
+`Config Class`: org.apache.hudi.utilities.config.CloudSourceConfig<br></br>
+> #### hoodie.deltastreamer.source.cloud.data.datasource.options
+> A JSON string passed to the Spark DataFrameReader while loading the dataset. Example: hoodie.deltastreamer.gcp.spark.datasource.options={"header":"true","encoding":"UTF-8"}
+<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SPARK_DATASOURCE_OPTIONS`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.cloud.data.ignore.relpath.prefix
+> Ignore objects in the bucket whose relative path matches this prefix<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: IGNORE_RELATIVE_PATH_PREFIX`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.cloud.data.ignore.relpath.substring
+> Ignore objects in the bucket whose relative path contains this substring<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: IGNORE_RELATIVE_PATH_SUBSTR`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.cloud.data.select.file.extension
+> Only match files with this extension. By default, this is the same as hoodie.deltastreamer.source.hoodieincr.file.format<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: CLOUD_DATAFILE_EXTENSION`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.cloud.data.select.relpath.prefix
+> Only selects objects in the bucket whose relative path matches this prefix<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SELECT_RELATIVE_PATH_PREFIX`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.cloud.data.check.file.exists
+> If true, checks whether file exists before attempting to pull it<br></br>
+> `Default Value: false (Optional)`<br></br>
+> `Config Param: ENABLE_EXISTS_CHECK`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.cloud.data.datafile.format
+> Format of the data file. By default, this will be the same as hoodie.deltastreamer.source.hoodieincr.file.format<br></br>
+> `Default Value: parquet (Optional)`<br></br>
+> `Config Param: DATAFILE_FORMAT`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.cloud.meta.ack
+> Whether to acknowledge Metadata messages during Cloud Ingestion or not. This is useful during dev and testing.
+ In Prod this should always be true. In case of Cloud Pubsub, not acknowledging means Pubsub will keep redelivering the same messages.<br></br>
+> `Default Value: true (Optional)`<br></br>
+> `Config Param: ACK_MESSAGES`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.cloud.meta.batch.size
+> Number of metadata messages to pull at a time<br></br>
+> `Default Value: 10 (Optional)`<br></br>
+> `Config Param: BATCH_SIZE_CONF`<br></br>
+
+---
+
+#### Date Partition Path Selector Configs {#Date-Partition-Path-Selector-Configs}
+Configurations controlling the behavior of date partition path selector for DFS source in Deltastreamer.
+
+`Config Class`: org.apache.hudi.utilities.config.DatePartitionPathSelectorConfig<br></br>
+> #### hoodie.deltastreamer.source.dfs.datepartitioned.selector.currentdate
+> Current date.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: CURRENT_DATE`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.dfs.datepartitioned.date.format
+> Date format.<br></br>
+> `Default Value: yyyy-MM-dd (Optional)`<br></br>
+> `Config Param: DATE_FORMAT`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.dfs.datepartitioned.selector.depth
+> Depth of the files to scan. 0 implies no (date) partition.<br></br>
+> `Default Value: 0 (Optional)`<br></br>
+> `Config Param: DATE_PARTITION_DEPTH`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.dfs.datepartitioned.selector.lookback.days
+> The maximum look-back days for scanning.<br></br>
+> `Default Value: 2 (Optional)`<br></br>
+> `Config Param: LOOKBACK_DAYS`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.source.dfs.datepartitioned.selector.parallelism
+> Parallelism for listing partitions.<br></br>
+> `Default Value: 20 (Optional)`<br></br>
+> `Config Param: PARTITIONS_LIST_PARALLELISM`<br></br>
+
+---
+
+### DeltaStreamer Schema Provider Configs {#SCHEMA_PROVIDER}
+Configurations that control the schema provider for DeltaStreamer.
+
+#### DeltaStreamer Schema Provider Configs {#DeltaStreamer-Schema-Provider-Configs}
+
+
+`Config Class`: org.apache.hudi.utilities.config.HoodieSchemaProviderConfig<br></br>
+> #### hoodie.deltastreamer.schemaprovider.registry.baseUrl
+> The base URL of the schema registry.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SCHEMA_REGISTRY_BASE_URL`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.registry.schemaconverter
+> The class name of the custom schema converter to use.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SCHEMA_CONVERTER`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.registry.sourceUrlSuffix
+> The source URL suffix.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SCHEMA_REGISTRY_SOURCE_URL_SUFFIX`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.registry.targetUrl
+> The schema of the target you are writing to e.g. https://foo:bar@schemaregistry.org<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: TARGET_SCHEMA_REGISTRY_URL`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.registry.targetUrlSuffix
+> The target URL suffix.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SCHEMA_REGISTRY_TARGET_URL_SUFFIX`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.registry.url
+> The schema of the source you are reading from e.g. https://foo:bar@schemaregistry.org<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SRC_SCHEMA_REGISTRY_URL`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.registry.urlSuffix
+> The suffix of the URL for the schema registry.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SCHEMA_REGISTRY_URL_SUFFIX`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.spark_avro_post_processor.enable
+> Whether to enable Spark Avro post processor.<br></br>
+> `Default Value: false (Optional)`<br></br>
+> `Config Param: SPARK_AVRO_POST_PROCESSOR_ENABLE`<br></br>
+
+---
+
+#### JDBC-based Schema Provider Configs {#JDBC-based-Schema-Provider-Configs}
+Configurations for JDBC-based schema provider.
+
+`Config Class`: org.apache.hudi.utilities.config.JdbcbasedSchemaProviderConfig<br></br>
+> #### hoodie.deltastreamer.schemaprovider.source.schema.jdbc.connection.url
+> The JDBC URL to connect to. The source-specific connection properties may be specified in the URL. e.g., jdbc:postgresql://localhost/test?user=fred&password=secret<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SOURCE_SCHEMA_JDBC_CONNECTION_URL`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.source.schema.jdbc.dbtable
+> The table with the schema to reference e.g. test_database.test1_table or test1_table<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SOURCE_SCHEMA_JDBC_DBTABLE`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.source.schema.jdbc.driver.type
+> The class name of the JDBC driver to use to connect to this URL. e.g. org.h2.Driver<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SOURCE_SCHEMA_JDBC_DRIVER_TYPE`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.source.schema.jdbc.nullable
+> If true, all the columns are nullable.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SOURCE_SCHEMA_JDBC_NULLABLE`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.source.schema.jdbc.password
+> Password for the connection e.g. secret<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SOURCE_SCHEMA_JDBC_PASSWORD`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.source.schema.jdbc.timeout
+> The number of seconds the driver will wait for a Statement object to execute. Zero means there is no limit. In the write path, this option depends on how JDBC drivers implement the API setQueryTimeout, e.g., the h2 JDBC driver checks the timeout of each query instead of an entire JDBC batch. It defaults to 0.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SOURCE_SCHEMA_JDBC_TIMEOUT`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.source.schema.jdbc.username
+> Username for the connection e.g. fred<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SOURCE_SCHEMA_JDBC_USERNAME`<br></br>
+
+---
+
+#### Schema Post Processor Config Configs {#Schema-Post-Processor-Config-Configs}
+Configurations for Schema Post Processor
+
+`Config Class`: org.apache.hudi.utilities.config.SchemaProviderPostProcessorConfig<br></br>
+> #### hoodie.deltastreamer.schemaprovider.schema_post_processor
+> The class name of the schema post processor.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SCHEMA_POST_PROCESSOR`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.schema_post_processor.add.column.default
+> New column's default value<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SCHEMA_POST_PROCESSOR_ADD_COLUMN_DEFAULT_PROP`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.schema_post_processor.add.column.doc
+> Docs about new column<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SCHEMA_POST_PROCESSOR_ADD_COLUMN_DOC_PROP`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.schema_post_processor.add.column.name
+> New column's name<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SCHEMA_POST_PROCESSOR_ADD_COLUMN_NAME_PROP`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.schema_post_processor.add.column.type
+> New column's type<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SCHEMA_POST_PROCESSOR_ADD_COLUMN_TYPE_PROP`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.schema_post_processor.delete.columns
+> Columns to delete in the schema post processor.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: DELETE_COLUMN_POST_PROCESSOR_COLUMN`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.schema_post_processor.add.column.nullable
+> New column's nullable<br></br>
+> `Default Value: true (Optional)`<br></br>
+> `Config Param: SCHEMA_POST_PROCESSOR_ADD_COLUMN_NULLABLE_PROP`<br></br>
+
+---
+
+#### File-based Schema Provider Configs {#File-based-Schema-Provider-Configs}
+Configurations for file-based schema provider.
+
+`Config Class`: org.apache.hudi.utilities.config.FilebasedSchemaProviderConfig<br></br>
+> #### hoodie.deltastreamer.schemaprovider.source.schema.file
+> The schema of the source you are reading from<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SOURCE_SCHEMA_FILE`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.target.schema.file
+> The schema of the target you are writing to<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: TARGET_SCHEMA_FILE`<br></br>
+
+---
+
+#### Hive Schema Provider Configs {#Hive-Schema-Provider-Configs}
+Configurations for Hive schema provider.
+
+`Config Class`: org.apache.hudi.utilities.config.HiveSchemaProviderConfig<br></br>
+> #### hoodie.deltastreamer.schemaprovider.source.schema.hive.database
+> Hive database from where source schema can be fetched<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SOURCE_SCHEMA_DATABASE`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.source.schema.hive.table
+> Hive table from where source schema can be fetched<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: SOURCE_SCHEMA_TABLE`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.target.schema.hive.database
+> Hive database from where target schema can be fetched<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: TARGET_SCHEMA_DATABASE`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.target.schema.hive.table
+> Hive table from where target schema can be fetched<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: TARGET_SCHEMA_TABLE`<br></br>
+
+---
+
+#### JDBC-based Schema Provider Configs {#JDBC-based-Schema-Provider-Configs}
+Configurations for Proto schema provider.
+
+`Config Class`: org.apache.hudi.utilities.config.ProtoClassBasedSchemaProviderConfig<br></br>
+> #### hoodie.deltastreamer.schemaprovider.proto.class.name
+> The Protobuf Message class used as the source for the schema.<br></br>
+> `Default Value: N/A `**(Required)**<br></br>
+> `Config Param: PROTO_SCHEMA_CLASS_NAME`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.proto.flatten.wrappers
+> When set to true wrapped primitives like Int64Value are translated to a record with a single 'value' field. By default, the value is false and the wrapped primitives are treated as a nullable value<br></br>
+> `Default Value: false (Optional)`<br></br>
+> `Config Param: PROTO_SCHEMA_WRAPPED_PRIMITIVES_AS_RECORDS`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.proto.max.recursion.depth
+> The max depth to unravel the Proto schema when translating into an Avro schema. Setting this depth allows the user to convert a schema that is recursive in proto into something that can be represented in their lake format like Parquet. After a given class has been seen N times within a single branch, the schema provider will create a record with a byte array to hold the remaining proto data and a string to hold the message descriptor's name for context.<br></br>
+> `Default Value: 5 (Optional)`<br></br>
+> `Config Param: PROTO_SCHEMA_MAX_RECURSION_DEPTH`<br></br>
+> `Since Version: 0.13.0`<br></br>
+
+---
+
+> #### hoodie.deltastreamer.schemaprovider.proto.timestamps.as.records
+> When set to true Timestamp fields are translated to a record with a seconds and nanos field. By default, the value is false and the timestamp is converted to a long with the timestamp-micros logical type<br></br>
+> `Default Value: false (Optional)`<br></br>
+> `Config Param: PROTO_SCHEMA_TIMESTAMPS_AS_RECORDS`<br></br>
+> `Since Version: 0.13.0`<br></br>
 
 ---
 
