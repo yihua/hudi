@@ -31,6 +31,7 @@ import org.apache.hudi.common.table.log.block.HoodieCommandBlock;
 import org.apache.hudi.common.table.log.block.HoodieDataBlock;
 import org.apache.hudi.common.table.log.block.HoodieDeleteBlock;
 import org.apache.hudi.common.table.log.block.HoodieLogBlock;
+import org.apache.hudi.common.table.log.block.HoodiePositionDeleteBlock;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.util.InternalSchemaCache;
 import org.apache.hudi.common.util.Option;
@@ -282,6 +283,7 @@ public abstract class AbstractHoodieLogRecordReader {
             currentInstantLogBlocks.push(logBlock);
             break;
           case DELETE_BLOCK:
+          case POS_DELETE_BLOCK:
             LOG.info("Reading a delete block from file " + logFile.getPath());
             if (isNewInstantBlock(logBlock) && !readBlocksLazily) {
               // If this is a delete data block belonging to a different commit/instant,
@@ -479,6 +481,7 @@ public abstract class AbstractHoodieLogRecordReader {
           case AVRO_DATA_BLOCK:
           case PARQUET_DATA_BLOCK:
           case DELETE_BLOCK:
+          case POS_DELETE_BLOCK:
             List<HoodieLogBlock> logBlocksList = instantToBlocksMap.getOrDefault(instantTime, new ArrayList<>());
             if (logBlocksList.size() == 0) {
               // Keep a track of instant Times in the order of arrival.
@@ -651,6 +654,8 @@ public abstract class AbstractHoodieLogRecordReader {
    */
   protected abstract void processNextDeletedRecord(DeleteRecord deleteRecord);
 
+  protected abstract void processNextDeletePosition(int position);
+
   /**
    * Process the set of log blocks belonging to the last instant which is read fully.
    */
@@ -668,6 +673,9 @@ public abstract class AbstractHoodieLogRecordReader {
           break;
         case DELETE_BLOCK:
           Arrays.stream(((HoodieDeleteBlock) lastBlock).getRecordsToDelete()).forEach(this::processNextDeletedRecord);
+          break;
+        case POS_DELETE_BLOCK:
+          Arrays.stream(((HoodiePositionDeleteBlock) lastBlock).getPositionsToDelete()).forEach(this::processNextDeletePosition);
           break;
         case CORRUPT_BLOCK:
           LOG.warn("Found a corrupt block which was not rolled back");

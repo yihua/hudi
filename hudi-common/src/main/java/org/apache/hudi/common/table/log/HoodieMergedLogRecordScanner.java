@@ -81,6 +81,7 @@ public class HoodieMergedLogRecordScanner extends AbstractHoodieLogRecordReader
   public final HoodieTimer timer = HoodieTimer.create();
   // Map of compacted/merged records
   private final ExternalSpillableMap<String, HoodieRecord> records;
+  private final Set<Integer> deletePositions = new HashSet<>();
   // Set of already scanned prefixes allowing us to avoid scanning same prefixes again
   private final Set<String> scannedPrefixes;
   // count of merged records in log
@@ -220,6 +221,10 @@ public class HoodieMergedLogRecordScanner extends AbstractHoodieLogRecordReader
     return records;
   }
 
+  public Set<Integer> getDeletePositions() {
+    return deletePositions;
+  }
+
   public HoodieRecordType getRecordType() {
     return recordMerger.getRecordType();
   }
@@ -295,6 +300,11 @@ public class HoodieMergedLogRecordScanner extends AbstractHoodieLogRecordReader
       HoodieEmptyRecord record = new HoodieEmptyRecord<>(new HoodieKey(key, deleteRecord.getPartitionPath()), null, deleteRecord.getOrderingValue(), recordType);
       records.put(key, record);
     }
+  }
+
+  @Override
+  protected void processNextDeletePosition(int position) {
+    deletePositions.add(position);
   }
 
   public long getTotalTimeTakenToReadAndMergeBlocks() {

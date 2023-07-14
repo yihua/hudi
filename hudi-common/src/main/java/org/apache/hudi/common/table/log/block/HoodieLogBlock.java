@@ -132,7 +132,8 @@ public abstract class HoodieLogBlock {
     AVRO_DATA_BLOCK("avro"),
     HFILE_DATA_BLOCK("hfile"),
     PARQUET_DATA_BLOCK("parquet"),
-    CDC_DATA_BLOCK("cdc");
+    CDC_DATA_BLOCK("cdc"),
+    POS_DELETE_BLOCK(":pos_delete");
 
     private static final Map<String, HoodieLogBlockType> ID_TO_ENUM_MAP =
         TypeUtils.getValueToEnumMap(HoodieLogBlockType.class, e -> e.id);
@@ -153,7 +154,7 @@ public abstract class HoodieLogBlock {
    * new enums at the end.
    */
   public enum HeaderMetadataType {
-    INSTANT_TIME, TARGET_INSTANT_TIME, SCHEMA, COMMAND_BLOCK_TYPE, COMPACTED_BLOCK_TIMES
+    INSTANT_TIME, TARGET_INSTANT_TIME, SCHEMA, COMMAND_BLOCK_TYPE, COMPACTED_BLOCK_TIMES, DELETE_ENCODING
   }
 
   /**
@@ -162,6 +163,9 @@ public abstract class HoodieLogBlock {
    */
   public enum FooterMetadataType {
   }
+
+  public static String DELETE_ENCODING_POSITION = "position";
+  public static String DELETE_ENCODING_RECORD_KEY = "record_key";
 
   /**
    * This class is used to store the Location of the Content of a Log Block. It's used when a client chooses for a IO
