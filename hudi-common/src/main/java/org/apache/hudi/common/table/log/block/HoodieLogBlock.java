@@ -132,7 +132,8 @@ public abstract class HoodieLogBlock {
     HFILE_DATA_BLOCK("hfile"),
     PARQUET_DATA_BLOCK("parquet"),
     CDC_DATA_BLOCK("cdc"),
-    POS_DELETE_BLOCK(":pos_delete");
+    POS_DELETE_BLOCK(":pos_delete"),
+    AVRO_DELETE_BLOCK(":avro_delete");
 
     private static final Map<String, HoodieLogBlockType> ID_TO_ENUM_MAP =
         TypeUtils.getValueToEnumMap(HoodieLogBlockType.class, e -> e.id);
