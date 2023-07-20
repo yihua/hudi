@@ -18,16 +18,17 @@
 
 package org.apache.hudi.common.table.log.block;
 
+import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecord.HoodieRecordType;
-import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.exception.HoodieIOException;
 
 import org.apache.avro.Schema;
 import org.apache.hadoop.fs.FSDataInputStream;
-import org.apache.hudi.common.model.HoodieRecord;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -35,7 +36,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
+import static org.apache.hudi.common.table.log.block.HoodieLogBlock.HeaderMetadataType.RECORD_POSITIONS;
 import static org.apache.hudi.common.util.TypeUtils.unsafeCast;
 import static org.apache.hudi.common.util.ValidationUtils.checkState;
 
@@ -63,6 +66,8 @@ public abstract class HoodieDataBlock extends HoodieLogBlock {
 
   protected Schema readerSchema;
 
+  protected List<Integer> recordPositions;
+
   //  Map of string schema to parsed schema.
   private static ConcurrentHashMap<String, Schema> schemaMap = new ConcurrentHashMap<>();
 
@@ -78,6 +83,7 @@ public abstract class HoodieDataBlock extends HoodieLogBlock {
     this.keyFieldName = keyFieldName;
     // If no reader-schema has been provided assume writer-schema as one
     this.readerSchema = getWriterSchema(super.getLogBlockHeader());
+    this.recordPositions = getRecordPositions(header);
     this.enablePointLookups = false;
   }
 
@@ -98,6 +104,7 @@ public abstract class HoodieDataBlock extends HoodieLogBlock {
     this.keyFieldName = keyFieldName;
     // If no reader-schema has been provided assume writer-schema as one
     this.readerSchema = readerSchema.orElseGet(() -> getWriterSchema(super.getLogBlockHeader()));
+    this.recordPositions = getRecordPositions(headers);
     this.enablePointLookups = enablePointLookups;
   }
 
@@ -117,6 +124,11 @@ public abstract class HoodieDataBlock extends HoodieLogBlock {
 
   protected static Schema getWriterSchema(Map<HeaderMetadataType, String> logBlockHeader) {
     return new Schema.Parser().parse(logBlockHeader.get(HeaderMetadataType.SCHEMA));
+  }
+
+  protected static List<Integer> getRecordPositions(Map<HeaderMetadataType, String> logBlockHeader) {
+    return Arrays.stream(logBlockHeader.get(RECORD_POSITIONS).split(","))
+        .map(Integer::parseInt).collect(Collectors.toList());
   }
 
   /**
