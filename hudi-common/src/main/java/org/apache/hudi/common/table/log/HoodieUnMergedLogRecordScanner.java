@@ -46,7 +46,7 @@ public class HoodieUnMergedLogRecordScanner extends AbstractHoodieLogRecordReade
                                          LogRecordScannerCallback callback, Option<InstantRange> instantRange, InternalSchema internalSchema,
                                          boolean enableOptimizedLogBlocksScan, HoodieRecordMerger recordMerger) {
     super(fs, basePath, logFilePaths, readerSchema, latestInstantTime, readBlocksLazily, reverseReader, bufferSize, instantRange,
-        false, true, Option.empty(), internalSchema, Option.empty(), enableOptimizedLogBlocksScan, recordMerger);
+        false, true, Option.empty(), internalSchema, Option.empty(), enableOptimizedLogBlocksScan, false, recordMerger);
     this.callback = callback;
   }
 

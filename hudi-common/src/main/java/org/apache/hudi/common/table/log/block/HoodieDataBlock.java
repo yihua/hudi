@@ -28,6 +28,7 @@ import org.apache.avro.Schema;
 import org.apache.hadoop.fs.FSDataInputStream;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -122,13 +123,21 @@ public abstract class HoodieDataBlock extends HoodieLogBlock {
     return serializeRecords(records.get());
   }
 
+  @Override
+  public List<Integer> getRecordPositions() {
+    return recordPositions;
+  }
+
   protected static Schema getWriterSchema(Map<HeaderMetadataType, String> logBlockHeader) {
     return new Schema.Parser().parse(logBlockHeader.get(HeaderMetadataType.SCHEMA));
   }
 
   protected static List<Integer> getRecordPositions(Map<HeaderMetadataType, String> logBlockHeader) {
-    return Arrays.stream(logBlockHeader.get(RECORD_POSITIONS).split(","))
-        .map(Integer::parseInt).collect(Collectors.toList());
+    if (logBlockHeader.containsKey(RECORD_POSITIONS)) {
+      return Arrays.stream(logBlockHeader.get(RECORD_POSITIONS).split(","))
+          .map(Integer::parseInt).collect(Collectors.toList());
+    }
+    return new ArrayList<>();
   }
 
   /**

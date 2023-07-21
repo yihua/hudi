@@ -149,6 +149,7 @@ public abstract class AbstractHoodieLogRecordReader {
   private final List<String> validBlockInstants = new ArrayList<>();
   // Use scanV2 method.
   private final boolean enableOptimizedLogBlocksScan;
+  private final boolean useRecordPositions;
 
   protected AbstractHoodieLogRecordReader(FileSystem fs, String basePath, List<String> logFilePaths,
                                           Schema readerSchema, String latestInstantTime, boolean readBlocksLazily,
@@ -158,6 +159,7 @@ public abstract class AbstractHoodieLogRecordReader {
                                           InternalSchema internalSchema,
                                           Option<String> keyFieldOverride,
                                           boolean enableOptimizedLogBlocksScan,
+                                          boolean useRecordPositions,
                                           HoodieRecordMerger recordMerger) {
     this.readerSchema = readerSchema;
     this.latestInstantTime = latestInstantTime;
@@ -184,6 +186,7 @@ public abstract class AbstractHoodieLogRecordReader {
     this.forceFullScan = forceFullScan;
     this.internalSchema = internalSchema == null ? InternalSchema.getEmptyInternalSchema() : internalSchema;
     this.enableOptimizedLogBlocksScan = enableOptimizedLogBlocksScan;
+    this.useRecordPositions = useRecordPositions;
 
     if (keyFieldOverride.isPresent()) {
       // NOTE: This branch specifically is leveraged handling Metadata Table
@@ -218,6 +221,8 @@ public abstract class AbstractHoodieLogRecordReader {
     synchronized (this) {
       if (enableOptimizedLogBlocksScan) {
         scanInternalV2(keySpecOpt, skipProcessingBlocks);
+      } else if (useRecordPositions) {
+        scanInternalWithPositions(keySpecOpt);
       } else {
         scanInternalV1(keySpecOpt);
       }
@@ -225,6 +230,7 @@ public abstract class AbstractHoodieLogRecordReader {
   }
 
   private void scanInternalV1(Option<KeySpec> keySpecOpt) {
+    LOG.warn("scanInternalV1");
     currentInstantLogBlocks = new ArrayDeque<>();
     progress = 0.0f;
     totalLogFiles = new AtomicLong(0);
@@ -360,6 +366,217 @@ public abstract class AbstractHoodieLogRecordReader {
             throw new UnsupportedOperationException("Block type not supported yet");
         }
       }
+      // merge the last read block when all the blocks are done reading
+      if (!currentInstantLogBlocks.isEmpty()) {
+        LOG.info("Merging the final data blocks");
+        processQueuedBlocksForInstant(currentInstantLogBlocks, scannedLogFiles.size(), keySpecOpt);
+      }
+      // Done
+      progress = 1.0f;
+    } catch (IOException e) {
+      LOG.error("Got IOException when reading log file", e);
+      throw new HoodieIOException("IOException when reading log file ", e);
+    } catch (Exception e) {
+      LOG.error("Got exception when reading log file", e);
+      throw new HoodieException("Exception when reading log file ", e);
+    } finally {
+      try {
+        if (null != logFormatReaderWrapper) {
+          logFormatReaderWrapper.close();
+        }
+      } catch (IOException ioe) {
+        // Eat exception as we do not want to mask the original exception that can happen
+        LOG.error("Unable to close log format reader", ioe);
+      }
+    }
+  }
+
+  private void scanInternalWithPositions(Option<KeySpec> keySpecOpt) {
+    LOG.warn("scanInternalWithPositions");
+    currentInstantLogBlocks = new ArrayDeque<>();
+    progress = 0.0f;
+    totalLogFiles = new AtomicLong(0);
+    totalRollbacks = new AtomicLong(0);
+    totalCorruptBlocks = new AtomicLong(0);
+    totalLogBlocks = new AtomicLong(0);
+    totalLogRecords = new AtomicLong(0);
+    HoodieLogFormatReader logFormatReaderWrapper = null;
+    HoodieTimeline commitsTimeline = this.hoodieTableMetaClient.getCommitsTimeline();
+    HoodieTimeline completedInstantsTimeline = commitsTimeline.filterCompletedInstants();
+    HoodieTimeline inflightInstantsTimeline = commitsTimeline.filterInflights();
+    try {
+      // Iterate over the paths
+      logFormatReaderWrapper = new HoodieLogFormatReader(fs,
+          logFilePaths.stream().map(logFile -> new HoodieLogFile(new Path(logFile))).collect(Collectors.toList()),
+          readerSchema, readBlocksLazily, reverseReader, bufferSize, shouldLookupRecords(), recordKeyField, internalSchema);
+
+      Map<String, List<HoodieLogBlock>> instantToBlocksMap = new HashMap<>();
+      Map<String, List<List<Integer>>> instantToPositionListMap = new HashMap<>();
+
+      // Order of Instants.
+      List<String> orderedInstantsList = new ArrayList<>();
+
+      Set<HoodieLogFile> scannedLogFiles = new HashSet<>();
+
+      // First step, reading log blocks in natural order
+      while (logFormatReaderWrapper.hasNext()) {
+        HoodieLogFile logFile = logFormatReaderWrapper.getLogFile();
+        LOG.info("Scanning log file " + logFile);
+        scannedLogFiles.add(logFile);
+        totalLogFiles.set(scannedLogFiles.size());
+        // Use the HoodieLogFileReader to iterate through the blocks in the log file
+        HoodieLogBlock logBlock = logFormatReaderWrapper.next();
+        final String instantTime = logBlock.getLogBlockHeader().get(INSTANT_TIME);
+        totalLogBlocks.incrementAndGet();
+        if (logBlock.getBlockType() != CORRUPT_BLOCK
+            && !HoodieTimeline.compareTimestamps(logBlock.getLogBlockHeader().get(INSTANT_TIME), HoodieTimeline.LESSER_THAN_OR_EQUALS, this.latestInstantTime
+        )) {
+          // hit a block with instant time greater than should be processed, stop processing further
+          break;
+        }
+        if (logBlock.getBlockType() != CORRUPT_BLOCK && logBlock.getBlockType() != COMMAND_BLOCK) {
+          if (!completedInstantsTimeline.containsOrBeforeTimelineStarts(instantTime)
+              || inflightInstantsTimeline.containsInstant(instantTime)) {
+            // hit an uncommitted block possibly from a failed write, move to the next one and skip processing this one
+            continue;
+          }
+          if (instantRange.isPresent() && !instantRange.get().isInRange(instantTime)) {
+            // filter the log block by instant range
+            continue;
+          }
+        }
+
+        switch (logBlock.getBlockType()) {
+          case HFILE_DATA_BLOCK:
+          case AVRO_DATA_BLOCK:
+          case PARQUET_DATA_BLOCK:
+          case DELETE_BLOCK:
+          case POS_DELETE_BLOCK:
+          case AVRO_DELETE_BLOCK:
+            // get positions from the header
+            List<Integer> recordPositions = logBlock.getRecordPositions();
+            List<List<Integer>> positionList = instantToPositionListMap.getOrDefault(instantTime, new ArrayList<>());
+            positionList.add(recordPositions);
+            instantToPositionListMap.put(instantTime, positionList);
+            List<HoodieLogBlock> logBlocksList = instantToBlocksMap.getOrDefault(instantTime, new ArrayList<>());
+            if (logBlocksList.size() == 0) {
+              // Keep a track of instant Times in the order of arrival.
+              orderedInstantsList.add(instantTime);
+            }
+            logBlocksList.add(logBlock);
+            instantToBlocksMap.put(instantTime, logBlocksList);
+            break;
+          case COMMAND_BLOCK:
+            LOG.info("Reading a command block from file " + logFile.getPath());
+            // This is a command block - take appropriate action based on the command
+            HoodieCommandBlock commandBlock = (HoodieCommandBlock) logBlock;
+
+            // Rollback blocks contain information of instants that are failed, collect them in a set..
+            if (commandBlock.getType().equals(ROLLBACK_BLOCK)) {
+              totalRollbacks.incrementAndGet();
+              String targetInstantForCommandBlock =
+                  logBlock.getLogBlockHeader().get(TARGET_INSTANT_TIME);
+              orderedInstantsList.remove(targetInstantForCommandBlock);
+              instantToBlocksMap.remove(targetInstantForCommandBlock);
+            } else {
+              throw new UnsupportedOperationException("Command type not yet supported.");
+            }
+            break;
+          default:
+            throw new UnsupportedOperationException("Block type not yet supported.");
+        }
+      }
+
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Ordered instant times seen " + orderedInstantsList);
+      }
+
+      int numBlocksRolledBack = 0;
+
+      // All the block's instants time that are added to the queue are collected in this set.
+      Set<String> instantTimesIncluded = new HashSet<>();
+
+      // Key will have details related to instant time and value will be empty if that instant is not compacted.
+      // Ex: B1(i1), B2(i2), CB(i3,[i1,i2]) entries will be like i1 -> i3, i2 -> i3.
+      Map<String, String> blockTimeToCompactionBlockTimeMap = new HashMap<>();
+
+      /*
+       * Iterate the instants list in reverse order to merge records.
+       */
+      for (int i = orderedInstantsList.size() - 1; i >= 0; i--) {
+        String instantTime = orderedInstantsList.get(i);
+        List<HoodieLogBlock> instantsBlocks = instantToBlocksMap.get(instantTime);
+        if (instantsBlocks.size() == 0) {
+          throw new HoodieException("Data corrupted while writing. Found zero blocks for an instant " + instantTime);
+        }
+        for (int j = instantsBlocks.size() - 1; j >= 0; j--) {
+          HoodieLogBlock logBlock = instantsBlocks.get(j);
+          switch (logBlock.getBlockType()) {
+            case HFILE_DATA_BLOCK:
+            case AVRO_DATA_BLOCK:
+            case PARQUET_DATA_BLOCK:
+              LOG.info("Reading a data block at instant "
+                  + logBlock.getLogBlockHeader().get(INSTANT_TIME));
+              if (isNewInstantBlock(logBlock) && !readBlocksLazily) {
+                // If this is an avro data block belonging to a different commit/instant,
+                // then merge the last blocks and records into the main result
+                processQueuedBlocksForInstant(currentInstantLogBlocks, scannedLogFiles.size(), keySpecOpt);
+              }
+              // store the current block
+              currentInstantLogBlocks.push(logBlock);
+              break;
+            case DELETE_BLOCK:
+            case POS_DELETE_BLOCK:
+            case AVRO_DELETE_BLOCK:
+              LOG.info("Reading a delete block from file "
+                  + logBlock.getLogBlockHeader().get(INSTANT_TIME));
+              if (isNewInstantBlock(logBlock) && !readBlocksLazily) {
+                // If this is a delete data block belonging to a different commit/instant,
+                // then merge the last blocks and records into the main result
+                processQueuedBlocksForInstant(currentInstantLogBlocks, scannedLogFiles.size(), keySpecOpt);
+              }
+              // store deletes so can be rolled back
+              currentInstantLogBlocks.push(logBlock);
+              break;
+            case COMMAND_BLOCK:
+              // Consider the following scenario
+              // (Time 0, C1, Task T1) -> Running
+              // (Time 1, C1, Task T1) -> Failed (Wrote either a corrupt block or a correct
+              // DataBlock (B1) with commitTime C1
+              // (Time 2, C1, Task T1.2) -> Running (Task T1 was retried and the attempt number is 2)
+              // (Time 3, C1, Task T1.2) -> Finished (Wrote a correct DataBlock B2)
+              // Now a logFile L1 can have 2 correct Datablocks (B1 and B2) which are the same.
+              // Say, commit C1 eventually failed and a rollback is triggered.
+              // Rollback will write only 1 rollback block (R1) since it assumes one block is
+              // written per ingestion batch for a file but in reality we need to rollback (B1 & B2)
+              // The following code ensures the same rollback block (R1) is used to rollback
+              // both B1 & B2
+              // This is a command block - take appropriate action based on the command
+              HoodieCommandBlock commandBlock = (HoodieCommandBlock) logBlock;
+              String targetInstantForCommandBlock =
+                  logBlock.getLogBlockHeader().get(HoodieLogBlock.HeaderMetadataType.TARGET_INSTANT_TIME);
+              LOG.info(String.format("Reading a command block %s with targetInstantTime %s",
+                  commandBlock.getType(), targetInstantForCommandBlock));
+              switch (commandBlock.getType()) { // there can be different types of command blocks
+                case ROLLBACK_BLOCK:
+                  break;
+                default:
+                  throw new UnsupportedOperationException("Command type not yet supported.");
+              }
+              break;
+            case CORRUPT_BLOCK:
+              LOG.info("Found a corrupt block");
+              totalCorruptBlocks.incrementAndGet();
+              // If there is a corrupt block - we will assume that this was the next data block
+              currentInstantLogBlocks.push(logBlock);
+              break;
+            default:
+              throw new UnsupportedOperationException("Block type not supported yet");
+          }
+        }
+      }
+      LOG.info("Number of applied rollback blocks " + numBlocksRolledBack);
+
       // merge the last read block when all the blocks are done reading
       if (!currentInstantLogBlocks.isEmpty()) {
         LOG.info("Merging the final data blocks");
