@@ -36,9 +36,14 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
+import static org.apache.hudi.common.table.log.block.HoodieLogBlock.HeaderMetadataType.RECORD_POSITIONS;
 import static org.apache.hudi.common.util.ValidationUtils.checkState;
 
 /**
@@ -56,10 +61,14 @@ public abstract class HoodieLogBlock {
   private final Map<HeaderMetadataType, String> logBlockHeader;
   // Footer for each log block
   private final Map<HeaderMetadataType, String> logBlockFooter;
+
+  protected final List<Integer> recordPositions;
+
   // Location of a log block on disk
   private final Option<HoodieLogBlockContentLocation> blockContentLocation;
   // data for a specific block
   private Option<byte[]> content;
+
   // TODO : change this to just InputStream so this works for any FileSystem
   // create handlers to return specific type of inputstream based on FS
   // input stream corresponding to the log file where this logBlock belongs
@@ -76,6 +85,7 @@ public abstract class HoodieLogBlock {
       boolean readBlockLazily) {
     this.logBlockHeader = logBlockHeader;
     this.logBlockFooter = logBlockFooter;
+    this.recordPositions = getRecordPositions(logBlockHeader);
     this.blockContentLocation = blockContentLocation;
     this.content = content;
     this.inputStream = inputStream;
@@ -85,6 +95,10 @@ public abstract class HoodieLogBlock {
   // Return the bytes representation of the data belonging to a LogBlock
   public byte[] getContentBytes() throws IOException {
     throw new HoodieException("No implementation was provided");
+  }
+
+  public List<Integer> getRecordPositions() {
+    return recordPositions;
   }
 
   public byte[] getMagic() {
@@ -299,5 +313,13 @@ public abstract class HoodieLogBlock {
    */
   protected void deflate() {
     content = Option.empty();
+  }
+
+  protected static List<Integer> getRecordPositions(Map<HeaderMetadataType, String> logBlockHeader) {
+    if (logBlockHeader.containsKey(RECORD_POSITIONS)) {
+      return Arrays.stream(logBlockHeader.get(RECORD_POSITIONS).split(","))
+          .map(Integer::parseInt).collect(Collectors.toList());
+    }
+    return new ArrayList<>();
   }
 }

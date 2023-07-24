@@ -411,7 +411,9 @@ public abstract class AbstractHoodieLogRecordReader {
           readerSchema, readBlocksLazily, reverseReader, bufferSize, shouldLookupRecords(), recordKeyField, internalSchema);
 
       Map<String, List<HoodieLogBlock>> instantToBlocksMap = new HashMap<>();
+      // pos -1 means no need to read
       Map<String, List<List<Integer>>> instantToPositionListMap = new HashMap<>();
+      Map<String, List<Boolean>> instantToSkipListMap = new HashMap<>();
 
       // Order of Instants.
       List<String> orderedInstantsList = new ArrayList<>();
@@ -500,17 +502,52 @@ public abstract class AbstractHoodieLogRecordReader {
       // Ex: B1(i1), B2(i2), CB(i3,[i1,i2]) entries will be like i1 -> i3, i2 -> i3.
       Map<String, String> blockTimeToCompactionBlockTimeMap = new HashMap<>();
 
+      // Preprocess positions based on ordering
+      Set<Integer> updatedPositions = new HashSet<>();
+      for (int i = orderedInstantsList.size() - 1; i >= 0; i--) {
+        String instantTime = orderedInstantsList.get(i);
+        List<Boolean> fullSkips = instantToSkipListMap.computeIfAbsent(instantTime, k -> new ArrayList<>());
+        List<List<Integer>> positionList = instantToPositionListMap.get(instantTime);
+        for (int j = positionList.size() - 1; j >= 0; j--) {
+          fullSkips.add(true);
+        }
+        for (int j = positionList.size() - 1; j >= 0; j--) {
+          List<Integer> positions = positionList.get(j);
+
+          boolean fullSkip = true;
+          for (int k = 0; k < positions.size(); k++) {
+            int pos = positions.get(k);
+            if (updatedPositions.contains(pos)) {
+              positions.set(k, -1);
+            } else {
+              updatedPositions.add(pos);
+              fullSkip = false;
+            }
+          }
+          fullSkips.set(j, fullSkip);
+        }
+      }
+
       /*
-       * Iterate the instants list in reverse order to merge records.
+       * Iterate the instants list in reverse order to merge records
+       * with positions
        */
+      Deque<List<Integer>> currentInstantPositions = new ArrayDeque<>();
       for (int i = orderedInstantsList.size() - 1; i >= 0; i--) {
         String instantTime = orderedInstantsList.get(i);
         List<HoodieLogBlock> instantsBlocks = instantToBlocksMap.get(instantTime);
+        List<List<Integer>> positionList = instantToPositionListMap.get(instantTime);
+        List<Boolean> fullSkips = instantToSkipListMap.get(instantTime);
         if (instantsBlocks.size() == 0) {
           throw new HoodieException("Data corrupted while writing. Found zero blocks for an instant " + instantTime);
         }
         for (int j = instantsBlocks.size() - 1; j >= 0; j--) {
           HoodieLogBlock logBlock = instantsBlocks.get(j);
+          Boolean skipBlock = fullSkips.get(j);
+          if (skipBlock) {
+            continue;
+          }
+          List<Integer> recordPositions = positionList.get(j);
           switch (logBlock.getBlockType()) {
             case HFILE_DATA_BLOCK:
             case AVRO_DATA_BLOCK:
@@ -520,10 +557,11 @@ public abstract class AbstractHoodieLogRecordReader {
               if (isNewInstantBlock(logBlock) && !readBlocksLazily) {
                 // If this is an avro data block belonging to a different commit/instant,
                 // then merge the last blocks and records into the main result
-                processQueuedBlocksForInstant(currentInstantLogBlocks, scannedLogFiles.size(), keySpecOpt);
+                processQueuedBlocksForInstantWithPositions(currentInstantLogBlocks, currentInstantPositions, scannedLogFiles.size(), keySpecOpt);
               }
               // store the current block
               currentInstantLogBlocks.push(logBlock);
+              currentInstantPositions.push(recordPositions);
               break;
             case DELETE_BLOCK:
             case POS_DELETE_BLOCK:
@@ -533,10 +571,11 @@ public abstract class AbstractHoodieLogRecordReader {
               if (isNewInstantBlock(logBlock) && !readBlocksLazily) {
                 // If this is a delete data block belonging to a different commit/instant,
                 // then merge the last blocks and records into the main result
-                processQueuedBlocksForInstant(currentInstantLogBlocks, scannedLogFiles.size(), keySpecOpt);
+                processQueuedBlocksForInstantWithPositions(currentInstantLogBlocks, currentInstantPositions, scannedLogFiles.size(), keySpecOpt);
               }
               // store deletes so can be rolled back
               currentInstantLogBlocks.push(logBlock);
+              currentInstantPositions.push(recordPositions);
               break;
             case COMMAND_BLOCK:
               // Consider the following scenario
@@ -569,6 +608,7 @@ public abstract class AbstractHoodieLogRecordReader {
               totalCorruptBlocks.incrementAndGet();
               // If there is a corrupt block - we will assume that this was the next data block
               currentInstantLogBlocks.push(logBlock);
+              currentInstantPositions.push(recordPositions);
               break;
             default:
               throw new UnsupportedOperationException("Block type not supported yet");
@@ -580,7 +620,7 @@ public abstract class AbstractHoodieLogRecordReader {
       // merge the last read block when all the blocks are done reading
       if (!currentInstantLogBlocks.isEmpty()) {
         LOG.info("Merging the final data blocks");
-        processQueuedBlocksForInstant(currentInstantLogBlocks, scannedLogFiles.size(), keySpecOpt);
+        processQueuedBlocksForInstantWithPositions(currentInstantLogBlocks, currentInstantPositions, scannedLogFiles.size(), keySpecOpt);
       }
       // Done
       progress = 1.0f;
@@ -832,7 +872,7 @@ public abstract class AbstractHoodieLogRecordReader {
    * Iterate over the GenericRecord in the block, read the hoodie key and partition path and call subclass processors to
    * handle it.
    */
-  private void processDataBlock(HoodieDataBlock dataBlock, Option<KeySpec> keySpecOpt) throws Exception {
+  private void processDataBlock(HoodieDataBlock dataBlock, Option<KeySpec> keySpecOpt, Option<List<Integer>> recordPositions) throws Exception {
     checkState(partitionNameOverrideOpt.isPresent() || partitionPathFieldOpt.isPresent(),
         "Either partition-name override or partition-path field had to be present");
 
@@ -844,6 +884,7 @@ public abstract class AbstractHoodieLogRecordReader {
         getRecordsIterator(dataBlock, keySpecOpt);
 
     try (ClosableIterator<HoodieRecord> recordIterator = recordsIteratorSchemaPair.getLeft()) {
+      int recordSeq = 0;
       while (recordIterator.hasNext()) {
         HoodieRecord completedRecord = recordIterator.next()
             .wrapIntoHoodieRecordPayloadWithParams(recordsIteratorSchemaPair.getRight(),
@@ -853,10 +894,19 @@ public abstract class AbstractHoodieLogRecordReader {
                 this.partitionNameOverrideOpt,
                 populateMetaFields,
                 Option.empty());
-        processNextRecord(completedRecord);
+        Option<Integer> position = Option.empty();
+        if (recordPositions.isPresent()) {
+          position = Option.of(recordPositions.get().get(recordSeq));
+        }
+        processNextRecord(completedRecord, position);
         totalLogRecords.incrementAndGet();
+        recordSeq++;
       }
     }
+  }
+
+  public <T> void processNextRecord(HoodieRecord<T> hoodieRecord) throws Exception {
+    processNextRecord(hoodieRecord, Option.empty());
   }
 
   /**
@@ -864,7 +914,7 @@ public abstract class AbstractHoodieLogRecordReader {
    *
    * @param hoodieRecord Hoodie Record to process
    */
-  public abstract <T> void processNextRecord(HoodieRecord<T> hoodieRecord) throws Exception;
+  public abstract <T> void processNextRecord(HoodieRecord<T> hoodieRecord, Option<Integer> position) throws Exception;
 
   /**
    * Process next deleted record.
@@ -888,7 +938,41 @@ public abstract class AbstractHoodieLogRecordReader {
         case AVRO_DATA_BLOCK:
         case HFILE_DATA_BLOCK:
         case PARQUET_DATA_BLOCK:
-          processDataBlock((HoodieDataBlock) lastBlock, keySpecOpt);
+          processDataBlock((HoodieDataBlock) lastBlock, keySpecOpt, Option.empty());
+          break;
+        case DELETE_BLOCK:
+          Arrays.stream(((HoodieDeleteBlock) lastBlock).getRecordsToDelete()).forEach(this::processNextDeletedRecord);
+          break;
+        case POS_DELETE_BLOCK:
+          Arrays.stream(((HoodiePositionDeleteBlock) lastBlock).getPositionsToDelete()).forEach(this::processNextDeletePosition);
+          break;
+        case AVRO_DELETE_BLOCK:
+          Arrays.stream(((HoodieAvroDeleteBlock) lastBlock).getRecordsToDelete()).forEach(this::processNextDeletedRecord);
+          break;
+        case CORRUPT_BLOCK:
+          LOG.warn("Found a corrupt block which was not rolled back");
+          break;
+        default:
+          break;
+      }
+    }
+    // At this step the lastBlocks are consumed. We track approximate progress by number of log-files seen
+    progress = (numLogFilesSeen - 1) / logFilePaths.size();
+  }
+
+  private void processQueuedBlocksForInstantWithPositions(Deque<HoodieLogBlock> logBlocks,
+                                                          Deque<List<Integer>> recordPositionQueue,
+                                                          int numLogFilesSeen, Option<KeySpec> keySpecOpt) throws Exception {
+    while (!logBlocks.isEmpty()) {
+      LOG.info("Number of remaining logblocks to merge " + logBlocks.size());
+      // poll the element at the bottom of the stack since that's the order it was inserted
+      HoodieLogBlock lastBlock = logBlocks.pollLast();
+      List<Integer> recordPositionList = recordPositionQueue.pollLast();
+      switch (lastBlock.getBlockType()) {
+        case AVRO_DATA_BLOCK:
+        case HFILE_DATA_BLOCK:
+        case PARQUET_DATA_BLOCK:
+          processDataBlock((HoodieDataBlock) lastBlock, keySpecOpt, Option.of(recordPositionList));
           break;
         case DELETE_BLOCK:
           Arrays.stream(((HoodieDeleteBlock) lastBlock).getRecordsToDelete()).forEach(this::processNextDeletedRecord);

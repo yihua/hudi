@@ -7,24 +7,22 @@
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 
 package org.apache.hudi.common.table.log;
 
 import org.apache.hudi.common.config.HoodieCommonConfig;
 import org.apache.hudi.common.model.DeleteRecord;
-import org.apache.hudi.common.model.HoodieEmptyRecord;
-import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodiePreCombineAvroRecordMerger;
 import org.apache.hudi.common.model.HoodieRecord;
-import org.apache.hudi.common.model.HoodieRecord.HoodieRecordType;
 import org.apache.hudi.common.model.HoodieRecordMerger;
 import org.apache.hudi.common.table.cdc.HoodieCDCUtils;
 import org.apache.hudi.common.util.CollectionUtils;
@@ -33,8 +31,6 @@ import org.apache.hudi.common.util.HoodieRecordSizeEstimator;
 import org.apache.hudi.common.util.HoodieRecordUtils;
 import org.apache.hudi.common.util.HoodieTimer;
 import org.apache.hudi.common.util.Option;
-import org.apache.hudi.common.util.ReflectionUtils;
-import org.apache.hudi.common.util.SpillableMapUtils;
 import org.apache.hudi.common.util.ValidationUtils;
 import org.apache.hudi.common.util.collection.ExternalSpillableMap;
 import org.apache.hudi.exception.HoodieIOException;
@@ -45,8 +41,6 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import javax.annotation.concurrent.NotThreadSafe;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -60,27 +54,13 @@ import java.util.stream.Collectors;
 
 import static org.apache.hudi.common.fs.FSUtils.getRelativePartitionPath;
 
-/**
- * Scans through all the blocks in a list of HoodieLogFile and builds up a compacted/merged list of records which will
- * be used as a lookup table when merging the base columnar file with the redo log file.
- * <p>
- * NOTE: If readBlockLazily is turned on, does not merge, instead keeps reading log blocks and merges everything at once
- * This is an optimization to avoid seek() back and forth to read new block (forward seek()) and lazily read content of
- * seen block (reverse and forward seek()) during merge | | Read Block 1 Metadata | | Read Block 1 Data | | | Read Block
- * 2 Metadata | | Read Block 2 Data | | I/O Pass 1 | ..................... | I/O Pass 2 | ................. | | | Read
- * Block N Metadata | | Read Block N Data |
- * <p>
- * This results in two I/O passes over the log file.
- */
-@NotThreadSafe
-public class HoodieMergedLogRecordScanner extends AbstractHoodieLogRecordReader
+public class HoodiePositionBasedMergedLogRecordScanner extends AbstractHoodieLogRecordReader
     implements Iterable<HoodieRecord>, Closeable {
-
-  private static final Logger LOG = LoggerFactory.getLogger(HoodieMergedLogRecordScanner.class);
+  private static final Logger LOG = LoggerFactory.getLogger(HoodiePositionBasedMergedLogRecordScanner.class);
   // A timer for calculating elapsed time in millis
   public final HoodieTimer timer = HoodieTimer.create();
   // Map of compacted/merged records
-  private final ExternalSpillableMap<String, HoodieRecord> records;
+  private final ExternalSpillableMap<Integer, HoodieRecord> records;
   private final Set<Integer> deletePositions = new HashSet<>();
   // Set of already scanned prefixes allowing us to avoid scanning same prefixes again
   private final Set<String> scannedPrefixes;
@@ -90,20 +70,19 @@ public class HoodieMergedLogRecordScanner extends AbstractHoodieLogRecordReader
   // Stores the total time taken to perform reading and merging of log blocks
   private long totalTimeTakenToReadAndMergeBlocks;
 
-  @SuppressWarnings("unchecked")
-  private HoodieMergedLogRecordScanner(FileSystem fs, String basePath, List<String> logFilePaths, Schema readerSchema,
-                                       String latestInstantTime, Long maxMemorySizeInBytes, boolean readBlocksLazily,
-                                       boolean reverseReader, int bufferSize, String spillableMapBasePath,
-                                       Option<InstantRange> instantRange,
-                                       ExternalSpillableMap.DiskMapType diskMapType,
-                                       boolean isBitCaskDiskMapCompressionEnabled,
-                                       boolean withOperationField, boolean forceFullScan,
-                                       Option<String> partitionName,
-                                       InternalSchema internalSchema,
-                                       Option<String> keyFieldOverride,
-                                       boolean enableOptimizedLogBlocksScan,
-                                       boolean useRecordPositions,
-                                       HoodieRecordMerger recordMerger) {
+  protected HoodiePositionBasedMergedLogRecordScanner(FileSystem fs, String basePath, List<String> logFilePaths, Schema readerSchema,
+                                                      String latestInstantTime, Long maxMemorySizeInBytes, boolean readBlocksLazily,
+                                                      boolean reverseReader, int bufferSize, String spillableMapBasePath,
+                                                      Option<InstantRange> instantRange,
+                                                      ExternalSpillableMap.DiskMapType diskMapType,
+                                                      boolean isBitCaskDiskMapCompressionEnabled,
+                                                      boolean withOperationField, boolean forceFullScan,
+                                                      Option<String> partitionName,
+                                                      InternalSchema internalSchema,
+                                                      Option<String> keyFieldOverride,
+                                                      boolean enableOptimizedLogBlocksScan,
+                                                      boolean useRecordPositions,
+                                                      HoodieRecordMerger recordMerger) {
     super(fs, basePath, logFilePaths, readerSchema, latestInstantTime, readBlocksLazily, reverseReader, bufferSize,
         instantRange, withOperationField, forceFullScan, partitionName, internalSchema, keyFieldOverride, enableOptimizedLogBlocksScan, useRecordPositions, recordMerger);
     try {
@@ -137,66 +116,6 @@ public class HoodieMergedLogRecordScanner extends AbstractHoodieLogRecordReader
     scanInternal(Option.empty(), skipProcessingBlocks);
   }
 
-  /**
-   * Provides incremental scanning capability where only provided keys will be looked
-   * up in the delta-log files, scanned and subsequently materialized into the internal
-   * cache
-   *
-   * @param keys to be looked up
-   */
-  public void scanByFullKeys(List<String> keys) {
-    // We can skip scanning in case reader is in full-scan mode, in which case all blocks
-    // are processed upfront (no additional scanning is necessary)
-    if (forceFullScan) {
-      return; // no-op
-    }
-
-    List<String> missingKeys = keys.stream()
-        .filter(key -> !records.containsKey(key))
-        .collect(Collectors.toList());
-
-    if (missingKeys.isEmpty()) {
-      // All the required records are already fetched, no-op
-      return;
-    }
-
-    scanInternal(Option.of(KeySpec.fullKeySpec(missingKeys)), false);
-  }
-
-  /**
-   * Provides incremental scanning capability where only keys matching provided key-prefixes
-   * will be looked up in the delta-log files, scanned and subsequently materialized into
-   * the internal cache
-   *
-   * @param keyPrefixes to be looked up
-   */
-  public void scanByKeyPrefixes(List<String> keyPrefixes) {
-    // We can skip scanning in case reader is in full-scan mode, in which case all blocks
-    // are processed upfront (no additional scanning is necessary)
-    if (forceFullScan) {
-      return;
-    }
-
-    List<String> missingKeyPrefixes = keyPrefixes.stream()
-        .filter(keyPrefix ->
-            // NOTE: We can skip scanning the prefixes that have already
-            //       been covered by the previous scans
-            scannedPrefixes.stream().noneMatch(keyPrefix::startsWith))
-        .collect(Collectors.toList());
-
-    if (missingKeyPrefixes.isEmpty()) {
-      // All the required records are already fetched, no-op
-      return;
-    }
-
-    // NOTE: When looking up by key-prefixes unfortunately we can't short-circuit
-    //       and will have to scan every time as we can't know (based on just
-    //       the records cached) whether particular prefix was scanned or just records
-    //       matching the prefix looked up (by [[scanByFullKeys]] API)
-    scanInternal(Option.of(KeySpec.prefixKeySpec(missingKeyPrefixes)), false);
-    scannedPrefixes.addAll(missingKeyPrefixes);
-  }
-
   private void performScan() {
     // Do the scan and merge
     timer.startTimer();
@@ -219,11 +138,11 @@ public class HoodieMergedLogRecordScanner extends AbstractHoodieLogRecordReader
     return records.iterator();
   }
 
-  public Map<String, HoodieRecord> getRecords() {
+  public Map<Integer, HoodieRecord> getRecords() {
     return records;
   }
 
-  public HoodieRecordType getRecordType() {
+  public HoodieRecord.HoodieRecordType getRecordType() {
     return recordMerger.getRecordType();
   }
 
@@ -231,51 +150,22 @@ public class HoodieMergedLogRecordScanner extends AbstractHoodieLogRecordReader
     return numMergedRecordsInLog;
   }
 
-  /**
-   * Returns the builder for {@code HoodieMergedLogRecordScanner}.
-   */
   public static HoodieMergedLogRecordScanner.Builder newBuilder() {
-    return new Builder();
-  }
-
-  @Override
-  public <T> void processNextRecord(HoodieRecord<T> hoodieRecord) throws IOException {
-    processNextRecord(hoodieRecord, Option.empty());
+    return new HoodieMergedLogRecordScanner.Builder();
   }
 
   @Override
   public <T> void processNextRecord(HoodieRecord<T> newRecord, Option<Integer> position) throws IOException {
-    String key = newRecord.getRecordKey();
-    HoodieRecord<T> prevRecord = records.get(key);
-    if (prevRecord != null) {
-      // Merge and store the combined record
-      HoodieRecord<T> combinedRecord = (HoodieRecord<T>) recordMerger.merge(prevRecord, readerSchema,
-          newRecord, readerSchema, this.getPayloadProps()).get().getLeft();
-      // If pre-combine returns existing record, no need to update it
-      if (combinedRecord.getData() != prevRecord.getData()) {
-        HoodieRecord latestHoodieRecord =
-            combinedRecord.newInstance(new HoodieKey(key, newRecord.getPartitionPath()), newRecord.getOperation());
-
-        latestHoodieRecord.unseal();
-        latestHoodieRecord.setCurrentLocation(newRecord.getCurrentLocation());
-        latestHoodieRecord.seal();
-
-        // NOTE: Record have to be cloned here to make sure if it holds low-level engine-specific
-        //       payload pointing into a shared, mutable (underlying) buffer we get a clean copy of
-        //       it since these records will be put into records(Map).
-        records.put(key, latestHoodieRecord.copy());
-      }
-    } else {
-      // Put the record as is
-      // NOTE: Record have to be cloned here to make sure if it holds low-level engine-specific
-      //       payload pointing into a shared, mutable (underlying) buffer we get a clean copy of
-      //       it since these records will be put into records(Map).
-      records.put(key, newRecord.copy());
+    // Assume position is present
+    int pos = position.get();
+    if (pos >= 0) {
+      records.put(pos, newRecord.copy());
     }
   }
 
   @Override
   protected void processNextDeletedRecord(DeleteRecord deleteRecord) {
+    /* skip now
     String key = deleteRecord.getRecordKey();
     HoodieRecord oldRecord = records.get(key);
     if (oldRecord != null) {
@@ -296,13 +186,13 @@ public class HoodieMergedLogRecordScanner extends AbstractHoodieLogRecordReader
       }
     }
     // Put the DELETE record
-    if (recordType == HoodieRecordType.AVRO) {
+    if (recordType == HoodieRecord.HoodieRecordType.AVRO) {
       records.put(key, SpillableMapUtils.generateEmptyPayload(key,
           deleteRecord.getPartitionPath(), deleteRecord.getOrderingValue(), getPayloadClassFQN()));
     } else {
       HoodieEmptyRecord record = new HoodieEmptyRecord<>(new HoodieKey(key, deleteRecord.getPartitionPath()), null, deleteRecord.getOrderingValue(), recordType);
       records.put(key, record);
-    }
+    }*/
   }
 
   @Override
@@ -472,13 +362,13 @@ public class HoodieMergedLogRecordScanner extends AbstractHoodieLogRecordReader
     }
 
     @Override
-    public HoodieMergedLogRecordScanner build() {
+    public HoodiePositionBasedMergedLogRecordScanner build() {
       if (this.partitionName == null && CollectionUtils.nonEmpty(this.logFilePaths)) {
         this.partitionName = getRelativePartitionPath(new Path(basePath), new Path(this.logFilePaths.get(0)).getParent());
       }
       ValidationUtils.checkArgument(recordMerger != null);
 
-      return new HoodieMergedLogRecordScanner(fs, basePath, logFilePaths, readerSchema,
+      return new HoodiePositionBasedMergedLogRecordScanner(fs, basePath, logFilePaths, readerSchema,
           latestInstantTime, maxMemorySizeInBytes, readBlocksLazily, reverseReader,
           bufferSize, spillableMapBasePath, instantRange,
           diskMapType, isBitCaskDiskMapCompressionEnabled, withOperationField, forceFullScan,
@@ -487,4 +377,3 @@ public class HoodieMergedLogRecordScanner extends AbstractHoodieLogRecordReader
     }
   }
 }
-
