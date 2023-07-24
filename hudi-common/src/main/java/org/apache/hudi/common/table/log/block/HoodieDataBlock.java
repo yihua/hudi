@@ -28,6 +28,8 @@ import org.apache.avro.Schema;
 import org.apache.hadoop.fs.FSDataInputStream;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -35,7 +37,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
+import static org.apache.hudi.common.table.log.block.HoodieLogBlock.HeaderMetadataType.CHANGED_COLUMNS;
 import static org.apache.hudi.common.util.TypeUtils.unsafeCast;
 import static org.apache.hudi.common.util.ValidationUtils.checkState;
 
@@ -66,6 +70,8 @@ public abstract class HoodieDataBlock extends HoodieLogBlock {
   //  Map of string schema to parsed schema.
   private static ConcurrentHashMap<String, Schema> schemaMap = new ConcurrentHashMap<>();
 
+  protected final List<String> changedColumnList;
+
   /**
    * NOTE: This ctor is used on the write-path (ie when records ought to be written into the log)
    */
@@ -79,6 +85,7 @@ public abstract class HoodieDataBlock extends HoodieLogBlock {
     // If no reader-schema has been provided assume writer-schema as one
     this.readerSchema = getWriterSchema(super.getLogBlockHeader());
     this.enablePointLookups = false;
+    this.changedColumnList = getChangedColumns(header);
   }
 
   /**
@@ -99,6 +106,7 @@ public abstract class HoodieDataBlock extends HoodieLogBlock {
     // If no reader-schema has been provided assume writer-schema as one
     this.readerSchema = readerSchema.orElseGet(() -> getWriterSchema(super.getLogBlockHeader()));
     this.enablePointLookups = enablePointLookups;
+    this.changedColumnList = getChangedColumns(headers);
   }
 
   @Override
@@ -202,6 +210,13 @@ public abstract class HoodieDataBlock extends HoodieLogBlock {
     String schemaStr = getLogBlockHeader().get(HeaderMetadataType.SCHEMA);
     schemaMap.computeIfAbsent(schemaStr, (schemaString) -> new Schema.Parser().parse(schemaString));
     return schemaMap.get(schemaStr);
+  }
+
+  public static List<String> getChangedColumns(Map<HeaderMetadataType, String> logBlockHeader) {
+    if (logBlockHeader.containsKey(CHANGED_COLUMNS)) {
+      return Arrays.stream(logBlockHeader.get(CHANGED_COLUMNS).split(",")).collect(Collectors.toList());
+    }
+    return new ArrayList<>();
   }
 
   /**

@@ -514,17 +514,21 @@ public abstract class AbstractHoodieLogRecordReader {
         for (int j = positionList.size() - 1; j >= 0; j--) {
           List<Integer> positions = positionList.get(j);
 
-          boolean fullSkip = true;
-          for (int k = 0; k < positions.size(); k++) {
-            int pos = positions.get(k);
-            if (updatedPositions.contains(pos)) {
-              positions.set(k, -1);
-            } else {
-              updatedPositions.add(pos);
-              fullSkip = false;
+          if (!positions.isEmpty()) {
+            boolean fullSkip = true;
+            for (int k = 0; k < positions.size(); k++) {
+              int pos = positions.get(k);
+              if (updatedPositions.contains(pos)) {
+                positions.set(k, -1);
+              } else {
+                updatedPositions.add(pos);
+                fullSkip = false;
+              }
             }
+            fullSkips.set(j, fullSkip);
+          } else {
+            fullSkips.set(j, false);
           }
-          fullSkips.set(j, fullSkip);
         }
       }
 
@@ -885,6 +889,7 @@ public abstract class AbstractHoodieLogRecordReader {
 
     try (ClosableIterator<HoodieRecord> recordIterator = recordsIteratorSchemaPair.getLeft()) {
       int recordSeq = 0;
+      boolean positionExists = (recordPositions.isPresent() && !recordPositions.get().isEmpty());
       while (recordIterator.hasNext()) {
         HoodieRecord completedRecord = recordIterator.next()
             .wrapIntoHoodieRecordPayloadWithParams(recordsIteratorSchemaPair.getRight(),
@@ -895,7 +900,7 @@ public abstract class AbstractHoodieLogRecordReader {
                 populateMetaFields,
                 Option.empty());
         Option<Integer> position = Option.empty();
-        if (recordPositions.isPresent()) {
+        if (positionExists) {
           position = Option.of(recordPositions.get().get(recordSeq));
         }
         processNextRecord(completedRecord, position);

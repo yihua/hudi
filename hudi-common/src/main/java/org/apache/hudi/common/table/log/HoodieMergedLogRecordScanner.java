@@ -223,6 +223,10 @@ public class HoodieMergedLogRecordScanner extends AbstractHoodieLogRecordReader
     return records;
   }
 
+  public Set<Integer> getDeletePositions() {
+    return deletePositions;
+  }
+
   public HoodieRecordType getRecordType() {
     return recordMerger.getRecordType();
   }

@@ -30,6 +30,7 @@ import org.apache.hudi.common.table.log.block.HoodieAvroDeleteBlock;
 import org.apache.hudi.common.table.log.block.HoodieCDCDataBlock;
 import org.apache.hudi.common.table.log.block.HoodieCommandBlock;
 import org.apache.hudi.common.table.log.block.HoodieCorruptBlock;
+import org.apache.hudi.common.table.log.block.HoodieDataBlock;
 import org.apache.hudi.common.table.log.block.HoodieDeleteBlock;
 import org.apache.hudi.common.table.log.block.HoodieHFileDataBlock;
 import org.apache.hudi.common.table.log.block.HoodieLogBlock;
@@ -59,8 +60,10 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 import static org.apache.hudi.common.util.ValidationUtils.checkArgument;
 import static org.apache.hudi.common.util.ValidationUtils.checkState;
@@ -231,8 +234,17 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
         checkState(nextBlockVersion.getVersion() != HoodieLogFormatVersion.DEFAULT_VERSION,
             String.format("Parquet block could not be of version (%d)", HoodieLogFormatVersion.DEFAULT_VERSION));
 
+        Option<Schema> parquetReaderSchema = getTargetReaderSchemaForBlock();
+        // Pass projected schema with only changed columns
+        if (header != null) {
+          List<String> changedColumns = HoodieDataBlock.getChangedColumns(header);
+          if (!changedColumns.isEmpty()) {
+            parquetReaderSchema = Option.of(projectSchema(readerSchema, changedColumns));
+          }
+        }
+
         return new HoodieParquetDataBlock(inputStream, content, readBlockLazily, logBlockContentLoc,
-            getTargetReaderSchemaForBlock(), header, footer, keyField);
+            parquetReaderSchema, header, footer, keyField);
 
       case DELETE_BLOCK:
         return new HoodieDeleteBlock(content, inputStream, readBlockLazily, Option.of(logBlockContentLoc), header, footer);
@@ -493,9 +505,21 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
     throw new UnsupportedOperationException("Remove not supported for HoodieLogFileReader");
   }
 
+  public static Schema projectSchema(Schema originalSchema, List<String> fieldNames) {
+    Map<String, Schema.Field> fieldMap = originalSchema.getFields().stream()
+        .collect(Collectors.toMap(Schema.Field::name, e -> e));
+    List<Schema.Field> projectedFieldList = fieldNames.stream().map(fieldName -> {
+      Schema.Field f = fieldMap.get(fieldName);
+      return new Schema.Field(f.name(), f.schema(), f.doc(), f.defaultVal(), f.order());
+    }).collect(Collectors.toList());
+    return Schema.createRecord(originalSchema.getName(), originalSchema.getDoc(),
+        originalSchema.getNamespace(), originalSchema.isError(), projectedFieldList);
+  }
+
   /**
    * Fetch the right {@link FSDataInputStream} to be used by wrapping with required input streams.
-   * @param fs instance of {@link FileSystem} in use.
+   *
+   * @param fs         instance of {@link FileSystem} in use.
    * @param bufferSize buffer size to be used.
    * @return the right {@link FSDataInputStream} as required.
    */
