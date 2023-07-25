@@ -24,7 +24,6 @@ import org.apache.hudi.common.fs.SchemeAwareFSDataInputStream;
 import org.apache.hudi.common.fs.StorageSchemes;
 import org.apache.hudi.common.fs.TimedFSDataInputStream;
 import org.apache.hudi.common.model.HoodieLogFile;
-import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.table.log.block.HoodieAvroDataBlock;
 import org.apache.hudi.common.table.log.block.HoodieAvroDeleteBlock;
 import org.apache.hudi.common.table.log.block.HoodieCDCDataBlock;
@@ -65,6 +64,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
+import static org.apache.hudi.common.model.HoodieRecord.PARTITION_PATH_METADATA_FIELD;
+import static org.apache.hudi.common.model.HoodieRecord.RECORD_KEY_METADATA_FIELD;
 import static org.apache.hudi.common.util.ValidationUtils.checkArgument;
 import static org.apache.hudi.common.util.ValidationUtils.checkState;
 
@@ -102,7 +103,7 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
   public HoodieLogFileReader(FileSystem fs, HoodieLogFile logFile, Schema readerSchema, int bufferSize,
                              boolean readBlockLazily, boolean reverseReader) throws IOException {
     this(fs, logFile, readerSchema, bufferSize, readBlockLazily, reverseReader, false,
-        HoodieRecord.RECORD_KEY_METADATA_FIELD);
+        RECORD_KEY_METADATA_FIELD);
   }
 
   public HoodieLogFileReader(FileSystem fs, HoodieLogFile logFile, Schema readerSchema, int bufferSize,
@@ -239,6 +240,8 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
         if (header != null) {
           List<String> changedColumns = HoodieDataBlock.getChangedColumns(header);
           if (!changedColumns.isEmpty()) {
+            changedColumns.add(RECORD_KEY_METADATA_FIELD);
+            changedColumns.add(PARTITION_PATH_METADATA_FIELD);
             parquetReaderSchema = Option.of(projectSchema(readerSchema, changedColumns));
           }
         }

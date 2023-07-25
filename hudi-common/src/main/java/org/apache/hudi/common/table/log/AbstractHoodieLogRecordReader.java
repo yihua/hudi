@@ -891,7 +891,8 @@ public abstract class AbstractHoodieLogRecordReader {
       int recordSeq = 0;
       boolean positionExists = (recordPositions.isPresent() && !recordPositions.get().isEmpty());
       while (recordIterator.hasNext()) {
-        HoodieRecord completedRecord = recordIterator.next()
+        HoodieRecord record = recordIterator.next();
+        HoodieRecord completedRecord = record
             .wrapIntoHoodieRecordPayloadWithParams(recordsIteratorSchemaPair.getRight(),
                 hoodieTableMetaClient.getTableConfig().getProps(),
                 recordKeyPartitionPathFieldPair,

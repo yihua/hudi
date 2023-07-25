@@ -20,20 +20,25 @@
 package org.apache.hudi.functional;
 
 import org.apache.hudi.DataSourceWriteOptions;
+import org.apache.hudi.HoodieSparkRecordMerger;
 import org.apache.hudi.client.SparkRDDWriteClient;
+import org.apache.hudi.common.config.HoodieStorageConfig;
+import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.log.HoodieMergedLogRecordScanner;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.view.FileSystemViewStorageConfig;
 import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
+import org.apache.hudi.common.util.HoodieRecordUtils;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.collection.ExternalSpillableMap;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.config.HoodieClusteringConfig;
 import org.apache.hudi.config.HoodieCompactionConfig;
 import org.apache.hudi.config.HoodieIndexConfig;
-import org.apache.hudi.common.config.HoodieStorageConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.index.HoodieIndex;
 import org.apache.hudi.table.HoodieSparkTable;
@@ -41,17 +46,22 @@ import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.testutils.HoodieClientTestUtils;
 import org.apache.hudi.testutils.SparkClientFunctionalTestHarness;
 
+import org.apache.avro.Schema;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static org.apache.hudi.common.testutils.HoodieTestDataGenerator.TRIP_EXAMPLE_SCHEMA;
+import static org.apache.hudi.internal.schema.InternalSchema.getEmptyInternalSchema;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -70,6 +80,35 @@ class TestHoodieSparkMergeOnReadTableClustering extends SparkClientFunctionalTes
         Arguments.of(false, false, true),
         Arguments.of(false, false, false)
     );
+  }
+
+  @Test
+  public void testLogMerging() {
+    String baseFilePath = "file:/Users/ethan/Work/tmp/partial-merge-benchmark/run-1690241397713/partial_update_1_56e8c697-5f27-4f38-a2ff-ed58eb9aad07";
+    List<String> logFilePaths = Arrays.stream(new String[] {
+        "file:/Users/ethan/Work/tmp/partial-merge-benchmark/run-1690241397713/partial_update_1_56e8c697-5f27-4f38-a2ff-ed58eb9aad07/05-20-2021/.hudi-file_001.log.1_1-0-1",
+        "file:/Users/ethan/Work/tmp/partial-merge-benchmark/run-1690241397713/partial_update_1_56e8c697-5f27-4f38-a2ff-ed58eb9aad07/05-20-2021/.hudi-file_001.log.2_1-0-1"
+    }).collect(Collectors.toList());
+    Schema readerSchema = new Schema.Parser().parse(
+        "{\"type\":\"record\",\"name\":\"GhArchive\",\"namespace\":\"com.acme.avro\",\"fields\":[{\"name\":\"_hoodie_commit_time\",\"type\":[\"null\",\"string\"],\"doc\":\"\",\"default\":null},{\"name\":\"_hoodie_commit_seqno\",\"type\":[\"null\",\"string\"],\"doc\":\"\",\"default\":null},{\"name\":\"_hoodie_record_key\",\"type\":[\"null\",\"string\"],\"doc\":\"\",\"default\":null},{\"name\":\"_hoodie_partition_path\",\"type\":[\"null\",\"string\"],\"doc\":\"\",\"default\":null},{\"name\":\"_hoodie_file_name\",\"type\":[\"null\",\"string\"],\"doc\":\"\",\"default\":null},{\"name\":\"date\",\"type\":\"string\"},{\"name\":\"timestamp\",\"type\":\"long\"},{\"name\":\"id\",\"type\":\"string\"},{\"name\":\"type\",\"type\":[\"null\",\"string\"],\"default\":null},{\"name\":\"actor\",\"type\":{\"type\":\"record\",\"name\":\"actor\",\"fields\":[{\"name\":\"id\",\"type\":[\"null\",\"int\"],\"default\":null},{\"name\":\"login\",\"type\":[\"null\",\"string\"],\"default\":null},{\"name\":\"gravatar_id\",\"type\":[\"null\",\"string\"],\"default\":null},{\"name\":\"url\",\"type\":[\"null\",\"string\"],\"default\":null},{\"name\":\"avatar_url\",\"type\":[\"null\",\"string\"],\"default\":null},{\"name\":\"display_login\",\"type\":[\"null\",\"string\"],\"default\":null}]}},{\"name\":\"repo\",\"type\":{\"type\":\"record\",\"name\":\"repo\",\"fields\":[{\"name\":\"id\",\"type\":[\"null\",\"int\"],\"default\":null},{\"name\":\"name\",\"type\":[\"null\",\"string\"],\"default\":null},{\"name\":\"url\",\"type\":[\"null\",\"string\"],\"default\":null}]}},{\"name\":\"payload\",\"type\":[\"null\",\"string\"],\"default\":null},{\"name\":\"org\",\"type\":[\"null\",{\"type\":\"record\",\"name\":\"org\",\"fields\":[{\"name\":\"id\",\"type\":[\"null\",\"int\"],\"default\":null},{\"name\":\"login\",\"type\":[\"null\",\"string\"],\"default\":null},{\"name\":\"gravatar_id\",\"type\":[\"null\",\"string\"],\"default\":null},{\"name\":\"url\",\"type\":[\"null\",\"string\"],\"default\":null},{\"name\":\"avatar_url\",\"type\":[\"null\",\"string\"],\"default\":null},{\"name\":\"display_login\",\"type\":[\"null\",\"string\"],\"default\":null}]}],\"default\":null},{\"name\":\"created_at\",\"type\":\"long\"},{\"name\":\"public\",\"type\":\"boolean\"}]}");
+    String latestInstantTime = "003";
+    HoodieMergedLogRecordScanner logRecordScanner = HoodieMergedLogRecordScanner.newBuilder()
+        .withFileSystem(FSUtils.getFs(baseFilePath, new Configuration()))
+        .withBasePath(baseFilePath)
+        .withLogFilePaths(logFilePaths)
+        .withReaderSchema(readerSchema)
+        .withLatestInstantTime(latestInstantTime)
+        .withMaxMemorySizeInBytes(1024L * 1024L * 1024L)
+        .withReadBlocksLazily(true)
+        .withReverseReader(false)
+        .withBufferSize(1024 * 1024)
+        .withSpillableMapBasePath("/tmp")
+        .withDiskMapType(ExternalSpillableMap.DiskMapType.BITCASK)
+        .withBitCaskDiskMapCompressionEnabled(true)
+        .withOptimizedLogBlocksScan(false)
+        .withInternalSchema(getEmptyInternalSchema())
+        .withRecordMerger(HoodieRecordUtils.loadRecordMerger(HoodieSparkRecordMerger.class.getName()))
+        .build();
   }
 
   @ParameterizedTest

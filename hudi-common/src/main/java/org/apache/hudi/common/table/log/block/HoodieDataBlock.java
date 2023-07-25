@@ -147,6 +147,10 @@ public abstract class HoodieDataBlock extends HoodieLogBlock {
     return readerSchema;
   }
 
+  public List<String> getChangedColumnList() {
+    return changedColumnList;
+  }
+
   /**
    * Batch get of keys of interest. Implementation can choose to either do full scan and return matched entries or
    * do a seek based parsing and return matched entries.
