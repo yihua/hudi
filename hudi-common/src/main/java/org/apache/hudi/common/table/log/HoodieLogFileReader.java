@@ -57,6 +57,7 @@ import javax.annotation.Nullable;
 
 import java.io.EOFException;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -240,9 +241,11 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
         if (header != null) {
           List<String> changedColumns = HoodieDataBlock.getChangedColumns(header);
           if (!changedColumns.isEmpty()) {
-            changedColumns.add(RECORD_KEY_METADATA_FIELD);
-            changedColumns.add(PARTITION_PATH_METADATA_FIELD);
-            parquetReaderSchema = Option.of(projectSchema(readerSchema, changedColumns));
+            List<String> requiredColumns = new ArrayList<>();
+            requiredColumns.add(RECORD_KEY_METADATA_FIELD);
+            requiredColumns.add(PARTITION_PATH_METADATA_FIELD);
+            requiredColumns.addAll(changedColumns);
+            parquetReaderSchema = Option.of(projectSchema(readerSchema, requiredColumns));
           }
         }
 
