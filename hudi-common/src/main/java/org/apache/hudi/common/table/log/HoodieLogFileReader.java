@@ -26,7 +26,6 @@ import org.apache.hudi.common.fs.TimedFSDataInputStream;
 import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.table.log.block.HoodieAvroDataBlock;
-import org.apache.hudi.common.table.log.block.HoodieAvroDeleteBlock;
 import org.apache.hudi.common.table.log.block.HoodieCDCDataBlock;
 import org.apache.hudi.common.table.log.block.HoodieCommandBlock;
 import org.apache.hudi.common.table.log.block.HoodieCorruptBlock;
@@ -239,9 +238,6 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
 
       case POS_DELETE_BLOCK:
         return new HoodiePositionDeleteBlock(content, inputStream, readBlockLazily, Option.of(logBlockContentLoc), header, footer);
-
-      case AVRO_DELETE_BLOCK:
-        return new HoodieAvroDeleteBlock(content, inputStream, readBlockLazily, Option.of(logBlockContentLoc), header, footer);
 
       case COMMAND_BLOCK:
         return new HoodieCommandBlock(content, inputStream, readBlockLazily, Option.of(logBlockContentLoc), header, footer);

@@ -19,17 +19,12 @@
 
 package org.apache.hudi.common.table.log.block;
 
-import org.apache.hudi.common.fs.SizeAwareDataInputStream;
 import org.apache.hudi.common.util.Option;
-import org.apache.hudi.exception.HoodieIOException;
 
 import org.apache.hadoop.fs.FSDataInputStream;
 
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.EOFException;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
@@ -58,62 +53,13 @@ public class HoodiePositionDeleteBlock extends HoodieLogBlock {
       return content.get();
     } else if (readBlockLazily && positionsToDelete == null) {
       // read block lazily
-      getPositionsToDelete();
     }
 
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     DataOutputStream output = new DataOutputStream(baos);
     // TODO(HUDI-5760) avoid using Kryo for serialization here
-    byte[] bytesToWrite = positionsToBytes();
     output.writeInt(version);
-    output.writeInt(bytesToWrite.length);
-    output.write(bytesToWrite);
     return baos.toByteArray();
-  }
-
-  public int[] getPositionsToDelete() {
-    try {
-      if (positionsToDelete == null) {
-        if (!getContent().isPresent() && readBlockLazily) {
-          // read content from disk
-          inflate();
-        }
-        SizeAwareDataInputStream dis =
-            new SizeAwareDataInputStream(new DataInputStream(new ByteArrayInputStream(getContent().get())));
-        int version = dis.readInt();
-        int dataLength = dis.readInt();
-        byte[] data = new byte[dataLength];
-        dis.readFully(data);
-        positionsToDelete = new int[dataLength / 4];
-        int dataPos = 0;
-        for (int i = 0; i < positionsToDelete.length; i++) {
-          int ch1 = (data[dataPos++] & 0xFF);
-          int ch2 = (data[dataPos++] & 0xFF);
-          int ch3 = (data[dataPos++] & 0xFF);
-          int ch4 = (data[dataPos++] & 0xFF);
-          if ((ch1 | ch2 | ch3 | ch4) < 0) {
-            throw new EOFException();
-          }
-          positionsToDelete[i] = ((ch1 << 24) + (ch2 << 16) + (ch3 << 8) + ch4);
-        }
-        deflate();
-      }
-      return positionsToDelete;
-    } catch (IOException io) {
-      throw new HoodieIOException("Unable to generate keys to delete from block content", io);
-    }
-  }
-
-  private byte[] positionsToBytes() {
-    byte[] result = new byte[positionsToDelete.length * 4];
-    int dataPos = 0;
-    for (int pos : positionsToDelete) {
-      result[dataPos++] = (byte) ((pos >>> 24) & 0xFF);
-      result[dataPos++] = (byte) ((pos >>> 16) & 0xFF);
-      result[dataPos++] = (byte) ((pos >>> 8) & 0xFF);
-      result[dataPos++] = (byte) (pos & 0xFF);
-    }
-    return result;
   }
 
   @Override
