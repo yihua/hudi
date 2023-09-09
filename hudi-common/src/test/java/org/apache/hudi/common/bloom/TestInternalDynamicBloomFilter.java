@@ -18,10 +18,18 @@
 
 package org.apache.hudi.common.bloom;
 
+import org.apache.hudi.common.table.log.TestLogReaderUtils;
+import org.apache.hudi.common.util.FileIOUtils;
+
 import org.apache.hadoop.util.hash.Hash;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Arrays;
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -57,6 +65,26 @@ public class TestInternalDynamicBloomFilter {
       }
       lastKnownBloomSize = serString.length();
       index++;
+    }
+  }
+
+  @Test
+  public void testInterop() throws IOException {
+    //BloomFilter filter = new HoodieDynamicBoundedBloomFilter(200, 0.000001, Hash.MURMUR_HASH, 1000);
+    BloomFilter filter = new SimpleBloomFilter(5000, 0.000001, Hash.JENKINS_HASH);
+    List<String> keys = Arrays.stream(
+            readLastLineFromResourceFile("/format/bloom-filter/all_10000.keys.data").split(","))
+        .collect(Collectors.toList());
+    for (String key : keys) {
+      filter.add(key);
+    }
+    System.out.println(filter.serializeToString());
+  }
+
+  private String readLastLineFromResourceFile(String resourceName) throws IOException {
+    try (InputStream inputStream = TestLogReaderUtils.class.getResourceAsStream(resourceName)) {
+      List<String> lines = FileIOUtils.readAsUTFStringLines(inputStream);
+      return lines.get(lines.size() - 1);
     }
   }
 }
