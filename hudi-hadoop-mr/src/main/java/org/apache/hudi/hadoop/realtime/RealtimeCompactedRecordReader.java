@@ -119,6 +119,7 @@ public class RealtimeCompactedRecordReader extends AbstractRealtimeRecordReader
 
   @Override
   public boolean next(NullWritable aVoid, ArrayWritable arrayWritable) throws IOException {
+    // New Hudi file group reader should be used here to replace existing merging logic in Hive/hadoop-mr
     // Call the underlying parquetReader.next - which may replace the passed in ArrayWritable
     // with a new block of values
     while (this.parquetReader.next(aVoid, arrayWritable)) {

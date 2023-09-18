@@ -26,7 +26,7 @@ import org.apache.hudi.MergeOnReadSnapshotRelation.createPartitionedFile
 import org.apache.hudi.common.fs.FSUtils
 import org.apache.hudi.common.model.{BaseFile, FileSlice, HoodieLogFile, HoodieRecord}
 import org.apache.hudi.common.util.ValidationUtils.checkState
-import org.apache.hudi.{HoodieBaseRelation, HoodieSparkUtils, HoodieTableSchema, HoodieTableState, LogFileIterator, MergeOnReadSnapshotRelation, PartitionFileSliceMapping, RecordMergingFileIterator, SkipMergeIterator, SparkAdapterSupport}
+import org.apache.hudi.{HoodieBaseRelation, HoodieSparkReaderContext, HoodieSparkUtils, HoodieTableSchema, HoodieTableState, LogFileIterator, MergeOnReadSnapshotRelation, PartitionFileSliceMapping, RecordMergingFileIterator, SparkAdapterSupport}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.HoodieCatalystExpressionUtils.generateUnsafeProjection
 import org.apache.spark.sql.SparkSession
@@ -52,6 +52,7 @@ class NewHoodieParquetFileFormat(tableState: Broadcast[HoodieTableState],
                                  mandatoryFields: Seq[String],
                                  isMOR: Boolean,
                                  isBootstrap: Boolean) extends ParquetFileFormat with SparkAdapterSupport {
+  val readerContext = new HoodieSparkReaderContext
 
   override def isSplitable(sparkSession: SparkSession,
                            options: Map[String, String],
@@ -83,7 +84,7 @@ class NewHoodieParquetFileFormat(tableState: Broadcast[HoodieTableState],
                                               filters: Seq[Filter],
                                               options: Map[String, String],
                                               hadoopConf: Configuration): PartitionedFile => Iterator[InternalRow] = {
-
+    // For new Hudi parquet file format, new Hudi file group reader should be used here to replace existing merging logic in Spark
     val outputSchema = StructType(requiredSchema.fields ++ partitionSchema.fields)
 
     val requiredSchemaWithMandatory = if (!isMOR || MergeOnReadSnapshotRelation.isProjectionCompatible(tableState.value)) {

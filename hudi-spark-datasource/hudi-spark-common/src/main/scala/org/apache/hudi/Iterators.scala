@@ -52,6 +52,7 @@ import scala.annotation.tailrec
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 
+// New Hudi file group reader should be used here to replace existing merging logic in Spark
 /**
  * Provided w/ list of log files, iterates over all of the records stored in
  * Delta Log files (represented as [[InternalRow]]s)
@@ -339,6 +340,7 @@ object LogFileIterator extends SparkAdapterSupport {
         // NOTE: This part shall only be reached when at least one log is present in the file-group
         //       entailing that table has to have at least one commit
         .withLatestInstantTime(tableState.latestCommitTimestamp.get)
+        // TODO(yihua): some of the config naming are specific to Hive, which should be fixed
         .withReadBlocksLazily(
           ConfigUtils.getBooleanWithAltKeys(hadoopConf,
             HoodieReaderConfig.COMPACTION_LAZY_BLOCK_READ_ENABLE))

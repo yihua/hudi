@@ -18,14 +18,14 @@
 
 package org.apache.hudi.common.table.log.block;
 
+import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecord.HoodieRecordType;
-import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.exception.HoodieIOException;
 
 import org.apache.avro.Schema;
 import org.apache.hadoop.fs.FSDataInputStream;
-import org.apache.hudi.common.model.HoodieRecord;
 
 import java.io.IOException;
 import java.util.HashSet;
@@ -162,6 +162,16 @@ public abstract class HoodieDataBlock extends HoodieLogBlock {
 
     HashSet<String> keySet = new HashSet<>(keys);
     return FilteringIterator.getInstance(allRecords, keySet, fullKey, this::getRecordKey);
+  }
+
+  // TODO(yihua): pass in engine reader context?
+  public final <T> ClosableIterator<T> getEngineRecordIterator() {
+
+  }
+
+  // TODO(yihua): pass in engine reader context?
+  public final <T> ClosableIterator<T> getEngineRecordIterator(List<String> keys, boolean fullKey) {
+
   }
 
   protected <T> ClosableIterator<HoodieRecord<T>> readRecordsFromBlockPayload(HoodieRecordType type) throws IOException {
