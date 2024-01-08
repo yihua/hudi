@@ -383,18 +383,7 @@ public class HiveSyncTool extends HoodieSyncTool implements AutoCloseable {
       return syncClient.getAllPartitions(tableName);
     }
 
-    List<String> partitionKeys = config.getSplitStrings(META_SYNC_PARTITION_FIELDS).stream()
-        .map(String::toLowerCase)
-        .collect(Collectors.toList());
-
-    List<FieldSchema> partitionFields = syncClient.getMetastoreFieldSchemas(tableName)
-        .stream()
-        .filter(f -> partitionKeys.contains(f.getName()))
-        .sorted(Comparator.comparing(f -> partitionKeys.indexOf(f.getName())))
-        .collect(Collectors.toList());
-
-    return syncClient.getPartitionsByFilter(tableName,
-        syncClient.generatePushDownFilter(writtenPartitions, partitionFields));
+    return syncClient.getPartitionsFromList(tableName, writtenPartitions);
   }
 
   /**
