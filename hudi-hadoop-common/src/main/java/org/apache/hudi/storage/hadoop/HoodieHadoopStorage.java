@@ -155,7 +155,7 @@ public class HoodieHadoopStorage extends HoodieStorage {
   @Override
   public HoodieLocation makeQualified(HoodieLocation location) {
     return convertPathToHoodieLocation(
-        fs.makeQualified(convertHoodieLocationToPath(location)));
+        convertHoodieLocationToPath(location).makeQualified(fs.getUri(), fs.getWorkingDirectory()));
   }
 
   @Override
