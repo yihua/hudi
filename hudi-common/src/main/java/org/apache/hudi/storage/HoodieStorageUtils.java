@@ -20,6 +20,7 @@
 package org.apache.hudi.storage;
 
 import org.apache.hudi.hadoop.fs.HadoopFSUtils;
+import org.apache.hudi.hadoop.fs.HoodieWrapperFileSystem;
 import org.apache.hudi.storage.hadoop.HoodieHadoopStorage;
 
 import org.apache.hadoop.conf.Configuration;
@@ -42,5 +43,13 @@ public class HoodieStorageUtils {
 
   public static HoodieStorage getHoodieStorage(HoodieLocation loc, Configuration conf) {
     return getHoodieStorage(HadoopFSUtils.getFs(loc, conf));
+  }
+
+  public static HoodieStorage getRawHoodieStorage(HoodieStorage storage) {
+    FileSystem fs = (FileSystem) storage.getFileSystem();
+    if (fs instanceof HoodieWrapperFileSystem) {
+      return getHoodieStorage(((HoodieWrapperFileSystem) fs).getFileSystem());
+    }
+    return storage;
   }
 }

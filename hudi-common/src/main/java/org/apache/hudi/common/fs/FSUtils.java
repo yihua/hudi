@@ -240,8 +240,8 @@ public class FSUtils {
         : fullPartitionPathStr.substring(partitionStartIndex + basePath.getName().length() + 1);
   }
 
-  public static HoodieLocation getLocationWithoutSchemeAndAuthority(HoodieLocation loc) {
-    return loc.getLocationWithoutSchemeAndAuthority();
+  public static HoodieLocation getLocationWithoutSchemeAndAuthority(HoodieLocation location) {
+    return location.getLocationWithoutSchemeAndAuthority();
   }
 
   /**
