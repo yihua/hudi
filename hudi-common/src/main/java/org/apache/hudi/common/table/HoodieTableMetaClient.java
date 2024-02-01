@@ -157,8 +157,6 @@ public class HoodieTableMetaClient implements Serializable {
     this.consistencyGuardConfig = consistencyGuardConfig;
     this.fileSystemRetryConfig = fileSystemRetryConfig;
     this.hadoopConf = new SerializableConfiguration(conf);
-    //this.basePath = new SerializablePath(new CachingPath(basePath));
-    //this.metaPath = new SerializablePath(new CachingPath(basePath, METAFOLDER_NAME));
     this.basePath = new HoodieLocation(basePath);
     this.metaPath = new HoodieLocation(basePath, METAFOLDER_NAME);
     this.storage = getHoodieStorage();

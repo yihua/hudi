@@ -23,6 +23,9 @@ import org.apache.hudi.ApiMaturityLevel;
 import org.apache.hudi.PublicAPIClass;
 import org.apache.hudi.PublicAPIMethod;
 
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -37,7 +40,7 @@ public class HoodieLocation implements Comparable<HoodieLocation>, Serializable 
   public static final char SEPARATOR_CHAR = '/';
   public static final char COLON_CHAR = ':';
   public static final String SEPARATOR = "" + SEPARATOR_CHAR;
-  private final URI uri;
+  private URI uri;
   private transient volatile HoodieLocation cachedParent;
   private transient volatile String cachedName;
   private transient volatile String uriString;
@@ -259,5 +262,13 @@ public class HoodieLocation implements Comparable<HoodieLocation>, Serializable 
       return SEPARATOR;
     }
     return path.substring(0, indexOfLastSlash);
+  }
+
+  private void writeObject(ObjectOutputStream out) throws IOException {
+    out.writeObject(uri);
+  }
+
+  private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+    uri = (URI) in.readObject();
   }
 }

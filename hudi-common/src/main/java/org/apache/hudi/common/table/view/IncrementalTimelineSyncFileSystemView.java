@@ -379,7 +379,7 @@ public abstract class IncrementalTimelineSyncFileSystemView extends AbstractTabl
     if (isPartitionAvailableInStore(partition)) {
       LOG.info("Removing file slices for partition (" + partition + ") for instant (" + instant + ")");
       List<HoodieFileStatus> statuses = paths.stream()
-          .map(p -> new HoodieFileStatus(new HoodieLocation(p), -1, false, -1))
+          .map(p -> new HoodieFileStatus(new HoodieLocation(p), 0, false, 0))
           .collect(Collectors.toList());
       List<HoodieFileGroup> fileGroups =
           buildFileGroups(statuses, timeline.filterCompletedAndCompactionInstants(), false);
