@@ -444,15 +444,9 @@ public class HoodieTableMetaClient implements Serializable {
     this.storage = storage;
   }
 
-  /**
-   * Return raw file-system.
-   *
-   * @return fs
-   */
-  /*
-  public FileSystem getRawFs() {
-    return getFs().getFileSystem();
-  }*/
+  public HoodieStorage getRawHoodieStorage() {
+    return HoodieStorageUtils.getRawHoodieStorage(storage);
+  }
 
   public Configuration getHadoopConf() {
     return hadoopConf.get();

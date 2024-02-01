@@ -789,9 +789,10 @@ public abstract class HoodieTable<T, I, K, O> implements Serializable {
   }
 
   private boolean waitForCondition(String partitionPath, Stream<Pair<String, String>> partitionFilePaths, FileVisibility visibility) {
+    final HoodieStorage storage = metaClient.getRawHoodieStorage();
     List<String> fileList = partitionFilePaths.map(Pair::getValue).collect(Collectors.toList());
     try {
-      getConsistencyGuard(metaClient.getHoodieStorage(), config.getConsistencyGuardConfig())
+      getConsistencyGuard(storage, config.getConsistencyGuardConfig())
           .waitTill(partitionPath, fileList, visibility);
     } catch (IOException | TimeoutException ioe) {
       LOG.error("Got exception while waiting for files to show up", ioe);

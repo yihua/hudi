@@ -46,7 +46,6 @@ import org.apache.hudi.io.storage.HoodieFileReader;
 import org.apache.hudi.io.storage.HoodieFileReaderFactory;
 import org.apache.hudi.storage.HoodieLocation;
 import org.apache.hudi.storage.HoodieStorage;
-import org.apache.hudi.storage.HoodieStorageUtils;
 import org.apache.hudi.util.Lazy;
 
 import org.apache.avro.JsonProperties;
@@ -336,7 +335,7 @@ public class TableSchemaResolver {
   private MessageType readSchemaFromParquetBaseFile(Path parquetFilePath) throws IOException {
     LOG.info("Reading schema from " + parquetFilePath);
 
-    FileSystem fs = (FileSystem) HoodieStorageUtils.getRawHoodieStorage(metaClient.getHoodieStorage()).getFileSystem();
+    FileSystem fs = (FileSystem) metaClient.getRawHoodieStorage().getFileSystem();
     ParquetMetadata fileFooter =
         ParquetFileReader.readFooter(fs.getConf(), parquetFilePath, ParquetMetadataConverter.NO_FILTER);
     return fileFooter.getFileMetaData().getSchema();
@@ -345,7 +344,7 @@ public class TableSchemaResolver {
   private MessageType readSchemaFromHFileBaseFile(Path hFilePath) throws IOException {
     LOG.info("Reading schema from " + hFilePath);
 
-    FileSystem fs = (FileSystem) HoodieStorageUtils.getRawHoodieStorage(metaClient.getHoodieStorage()).getFileSystem();
+    FileSystem fs = (FileSystem) metaClient.getRawHoodieStorage().getFileSystem();
     try (HoodieFileReader fileReader =
              HoodieFileReaderFactory.getReaderFactory(HoodieRecord.HoodieRecordType.AVRO)
                  .getFileReader(DEFAULT_HUDI_CONFIG_FOR_READER, fs.getConf(), new HoodieLocation(hFilePath.toUri()))) {
@@ -356,7 +355,7 @@ public class TableSchemaResolver {
   private MessageType readSchemaFromORCBaseFile(HoodieLocation orcFileLocation) throws IOException {
     LOG.info("Reading schema from " + orcFileLocation);
 
-    FileSystem fs = (FileSystem) HoodieStorageUtils.getRawHoodieStorage(metaClient.getHoodieStorage()).getFileSystem();
+    FileSystem fs = (FileSystem) metaClient.getRawHoodieStorage().getFileSystem();
     HoodieAvroOrcReader orcReader = new HoodieAvroOrcReader(fs.getConf(), orcFileLocation);
     return convertAvroSchemaToParquet(orcReader.getSchema());
   }
@@ -382,7 +381,7 @@ public class TableSchemaResolver {
   }
 
   private MessageType readSchemaFromLogFile(HoodieLocation path) throws IOException {
-    return readSchemaFromLogFile(HoodieStorageUtils.getRawHoodieStorage(metaClient.getHoodieStorage()), path);
+    return readSchemaFromLogFile(metaClient.getRawHoodieStorage(), path);
   }
 
   /**
