@@ -1077,11 +1077,11 @@ public class TestHoodieLogFormat extends HoodieCommonTestHarness {
     assertTrue(reader2.hasNext(), "We should have corrupted block next");
 
     // mock the fs to be GCS to skip isBlockCorrupted() check
-    Field f1 = reader2.getClass().getDeclaredField("fs");
+    Field f1 = reader2.getClass().getDeclaredField("storage");
     f1.setAccessible(true);
-    FileSystem spyfs = Mockito.spy((FileSystem) storage.getFileSystem());
-    when(spyfs.getScheme()).thenReturn("gs");
-    f1.set(reader2, spyfs);
+    HoodieStorage mockStorage = Mockito.mock(HoodieStorage.class);
+    when(mockStorage.getScheme()).thenReturn("gs");
+    f1.set(reader2, mockStorage);
 
     // except an exception for block type since the block is corrupted
     Exception exception = assertThrows(IllegalArgumentException.class, reader2::next);
