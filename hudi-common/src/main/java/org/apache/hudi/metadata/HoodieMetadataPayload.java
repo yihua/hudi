@@ -508,8 +508,6 @@ public class HoodieMetadataPayload implements HoodieRecordPayload<HoodieMetadata
           // NOTE: Since we know that the Metadata Table's Payload is simply a file-name we're
           //       creating Hadoop's Path using more performant unsafe variant
           //CachingPath filePath = new CachingPath(partitionPath, createRelativePathUnsafe(e.getKey()));
-          //return new FileStatus(e.getValue().getSize(), false, 0, blockSize, 0, 0,
-          //    null, null, null, filePath);
           return new HoodieFileStatus(new HoodieLocation(partitionPath, e.getKey()), e.getValue().getSize(),
               false, 0);
         })
