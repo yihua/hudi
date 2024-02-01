@@ -7,16 +7,19 @@
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
  */
 
-package org.apache.hudi.common.fs.inline;
+package org.apache.hudi.hadoop.fs.inline;
+
+import org.apache.hudi.storage.HoodieLocation;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
@@ -67,7 +70,8 @@ public class InLineFileSystem extends FileSystem {
     Path outerPath = InLineFSUtils.getOuterFilePathFromInlinePath(inlinePath);
     FileSystem outerFs = outerPath.getFileSystem(conf);
     FSDataInputStream outerStream = outerFs.open(outerPath, bufferSize);
-    return new InLineFsDataInputStream(InLineFSUtils.startOffset(inlinePath), outerStream, InLineFSUtils.length(inlinePath));
+    HoodieLocation inlineLocation = new HoodieLocation(inlinePath.toUri());
+    return new InLineFsDataInputStream(InLineFSUtils.startOffset(inlineLocation), outerStream, InLineFSUtils.length(inlineLocation));
   }
 
   @Override
@@ -84,7 +88,7 @@ public class InLineFileSystem extends FileSystem {
     Path outerPath = InLineFSUtils.getOuterFilePathFromInlinePath(inlinePath);
     FileSystem outerFs = outerPath.getFileSystem(conf);
     FileStatus status = outerFs.getFileStatus(outerPath);
-    FileStatus toReturn = new FileStatus(InLineFSUtils.length(inlinePath), status.isDirectory(), status.getReplication(), status.getBlockSize(),
+    FileStatus toReturn = new FileStatus(InLineFSUtils.length(new HoodieLocation(inlinePath.toUri())), status.isDirectory(), status.getReplication(), status.getBlockSize(),
         status.getModificationTime(), status.getAccessTime(), status.getPermission(), status.getOwner(),
         status.getGroup(), inlinePath);
     return toReturn;

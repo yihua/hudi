@@ -20,6 +20,7 @@
 package org.apache.hudi.hadoop.fs;
 
 import org.apache.hudi.exception.HoodieException;
+import org.apache.hudi.storage.HoodieLocation;
 
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.Path;
@@ -75,7 +76,7 @@ public class SizeAwareFSDataOutputStream extends FSDataOutputStream {
   public void close() throws IOException {
     super.close();
     try {
-      consistencyGuard.waitTillFileAppears(path);
+      consistencyGuard.waitTillFileAppears(new HoodieLocation(path.toUri()));
     } catch (TimeoutException e) {
       throw new HoodieException(e);
     }

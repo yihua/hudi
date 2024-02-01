@@ -19,7 +19,7 @@
 
 package org.apache.hudi.hadoop.fs;
 
-import org.apache.hadoop.fs.Path;
+import org.apache.hudi.storage.HoodieLocation;
 
 import java.io.IOException;
 import java.util.List;
@@ -39,21 +39,21 @@ public interface ConsistencyGuard {
 
   /**
    * Wait for file to be listable based on configurable timeout.
-   * 
+   *
    * @param filePath
-   * @throws IOException when having trouble listing the path
+   * @throws IOException      when having trouble listing the path
    * @throws TimeoutException when retries exhausted
    */
-  void waitTillFileAppears(Path filePath) throws IOException, TimeoutException;
+  void waitTillFileAppears(HoodieLocation filePath) throws IOException, TimeoutException;
 
   /**
    * Wait for file to be listable based on configurable timeout.
-   * 
+   *
    * @param filePath
-   * @throws IOException when having trouble listing the path
+   * @throws IOException      when having trouble listing the path
    * @throws TimeoutException when retries exhausted
    */
-  void waitTillFileDisappears(Path filePath) throws IOException, TimeoutException;
+  void waitTillFileDisappears(HoodieLocation filePath) throws IOException, TimeoutException;
 
   /**
    * Wait till all passed files belonging to a directory shows up in the listing.

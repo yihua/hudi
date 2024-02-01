@@ -32,10 +32,8 @@ import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.exception.HoodieMetadataException;
 import org.apache.hudi.expression.Expression;
 import org.apache.hudi.internal.schema.Types;
+import org.apache.hudi.storage.HoodieFileStatus;
 import org.apache.hudi.storage.HoodieLocation;
-
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.Path;
 
 import java.io.IOException;
 import java.io.Serializable;
@@ -75,8 +73,8 @@ public interface HoodieTableMetadata extends Serializable, AutoCloseable {
   /**
    * Return the base-path of the Metadata Table for the given Dataset identified by base-path
    */
-  static Path getMetadataTableBasePath(Path dataTableBasePath) {
-    return new Path(dataTableBasePath, HoodieTableMetaClient.METADATA_TABLE_FOLDER_PATH);
+  static HoodieLocation getMetadataTableBasePath(HoodieLocation dataTableBasePath) {
+    return new HoodieLocation(dataTableBasePath, HoodieTableMetaClient.METADATA_TABLE_FOLDER_PATH);
   }
 
   /**
@@ -146,7 +144,7 @@ public interface HoodieTableMetadata extends Serializable, AutoCloseable {
   /**
    * Fetch all the files at the given partition path, per the latest snapshot of the metadata.
    */
-  FileStatus[] getAllFilesInPartition(Path partitionPath) throws IOException;
+  List<HoodieFileStatus> getAllFilesInPartition(HoodieLocation partitionPath) throws IOException;
 
   /**
    * Retrieve the paths of partitions under the provided sub-directories,
@@ -173,10 +171,11 @@ public interface HoodieTableMetadata extends Serializable, AutoCloseable {
 
   /**
    * Fetch all files for given partition paths.
-   *
+   * <p>
    * NOTE: Absolute partition paths are expected here
    */
-  Map<String, FileStatus[]> getAllFilesInPartitions(Collection<String> partitionPaths) throws IOException;
+  Map<String, List<HoodieFileStatus>> getAllFilesInPartitions(Collection<String> partitionPaths)
+      throws IOException;
 
   /**
    * Get the bloom filter for the FileID from the metadata table.

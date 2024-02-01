@@ -37,18 +37,17 @@ import org.apache.hudi.common.util.hash.ColumnIndexID;
 import org.apache.hudi.common.util.hash.FileIndexID;
 import org.apache.hudi.common.util.hash.PartitionIndexID;
 import org.apache.hudi.exception.HoodieMetadataException;
-import org.apache.hudi.hadoop.fs.CachingPath;
 import org.apache.hudi.io.storage.HoodieAvroHFileReaderImplBase;
+import org.apache.hudi.storage.HoodieFileStatus;
 import org.apache.hudi.storage.HoodieLocation;
+import org.apache.hudi.storage.HoodieStorage;
+import org.apache.hudi.storage.HoodieStorageUtils;
 import org.apache.hudi.util.Lazy;
 
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.IndexedRecord;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
 
 import javax.annotation.Nullable;
 
@@ -71,7 +70,6 @@ import static org.apache.hudi.avro.HoodieAvroUtils.wrapValueIntoAvro;
 import static org.apache.hudi.common.util.TypeUtils.unsafeCast;
 import static org.apache.hudi.common.util.ValidationUtils.checkArgument;
 import static org.apache.hudi.common.util.ValidationUtils.checkState;
-import static org.apache.hudi.hadoop.fs.CachingPath.createRelativePathUnsafe;
 import static org.apache.hudi.metadata.HoodieTableMetadata.RECORDKEY_PARTITION_LIST;
 
 /**
@@ -357,7 +355,7 @@ public class HoodieMetadataPayload implements HoodieRecordPayload<HoodieMetadata
                                                                                     final ByteBuffer bloomFilter,
                                                                                     final boolean isDeleted) {
     checkArgument(!baseFileName.contains(HoodieLocation.SEPARATOR)
-            && FSUtils.isBaseFile(new Path(baseFileName)),
+            && FSUtils.isBaseFile(new HoodieLocation(baseFileName)),
         "Invalid base file '" + baseFileName + "' for MetaIndexBloomFilter!");
     final String bloomFilterIndexKey = getBloomFilterRecordKey(partitionName, baseFileName);
     HoodieKey key = new HoodieKey(bloomFilterIndexKey, MetadataPartitionType.BLOOM_FILTERS.getPartitionPath());
@@ -495,25 +493,27 @@ public class HoodieMetadataPayload implements HoodieRecordPayload<HoodieMetadata
   /**
    * Returns the files added as part of this record.
    */
-  public FileStatus[] getFileStatuses(Configuration hadoopConf, Path partitionPath) throws IOException {
-    FileSystem fs = partitionPath.getFileSystem(hadoopConf);
-    return getFileStatuses(fs, partitionPath);
+  public List<HoodieFileStatus> getFileStatuses(Configuration hadoopConf, HoodieLocation partitionPath)
+      throws IOException {
+    HoodieStorage storage = HoodieStorageUtils.getHoodieStorage(partitionPath, hadoopConf);
+    return getFileStatuses(storage, partitionPath);
   }
 
   /**
    * Returns the files added as part of this record.
    */
-  public FileStatus[] getFileStatuses(FileSystem fs, Path partitionPath) {
-    long blockSize = fs.getDefaultBlockSize(partitionPath);
+  public List<HoodieFileStatus> getFileStatuses(HoodieStorage storage, HoodieLocation partitionPath) {
     return filterFileInfoEntries(false)
         .map(e -> {
           // NOTE: Since we know that the Metadata Table's Payload is simply a file-name we're
           //       creating Hadoop's Path using more performant unsafe variant
-          CachingPath filePath = new CachingPath(partitionPath, createRelativePathUnsafe(e.getKey()));
-          return new FileStatus(e.getValue().getSize(), false, 0, blockSize, 0, 0,
-              null, null, null, filePath);
+          //CachingPath filePath = new CachingPath(partitionPath, createRelativePathUnsafe(e.getKey()));
+          //return new FileStatus(e.getValue().getSize(), false, 0, blockSize, 0, 0,
+          //    null, null, null, filePath);
+          return new HoodieFileStatus(new HoodieLocation(partitionPath, e.getKey()), e.getValue().getSize(),
+              false, 0);
         })
-        .toArray(FileStatus[]::new);
+        .collect(Collectors.toList());
   }
 
   private Stream<Map.Entry<String, HoodieMetadataFileInfo>> filterFileInfoEntries(boolean isDeleted) {
@@ -613,7 +613,7 @@ public class HoodieMetadataPayload implements HoodieRecordPayload<HoodieMetadata
   public static String getColumnStatsIndexKey(String partitionName, HoodieColumnRangeMetadata<Comparable> columnRangeMetadata) {
 
     final PartitionIndexID partitionIndexID = new PartitionIndexID(HoodieTableMetadataUtil.getColumnStatsIndexPartitionIdentifier(partitionName));
-    final FileIndexID fileIndexID = new FileIndexID(new Path(columnRangeMetadata.getFilePath()).getName());
+    final FileIndexID fileIndexID = new FileIndexID(new HoodieLocation(columnRangeMetadata.getFilePath()).getName());
     final ColumnIndexID columnIndexID = new ColumnIndexID(columnRangeMetadata.getColumnName());
     return getColumnStatsIndexKey(partitionIndexID, fileIndexID, columnIndexID);
   }
@@ -627,7 +627,7 @@ public class HoodieMetadataPayload implements HoodieRecordPayload<HoodieMetadata
 
       HoodieMetadataPayload payload = new HoodieMetadataPayload(key.getRecordKey(),
           HoodieMetadataColumnStats.newBuilder()
-              .setFileName(new Path(columnRangeMetadata.getFilePath()).getName())
+              .setFileName(new HoodieLocation(columnRangeMetadata.getFilePath()).getName())
               .setColumnName(columnRangeMetadata.getColumnName())
               .setMinValue(wrapValueIntoAvro(columnRangeMetadata.getMinValue()))
               .setMaxValue(wrapValueIntoAvro(columnRangeMetadata.getMaxValue()))

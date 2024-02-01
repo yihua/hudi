@@ -26,6 +26,7 @@ import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.io.storage.HoodieFileReader;
 import org.apache.hudi.io.storage.HoodieFileReaderFactory;
+import org.apache.hudi.storage.HoodieLocation;
 
 import org.apache.avro.AvroRuntimeException;
 import org.apache.avro.JsonProperties;
@@ -309,7 +310,8 @@ public class HoodieRealtimeRecordReaderUtils {
 
   public static HoodieFileReader getBaseFileReader(Path path, JobConf conf) throws IOException {
     HoodieConfig hoodieConfig = getReaderConfigs(conf);
-    return HoodieFileReaderFactory.getReaderFactory(HoodieRecord.HoodieRecordType.AVRO).getFileReader(hoodieConfig, conf, path);
+    return HoodieFileReaderFactory.getReaderFactory(HoodieRecord.HoodieRecordType.AVRO)
+        .getFileReader(hoodieConfig, conf, new HoodieLocation(path.toUri()));
   }
 
   private static Schema appendNullSchemaFields(Schema schema, List<String> newFieldNames) {

@@ -36,7 +36,6 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
@@ -68,9 +67,6 @@ public abstract class HoodieLogBlock {
   private final Option<HoodieLogBlockContentLocation> blockContentLocation;
   // data for a specific block
   private Option<byte[]> content;
-  // TODO : change this to just InputStream so this works for any FileSystem
-  // create handlers to return specific type of inputstream based on FS
-  // input stream corresponding to the log file where this logBlock belongs
   private final Supplier<FSDataInputStream> inputStreamSupplier;
   // Toggle flag, whether to read blocks lazily (I/O intensive) or not (Memory intensive)
   protected boolean readBlockLazily;
@@ -265,7 +261,7 @@ public abstract class HoodieLogBlock {
   /**
    * Convert bytes to LogMetadata, follow the same order as {@link HoodieLogBlock#getLogMetadataBytes}.
    */
-  public static Map<HeaderMetadataType, String> getLogMetadata(DataInputStream dis) throws IOException {
+  public static Map<HeaderMetadataType, String> getLogMetadata(FSDataInputStream dis) throws IOException {
 
     Map<HeaderMetadataType, String> metadata = new HashMap<>();
     // 1. Read the metadata written out

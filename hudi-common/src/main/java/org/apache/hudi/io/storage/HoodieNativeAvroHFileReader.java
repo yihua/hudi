@@ -30,11 +30,13 @@ import org.apache.hudi.common.util.collection.CloseableMappingIterator;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
-import org.apache.hudi.hadoop.fs.HadoopFSUtils;
 import org.apache.hudi.io.hfile.HFileReader;
 import org.apache.hudi.io.hfile.HFileReaderImpl;
 import org.apache.hudi.io.hfile.KeyValue;
 import org.apache.hudi.io.hfile.UTF8StringKey;
+import org.apache.hudi.storage.HoodieLocation;
+import org.apache.hudi.storage.HoodieStorage;
+import org.apache.hudi.storage.HoodieStorageUtils;
 import org.apache.hudi.util.Lazy;
 
 import org.apache.avro.Schema;
@@ -42,8 +44,6 @@ import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.IndexedRecord;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -68,14 +68,14 @@ public class HoodieNativeAvroHFileReader extends HoodieAvroHFileReaderImplBase {
   private static final Logger LOG = LoggerFactory.getLogger(HoodieNativeAvroHFileReader.class);
 
   private final Configuration conf;
-  private final Option<Path> path;
+  private final Option<HoodieLocation> location;
   private final Option<byte[]> bytesContent;
   private Option<HFileReader> sharedHFileReader;
   private final Lazy<Schema> schema;
 
-  public HoodieNativeAvroHFileReader(Configuration conf, Path path, Option<Schema> schemaOption) {
+  public HoodieNativeAvroHFileReader(Configuration conf, HoodieLocation location, Option<Schema> schemaOption) {
     this.conf = conf;
-    this.path = Option.of(path);
+    this.location = Option.of(location);
     this.bytesContent = Option.empty();
     this.sharedHFileReader = Option.empty();
     this.schema = schemaOption.map(Lazy::eagerly)
@@ -84,7 +84,7 @@ public class HoodieNativeAvroHFileReader extends HoodieAvroHFileReaderImplBase {
 
   public HoodieNativeAvroHFileReader(Configuration conf, byte[] content, Option<Schema> schemaOption) {
     this.conf = conf;
-    this.path = Option.empty();
+    this.location = Option.empty();
     this.bytesContent = Option.of(content);
     this.sharedHFileReader = Option.empty();
     this.schema = schemaOption.map(Lazy::eagerly)
@@ -124,7 +124,7 @@ public class HoodieNativeAvroHFileReader extends HoodieAvroHFileReaderImplBase {
       return BloomFilterFactory.fromByteBuffer(byteBuffer,
           fromUTF8Bytes(reader.getMetaInfo(new UTF8StringKey(KEY_BLOOM_FILTER_TYPE_CODE)).get()));
     } catch (IOException e) {
-      throw new HoodieException("Could not read bloom filter from " + path, e);
+      throw new HoodieException("Could not read bloom filter from " + location, e);
     }
   }
 
@@ -258,10 +258,10 @@ public class HoodieNativeAvroHFileReader extends HoodieAvroHFileReaderImplBase {
   private HFileReader newHFileReader() throws IOException {
     FSDataInputStream inputStream;
     long fileSize;
-    if (path.isPresent()) {
-      FileSystem fs = HadoopFSUtils.getFs(path.get(), conf);
-      fileSize = fs.getFileStatus(path.get()).getLen();
-      inputStream = fs.open(path.get());
+    if (location.isPresent()) {
+      HoodieStorage storage = HoodieStorageUtils.getHoodieStorage(location.get(), conf);
+      fileSize = storage.getFileStatus(location.get()).getLength();
+      inputStream = (FSDataInputStream) storage.open(location.get());
     } else {
       fileSize = bytesContent.get().length;
       inputStream = new FSDataInputStream(new SeekableByteArrayInputStream(bytesContent.get()));

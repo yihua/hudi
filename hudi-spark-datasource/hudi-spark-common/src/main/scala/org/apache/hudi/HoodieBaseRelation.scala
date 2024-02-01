@@ -25,7 +25,7 @@ import org.apache.hudi.client.utils.SparkInternalSchemaConverter
 import org.apache.hudi.common.config.{ConfigProperty, HoodieConfig, HoodieMetadataConfig, SerializableConfiguration}
 import org.apache.hudi.common.config.HoodieReaderConfig.USE_NATIVE_HFILE_READER
 import org.apache.hudi.common.fs.FSUtils
-import org.apache.hudi.common.fs.FSUtils.getRelativePartitionPath
+import org.apache.hudi.common.fs.FSUtils.getRelativePartitionPathFromLocation
 import org.apache.hudi.common.model.{FileSlice, HoodieFileFormat, HoodieRecord}
 import org.apache.hudi.common.model.HoodieFileFormat.HFILE
 import org.apache.hudi.common.model.HoodieRecord.HoodieRecordType
@@ -45,6 +45,7 @@ import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter
 import org.apache.hudi.internal.schema.utils.{InternalSchemaUtils, SerDeHelper}
 import org.apache.hudi.io.storage.HoodieFileReaderFactory
 import org.apache.hudi.metadata.HoodieTableMetadata
+import org.apache.hudi.storage.{HoodieFileStatus, HoodieLocation}
 
 import org.apache.avro.Schema
 import org.apache.avro.generic.GenericRecord
@@ -115,7 +116,7 @@ abstract class HoodieBaseRelation(val sqlContext: SQLContext,
 
   protected lazy val tableConfig: HoodieTableConfig = metaClient.getTableConfig
 
-  protected lazy val basePath: Path = metaClient.getBasePathV2
+  protected lazy val basePath: Path = new Path(metaClient.getBasePathV2.toUri)
 
   // NOTE: Record key-field is assumed singular here due to the either of
   //          - In case Hudi's meta fields are enabled: record key will be pre-materialized (stored) as part
@@ -347,7 +348,7 @@ abstract class HoodieBaseRelation(val sqlContext: SQLContext,
    */
   override final def needConversion: Boolean = false
 
-  override def inputFiles: Array[String] = fileIndex.allBaseFiles.map(_.getPath.toUri.toString).toArray
+  override def inputFiles: Array[String] = fileIndex.allBaseFiles.map(_.getLocation.toUri.toString).toArray
 
   /**
    * NOTE: DO NOT OVERRIDE THIS METHOD
@@ -414,7 +415,7 @@ abstract class HoodieBaseRelation(val sqlContext: SQLContext,
    */
   protected def collectFileSplits(partitionFilters: Seq[Expression], dataFilters: Seq[Expression]): Seq[FileSplit]
 
-  protected def listLatestFileSlices(globPaths: Seq[Path], partitionFilters: Seq[Expression], dataFilters: Seq[Expression]): Seq[FileSlice] = {
+  protected def listLatestFileSlices(globPaths: Seq[HoodieLocation], partitionFilters: Seq[Expression], dataFilters: Seq[Expression]): Seq[FileSlice] = {
     queryTimestamp match {
       case Some(ts) =>
         specifiedQueryTimestamp.foreach(t => validateTimestampAsOf(metaClient, t))
@@ -427,10 +428,13 @@ abstract class HoodieBaseRelation(val sqlContext: SQLContext,
         }
 
         val fsView = new HoodieTableFileSystemView(
-          metaClient, timeline, sparkAdapter.getSparkPartitionedFileUtils.toFileStatuses(partitionDirs).toArray)
+          metaClient, timeline, sparkAdapter.getSparkPartitionedFileUtils.toFileStatuses(partitionDirs)
+            .map(fileStatus => new HoodieFileStatus(new HoodieLocation(fileStatus.getPath.toUri),
+              fileStatus.getLen, fileStatus.isDirectory, fileStatus.getModificationTime))
+            .asJava)
 
         fsView.getPartitionPaths.asScala.flatMap { partitionPath =>
-          val relativePath = getRelativePartitionPath(basePath, partitionPath)
+          val relativePath = getRelativePartitionPathFromLocation(new HoodieLocation(basePath.toUri), partitionPath)
           fsView.getLatestMergedFileSlicesBeforeOrOn(relativePath, ts).iterator().asScala.toSeq
         }
 
@@ -481,17 +485,19 @@ abstract class HoodieBaseRelation(val sqlContext: SQLContext,
    * and pass this reader on parquet file. So that, we can query the partition columns.
    */
 
-  protected def getPartitionColumnsAsInternalRow(file: FileStatus): InternalRow =
-    getPartitionColumnsAsInternalRowInternal(file, metaClient.getBasePathV2, shouldExtractPartitionValuesFromPartitionPath)
+  protected def getPartitionColumnsAsInternalRow(file: HoodieFileStatus): InternalRow =
+    getPartitionColumnsAsInternalRowInternal(file,
+      new Path(metaClient.getBasePathV2.toUri), shouldExtractPartitionValuesFromPartitionPath)
 
-  protected def getPartitionColumnValuesAsInternalRow(file: FileStatus): InternalRow =
-    getPartitionColumnsAsInternalRowInternal(file, metaClient.getBasePathV2, extractPartitionValuesFromPartitionPath = true)
+  protected def getPartitionColumnValuesAsInternalRow(file: HoodieFileStatus): InternalRow =
+    getPartitionColumnsAsInternalRowInternal(file,
+      new Path(metaClient.getBasePathV2.toUri), extractPartitionValuesFromPartitionPath = true)
 
-  protected def getPartitionColumnsAsInternalRowInternal(file: FileStatus, basePath: Path,
+  protected def getPartitionColumnsAsInternalRowInternal(file: HoodieFileStatus, basePath: Path,
                                                          extractPartitionValuesFromPartitionPath: Boolean): InternalRow = {
     if (extractPartitionValuesFromPartitionPath) {
       val tablePathWithoutScheme = CachingPath.getPathWithoutSchemeAndAuthority(basePath)
-      val partitionPathWithoutScheme = CachingPath.getPathWithoutSchemeAndAuthority(file.getPath.getParent)
+      val partitionPathWithoutScheme = CachingPath.getPathWithoutSchemeAndAuthority(new Path(file.getLocation.getParent.toUri))
       val relativePath = new URI(tablePathWithoutScheme.toString).relativize(new URI(partitionPathWithoutScheme.toString)).toString
       val timeZoneId = conf.get("timeZone", sparkSession.sessionState.conf.sessionLocalTimeZone)
       val rowValues = HoodieSparkUtils.parsePartitionColumnValues(
