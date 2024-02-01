@@ -263,7 +263,7 @@ public class MetadataCommand {
           .sorted((p1, p2) -> p2.getLocation().getName().compareTo(p1.getLocation().getName()))
           .forEach(f -> {
             Comparable[] row = new Comparable[1];
-            row[0] = f;
+            row[0] = f.toString();
             rows.add(row);
           });
 
