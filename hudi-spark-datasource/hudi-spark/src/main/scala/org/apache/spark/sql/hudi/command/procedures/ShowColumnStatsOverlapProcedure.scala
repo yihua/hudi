@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.hudi.command.procedures
 
-import org.apache.hudi.{common, AvroConversionUtils, ColumnStatsIndexSupport}
+import org.apache.hudi.{AvroConversionUtils, ColumnStatsIndexSupport}
 import org.apache.hudi.avro.model.HoodieMetadataColumnStats
 import org.apache.hudi.client.common.HoodieSparkEngineContext
 import org.apache.hudi.common.config.HoodieMetadataConfig
@@ -267,7 +267,7 @@ class ShowColumnStatsOverlapProcedure extends BaseProcedure with ProcedureBuilde
     val maxInstant = metaClient.createNewInstantTime()
     val instants = timeline.getInstants.iterator().asScala.filter(_.getTimestamp < maxInstant)
 
-    val details = new Function[HoodieInstant, common.util.Option[Array[Byte]]]
+    val details = new Function[HoodieInstant, org.apache.hudi.common.util.Option[Array[Byte]]]
       with java.io.Serializable {
       override def apply(instant: HoodieInstant): HOption[Array[Byte]] = {
         metaClient.getActiveTimeline.getInstantDetails(instant)

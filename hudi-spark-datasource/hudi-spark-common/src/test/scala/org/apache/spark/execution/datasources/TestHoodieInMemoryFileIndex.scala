@@ -50,8 +50,7 @@ class TestHoodieInMemoryFileIndex {
       new Path(Paths.get(tempDir.getAbsolutePath, "folder2", "file4").toUri)
     )
 
-    val storage = HoodieStorageUtils.getHoodieStorage(folders(0), spark.sparkContext.hadoopConfiguration)
-    folders.foreach(folder => storage.createDirectory(new HoodieLocation(folder.toUri)))
+    folders.foreach(folder => new File(folder.toUri).mkdir())
     files.foreach(file => new File(file.toUri).createNewFile())
 
     val index = HoodieInMemoryFileIndex.create(spark, Seq(folders(0), folders(1)))

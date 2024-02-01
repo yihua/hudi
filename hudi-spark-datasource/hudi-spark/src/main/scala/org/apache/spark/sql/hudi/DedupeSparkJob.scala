@@ -21,11 +21,12 @@ import org.apache.hudi.common.fs.FSUtils
 import org.apache.hudi.common.model.{HoodieBaseFile, HoodieRecord}
 import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView
+import org.apache.hudi.common.util.FileIOUtils
 import org.apache.hudi.exception.HoodieException
 import org.apache.hudi.storage.{HoodieLocation, HoodieStorage}
 
 import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{FileSystem, FileUtil, Path}
+import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.spark.sql.{DataFrame, Row, SQLContext}
 import org.slf4j.LoggerFactory
 
@@ -203,8 +204,8 @@ class DedupeSparkJob(basePath: String,
       val badSuffix = if (dupeFixPlan.contains(fileName)) ".bad" else ""
       val dstPath = new Path(s"$repairOutputPath/${filePath.getName}$badSuffix")
       LOG.info(s"Copying from $filePath to $dstPath")
-      val fs = storage.getFileSystem.asInstanceOf[FileSystem]
-      FileUtil.copy(fs, filePath, fs, dstPath, false, true, fs.getConf)
+      FileIOUtils.copy(storage, new HoodieLocation(filePath.toUri), storage,
+        new HoodieLocation(dstPath.toUri), false, true, storage.getConf.asInstanceOf[Configuration])
     }
 
     // 2. Remove duplicates from the bad files
@@ -248,8 +249,8 @@ class DedupeSparkJob(basePath: String,
       } else {
         // for real
         LOG.info(s"[FOR REAL!!!] Copying from $srcPath to $dstPath")
-        val fs = storage.getFileSystem.asInstanceOf[FileSystem]
-        FileUtil.copy(fs, srcPath, fs, dstPath, false, true, fs.getConf)
+        FileIOUtils.copy(storage, new HoodieLocation(srcPath.toUri), storage,
+          new HoodieLocation(dstPath.toUri), false, true, storage.getConf.asInstanceOf[Configuration])
       }
     }
   }

@@ -544,7 +544,7 @@ public class TestHoodieTimelineArchiver extends HoodieSparkClientTestHarness {
     // if there are damaged archive files and damaged plan, hoodie can still load correctly.
     HoodieLocation damagedFile =
         new HoodieLocation(metaClient.getArchivePath(), "300_301_1.parquet");
-    FileIOUtils.createFileInPath(
+    FileIOUtils.createFileInLocation(
         metaClient.getHoodieStorage(), damagedFile, Option.of(getUTF8Bytes("dummy")));
 
     assertDoesNotThrow(() -> metaClient.getArchivedTimeline().reload(),

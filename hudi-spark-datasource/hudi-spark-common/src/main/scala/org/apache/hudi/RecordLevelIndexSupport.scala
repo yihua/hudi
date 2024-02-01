@@ -22,7 +22,6 @@ import org.apache.hudi.common.config.HoodieMetadataConfig
 import org.apache.hudi.common.fs.FSUtils
 import org.apache.hudi.common.model.HoodieRecord.HoodieMetadataField
 import org.apache.hudi.common.table.HoodieTableMetaClient
-import org.apache.hudi.common.util.{Option => HOption}
 import org.apache.hudi.metadata.{HoodieTableMetadata, HoodieTableMetadataUtil}
 import org.apache.hudi.storage.HoodieFileStatus
 import org.apache.hudi.util.JFunction
@@ -69,7 +68,7 @@ class RecordLevelIndexSupport(spark: SparkSession,
    * Returns the configured record key for the table if it is a simple record key else returns empty option.
    */
   private def getRecordKeyConfig: Option[String] = {
-    val recordKeysOpt: HOption[Array[String]] = metaClient.getTableConfig.getRecordKeyFields
+    val recordKeysOpt: org.apache.hudi.common.util.Option[Array[String]] = metaClient.getTableConfig.getRecordKeyFields
     val recordKeyOpt = recordKeysOpt.map[String](JFunction.toJavaFunction[Array[String], String](arr =>
       if (arr.length == 1) {
         arr(0)

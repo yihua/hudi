@@ -54,7 +54,7 @@ public class TestHoodiePartitionMetadata extends HoodieCommonTestHarness {
 
   @AfterEach
   public void tearDown() throws Exception {
-    //storage.close();
+    storage.close();
     cleanMetaClient();
   }
 

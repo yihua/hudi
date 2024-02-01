@@ -1591,7 +1591,6 @@ public class TestHoodieBackedMetadata extends TestHoodieMetadataBase {
   @ParameterizedTest
   @MethodSource("tableTypeAndEnableOperationArgs")
   public void testMetadataBootstrapLargeCommitList(HoodieTableType tableType, boolean nonPartitionedDataset) throws Exception {
-    new Path("/var/folders/60/wk8qzx310fd32b2dp7mhzvdc0000gn/T/junit1994422994796448774/dataset/");
     init(tableType, true, true, true, false);
     if (nonPartitionedDataset) {
       testTable.setNonPartitioned();

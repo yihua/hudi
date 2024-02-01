@@ -149,7 +149,7 @@ public class LSMTimeline {
     if (metaClient.getHoodieStorage().exists(versionFilePath)) {
       try {
         Option<byte[]> content =
-            FileIOUtils.readDataFromPath(metaClient.getHoodieStorage(), versionFilePath);
+            FileIOUtils.readDataFromLocation(metaClient.getHoodieStorage(), versionFilePath);
         if (content.isPresent()) {
           return Integer.parseInt(fromUTF8Bytes(content.get()));
         }
@@ -191,7 +191,7 @@ public class LSMTimeline {
     }
     // read and deserialize the valid files.
     byte[] content =
-        FileIOUtils.readDataFromPath(metaClient.getHoodieStorage(), getManifestFilePath(metaClient,
+        FileIOUtils.readDataFromLocation(metaClient.getHoodieStorage(), getManifestFilePath(metaClient,
             latestVersion)).get();
     try {
       return HoodieLSMTimelineManifest.fromJsonString(fromUTF8Bytes(content), HoodieLSMTimelineManifest.class);

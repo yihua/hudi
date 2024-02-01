@@ -262,10 +262,10 @@ object HoodieBootstrapRelation extends SparkAdapterSupport {
   }
 
   def createPartitionedFile(partitionValues: InternalRow,
-                            fileLoc: HoodieLocation,
+                            fileLocation: HoodieLocation,
                             start: Long,
                             length: Long): PartitionedFile = {
     sparkAdapter.getSparkPartitionedFileUtils.createPartitionedFile(
-      partitionValues, fileLoc, start, length)
+      partitionValues, fileLocation, start, length)
   }
 }

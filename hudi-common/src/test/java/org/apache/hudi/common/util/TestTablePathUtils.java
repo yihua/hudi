@@ -62,7 +62,7 @@ public final class TestTablePathUtils {
 
   private void setup(Option<HoodieFileFormat> partitionMetafileFormat) throws IOException {
     URI tablePathURI = Paths.get(tempDir.getAbsolutePath(), "test_table").toUri();
-    tablePath = new HoodieLocation(tablePathURI.toString());
+    tablePath = new HoodieLocation(tablePathURI);
     storage = HoodieStorageUtils.getHoodieStorage(tablePathURI.toString(), new Configuration());
 
     // Create bootstrap index folder
@@ -72,9 +72,9 @@ public final class TestTablePathUtils {
 
     // Create partition folders
     URI partitionPathURI1 = Paths.get(tablePathURI.getPath(), "key1=abc/key2=def").toUri();
-    partitionPath1 = new HoodieLocation(partitionPathURI1.toString());
+    partitionPath1 = new HoodieLocation(partitionPathURI1);
     URI partitionPathURI2 = Paths.get(tablePathURI.getPath(), "key1=xyz/key2=def").toUri();
-    partitionPath2 = new HoodieLocation(partitionPathURI2.toString());
+    partitionPath2 = new HoodieLocation(partitionPathURI2);
 
     assertTrue(new File(partitionPathURI1).mkdirs());
     assertTrue(new File(partitionPathURI2).mkdirs());
@@ -91,10 +91,10 @@ public final class TestTablePathUtils {
     // Create files
     URI filePathURI1 =
         Paths.get(partitionPathURI1.getPath(), "data1" + BASE_FILE_EXTENSION).toUri();
-    filePath1 = new HoodieLocation(filePathURI1.toString());
+    filePath1 = new HoodieLocation(filePathURI1);
     URI filePathURI2 =
         Paths.get(partitionPathURI2.getPath(), "data2" + BASE_FILE_EXTENSION).toUri();
-    filePath2 = new HoodieLocation(filePathURI2.toString());
+    filePath2 = new HoodieLocation(filePathURI2);
 
     assertTrue(new File(filePathURI1).createNewFile());
     assertTrue(new File(filePathURI2).createNewFile());

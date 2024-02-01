@@ -255,7 +255,7 @@ public class HoodieCopyOnWriteTableInputFormat extends HoodieTableInputFormat {
                 tableMetaClient,
                 props,
                 HoodieTableQueryType.SNAPSHOT,
-                partitionPaths.stream().map(e -> new HoodieLocation(e.toString())).collect(Collectors.toList()),
+                partitionPaths.stream().map(e -> new HoodieLocation(e.toUri())).collect(Collectors.toList()),
                 queryCommitInstant,
                 shouldIncludePendingCommits);
 

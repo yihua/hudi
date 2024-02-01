@@ -64,12 +64,6 @@ public class FileSystemTestUtils {
     return new HoodieLocation(FILE_SCHEME + fileSuffix);
   }
 
-  public static Path getRandomOuterFSLocation(String extension) {
-    String randomFileName = UUID.randomUUID().toString();
-    String fileSuffix = COLON + FORWARD_SLASH + TEMP + FORWARD_SLASH + randomFileName;
-    return new Path(FILE_SCHEME + fileSuffix + "." + extension);
-  }
-
   public static HoodieLocation getPhantomFile(HoodieLocation outerLocation, long startOffset, long inlineLength) {
     // Generate phantom inline file
     return InLineFSUtils.getInlineFileLocation(outerLocation, FILE_SCHEME, startOffset, inlineLength);
@@ -99,14 +93,14 @@ public class FileSystemTestUtils {
     return statuses;
   }
 
-  public static List<HoodieFileStatus> listRecursive(HoodieStorage storage, HoodieLocation loc)
+  public static List<HoodieFileStatus> listRecursive(HoodieStorage storage, HoodieLocation location)
       throws IOException {
-    return listFiles(storage, loc);
+    return listFiles(storage, location);
   }
 
-  public static List<HoodieFileStatus> listFiles(HoodieStorage storage, HoodieLocation loc)
+  public static List<HoodieFileStatus> listFiles(HoodieStorage storage, HoodieLocation location)
       throws IOException {
-    return storage.listFiles(loc);
+    return storage.listFiles(location);
   }
 
   public static String readLastLineFromResourceFile(String resourceName) throws IOException {

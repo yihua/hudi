@@ -128,7 +128,7 @@ public class TestHoodieLogFormatAppendFailure {
 
     // Wait for 3 times replication of file
     FileSystem fs = (FileSystem) storage.getFileSystem();
-    DFSTestUtil.waitReplication(fs, new Path(logFilePath.toString()), (short) 3);
+    DFSTestUtil.waitReplication(fs, new Path(logFilePath.toUri()), (short) 3);
     // Shut down all DNs that have the last block location for the file
     LocatedBlocks lbs = cluster.getFileSystem().getClient().getNamenode()
         .getBlockLocations("/tmp/" + uuid + "/" + logFilePath.getName(), 0, Long.MAX_VALUE);
@@ -144,7 +144,7 @@ public class TestHoodieLogFormatAppendFailure {
       }
     }
     // Wait for the replication of this file to go down to 0
-    DFSTestUtil.waitReplication(fs, new Path(logFilePath.toString()), (short) 0);
+    DFSTestUtil.waitReplication(fs, new Path(logFilePath.toUri()), (short) 0);
 
     // Opening a new Writer right now will throw IOException. The code should handle this, rollover the logfile and
     // return a new writer with a bumped up logVersion

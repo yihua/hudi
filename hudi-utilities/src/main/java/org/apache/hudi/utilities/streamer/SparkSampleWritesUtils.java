@@ -139,8 +139,7 @@ public class SparkSampleWritesUtils {
   }
 
   private static String getSampleWritesBasePath(JavaSparkContext jsc, HoodieWriteConfig writeConfig, String instantTime) throws IOException {
-    Path basePath = new CachingPath(writeConfig.getBasePath(),
-        SAMPLE_WRITES_FOLDER_PATH + HoodieLocation.SEPARATOR + instantTime);
+    Path basePath = new CachingPath(writeConfig.getBasePath(), SAMPLE_WRITES_FOLDER_PATH + HoodieLocation.SEPARATOR + instantTime);
     FileSystem fs = HadoopFSUtils.getFs(basePath, jsc.hadoopConfiguration());
     if (fs.exists(basePath)) {
       fs.delete(basePath, true);

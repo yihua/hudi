@@ -133,7 +133,7 @@ public class HoodieROTablePathFilter implements Configurable, PathFilter, Serial
     try {
       if (storage == null) {
         storage =
-            HoodieStorageUtils.getHoodieStorage(new HoodieLocation(path.toString()), conf.get());
+            HoodieStorageUtils.getHoodieStorage(new HoodieLocation(path.toUri()), conf.get());
       }
 
       // Assumes path is a file
@@ -166,8 +166,8 @@ public class HoodieROTablePathFilter implements Configurable, PathFilter, Serial
 
       // Perform actual checking.
       Path baseDir;
-      if (HoodiePartitionMetadata.hasPartitionMetadata(storage, new HoodieLocation(folder.toString()))) {
-        HoodiePartitionMetadata metadata = new HoodiePartitionMetadata(storage, new HoodieLocation(folder.toString()));
+      if (HoodiePartitionMetadata.hasPartitionMetadata(storage, new HoodieLocation(folder.toUri()))) {
+        HoodiePartitionMetadata metadata = new HoodiePartitionMetadata(storage, new HoodieLocation(folder.toUri()));
         metadata.readFromFS();
         baseDir = HoodieHiveUtils.getNthParent(folder, metadata.getPartitionDepth());
       } else {

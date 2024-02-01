@@ -233,7 +233,7 @@ public class HoodieTableMetaClient implements Serializable {
           new HoodieLocation(tableConfig.getIndexDefinitionPath().get());
       try {
         return Option.of(HoodieFunctionalIndexMetadata.fromJson(
-            new String(FileIOUtils.readDataFromPath(storage, indexDefinitionPath).get())));
+            new String(FileIOUtils.readDataFromLocation(storage, indexDefinitionPath).get())));
       } catch (IOException e) {
         throw new HoodieIOException("Could not load functional index metadata at path: " + tableConfig.getIndexDefinitionPath().get(), e);
       }

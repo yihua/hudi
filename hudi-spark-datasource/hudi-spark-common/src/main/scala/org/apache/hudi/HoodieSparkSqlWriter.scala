@@ -63,8 +63,6 @@ import org.apache.hudi.sync.common.HoodieSyncConfig
 import org.apache.hudi.sync.common.util.SyncUtilHelpers
 import org.apache.hudi.sync.common.util.SyncUtilHelpers.getHoodieMetaSyncException
 import org.apache.hudi.util.SparkKeyGenUtils
-
-import org.apache
 import org.apache.spark.api.java.JavaSparkContext
 import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.TableIdentifier
@@ -75,7 +73,6 @@ import org.apache.spark.{SPARK_VERSION, SparkContext}
 import org.slf4j.LoggerFactory
 
 import java.util.function.BiConsumer
-
 import scala.collection.JavaConversions._
 import scala.collection.JavaConverters.setAsJavaSetConverter
 import scala.collection.mutable
@@ -152,7 +149,7 @@ object HoodieSparkSqlWriter {
     Metrics.shutdownAllMetrics()
   }
 
-  def getBulkInsertRowConfig(writerSchema: common.util.Option[Schema], hoodieConfig: HoodieConfig,
+  def getBulkInsertRowConfig(writerSchema: org.apache.hudi.common.util.Option[Schema], hoodieConfig: HoodieConfig,
                              basePath: String, tblName: String): HoodieWriteConfig = {
     var writerSchemaStr : String = null
     if ( writerSchema.isPresent) {
@@ -762,7 +759,7 @@ class HoodieSparkSqlWriterInternal {
       val writeClient = hoodieWriteClient.getOrElse(DataSourceUtils.createHoodieClient(jsc,
         schema, path, tableName, mapAsJavaMap(parameters)))
       try {
-        writeClient.bootstrap(common.util.Option.empty())
+        writeClient.bootstrap(org.apache.hudi.common.util.Option.empty())
       } finally {
         writeClient.close()
       }
@@ -795,7 +792,7 @@ class HoodieSparkSqlWriterInternal {
     val sqlContext = writeClient.getEngineContext.asInstanceOf[HoodieSparkEngineContext].getSqlContext
     val jsc = writeClient.getEngineContext.asInstanceOf[HoodieSparkEngineContext].getJavaSparkContext
 
-    val writeConfig = HoodieSparkSqlWriter.getBulkInsertRowConfig(common.util.Option.of(writerSchema), hoodieConfig, basePath.toString, tblName)
+    val writeConfig = HoodieSparkSqlWriter.getBulkInsertRowConfig(org.apache.hudi.common.util.Option.of(writerSchema), hoodieConfig, basePath.toString, tblName)
     val overwriteOperationType = Option(hoodieConfig.getString(HoodieInternalConfig.BULKINSERT_OVERWRITE_OPERATION_TYPE))
       .map(WriteOperationType.fromValue)
       .orNull

@@ -359,14 +359,14 @@ public class HoodieInputFormatUtils {
   public static HoodieTableMetaClient getTableMetaClientForBasePathUnchecked(Configuration conf, Path partitionPath) throws IOException {
     Path baseDir = partitionPath;
     HoodieStorage storage = HoodieStorageUtils.getHoodieStorage(partitionPath.toString(), conf);
-    if (HoodiePartitionMetadata.hasPartitionMetadata(storage, new HoodieLocation(partitionPath.toString()))) {
-      HoodiePartitionMetadata metadata = new HoodiePartitionMetadata(storage, new HoodieLocation(partitionPath.toString()));
+    if (HoodiePartitionMetadata.hasPartitionMetadata(storage, new HoodieLocation(partitionPath.toUri()))) {
+      HoodiePartitionMetadata metadata = new HoodiePartitionMetadata(storage, new HoodieLocation(partitionPath.toUri()));
       metadata.readFromFS();
       int levels = metadata.getPartitionDepth();
       baseDir = HoodieHiveUtils.getNthParent(partitionPath, levels);
     } else {
       for (int i = 0; i < partitionPath.depth(); i++) {
-        if (storage.exists(new HoodieLocation(baseDir.toString(), METAFOLDER_NAME))) {
+        if (storage.exists(new HoodieLocation(new HoodieLocation(baseDir.toUri()), METAFOLDER_NAME))) {
           break;
         } else if (i == partitionPath.depth() - 1) {
           throw new TableNotFoundException(partitionPath.toString());

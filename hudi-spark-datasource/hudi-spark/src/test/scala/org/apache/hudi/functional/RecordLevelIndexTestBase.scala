@@ -17,7 +17,7 @@
 
 package org.apache.hudi.functional
 
-import org.apache.hudi.{common, DataSourceWriteOptions}
+import org.apache.hudi.DataSourceWriteOptions
 import org.apache.hudi.DataSourceWriteOptions._
 import org.apache.hudi.client.SparkRDDWriteClient
 import org.apache.hudi.client.common.HoodieSparkEngineContext
@@ -139,7 +139,7 @@ class RecordLevelIndexTestBase extends HoodieSparkClientTestBase {
     getHoodieTable(metaClient, getWriteConfig(hudiOpts)).getMetadataTable.asInstanceOf[HoodieBackedTableMetadata].getMetadataMetaClient
   }
 
-  protected def getLatestCompactionInstant(): common.util.Option[HoodieInstant] = {
+  protected def getLatestCompactionInstant(): org.apache.hudi.common.util.Option[HoodieInstant] = {
     getLatestMetaClient(false).getActiveTimeline
       .filter(JavaConversions.getPredicate(s => Option(
         try {
@@ -154,7 +154,7 @@ class RecordLevelIndexTestBase extends HoodieSparkClientTestBase {
       .lastInstant()
   }
 
-  protected def getLatestClusteringInstant(): common.util.Option[HoodieInstant] = {
+  protected def getLatestClusteringInstant(): org.apache.hudi.common.util.Option[HoodieInstant] = {
     getLatestMetaClient(false).getActiveTimeline.getCompletedReplaceTimeline.lastInstant()
   }
 

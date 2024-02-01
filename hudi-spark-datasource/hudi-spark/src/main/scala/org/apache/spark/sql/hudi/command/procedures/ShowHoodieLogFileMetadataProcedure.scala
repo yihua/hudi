@@ -23,7 +23,7 @@ import org.apache.hudi.common.model.HoodieRecord.HoodieRecordType
 import org.apache.hudi.common.table.log.HoodieLogFormat
 import org.apache.hudi.common.table.log.block.{HoodieCorruptBlock, HoodieDataBlock}
 import org.apache.hudi.common.table.log.block.HoodieLogBlock.{HeaderMetadataType, HoodieLogBlockType}
-import org.apache.hudi.common.table.TableSchemaResolver
+import org.apache.hudi.common.table.{HoodieTableMetaClient, TableSchemaResolver}
 import org.apache.hudi.storage.{HoodieLocation, HoodieStorageUtils}
 
 import com.fasterxml.jackson.databind.ObjectMapper
@@ -58,7 +58,7 @@ class ShowHoodieLogFileMetadataProcedure extends BaseProcedure with ProcedureBui
     val logFilePathPattern: String = getArgValueOrDefault(args, parameters(1)).get.asInstanceOf[String]
     val limit: Int = getArgValueOrDefault(args, parameters(2)).get.asInstanceOf[Int]
     val basePath = getBasePath(table)
-    val storage = HoodieStorageUtils.getHoodieStorage(basePath, jsc.hadoopConfiguration())
+    val storage = HoodieTableMetaClient.builder.setConf(jsc.hadoopConfiguration()).setBasePath(basePath).build.getHoodieStorage
     val logFilePaths = FSUtils.getGlobStatusExcludingMetaFolder(storage, new HoodieLocation(logFilePathPattern)).iterator().asScala
       .map(_.getLocation.toString).toList
     val commitCountAndMetadata =
