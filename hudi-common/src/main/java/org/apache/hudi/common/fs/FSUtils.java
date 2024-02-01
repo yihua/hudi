@@ -696,14 +696,6 @@ public class FSUtils {
     return fs.getUri() + fullPartitionPath.toUri().getRawPath();
   }
 
-  public static Configuration registerFileSystem(Path file, Configuration conf) {
-    Configuration returnConf = new Configuration(conf);
-    String scheme = HadoopFSUtils.getFs(file.toString(), conf).getScheme();
-    returnConf.set("fs." + HoodieWrapperFileSystem.getHoodieScheme(scheme) + ".impl",
-        HoodieWrapperFileSystem.class.getName());
-    return returnConf;
-  }
-
   public static Configuration registerFileSystem(HoodieLocation location, Configuration conf) {
     Configuration returnConf = new Configuration(conf);
     String scheme = HadoopFSUtils.getFs(location.toString(), conf).getScheme();
