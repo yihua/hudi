@@ -126,8 +126,15 @@ public class FSUtils {
     return path.makeQualified(fs.getUri(), fs.getWorkingDirectory());
   }
 
-  public static HoodieLocation makeQualified(HoodieStorage storage, HoodieLocation path) {
-    return storage.makeQualified(path);
+  /**
+   * Makes location qualified with {@link HoodieStorage}'s URI.
+   *
+   * @param storage  instance of {@link HoodieStorage}.
+   * @param location to be qualified.
+   * @return qualified location, prefixed with the URI of the target HoodieStorage object provided.
+   */
+  public static HoodieLocation makeQualified(HoodieStorage storage, HoodieLocation location) {
+    return location.makeQualified(storage.getUri());
   }
 
   /**

@@ -56,7 +56,7 @@ object PathUtils {
         }
         leafPath.getName.equals(HoodieTableMetaClient.METAFOLDER_NAME)
       })
-      nonMetaStatuses.map(e => storage.makeQualified(e.getLocation))
+      nonMetaStatuses.map(e => e.getLocation.makeQualified(storage.getUri))
     }
     }.getOrElse(Seq.empty[HoodieLocation])
   }
@@ -79,7 +79,7 @@ object PathUtils {
    */
   def checkAndGlobPathIfNecessary(paths: Seq[String], storage: HoodieStorage): Seq[HoodieLocation] = {
     paths.flatMap(path => {
-      val qualified = storage.makeQualified(new HoodieLocation(path));
+      val qualified = new HoodieLocation(path).makeQualified(storage.getUri);
       globPathIfNecessary(storage, qualified)
     })
   }
