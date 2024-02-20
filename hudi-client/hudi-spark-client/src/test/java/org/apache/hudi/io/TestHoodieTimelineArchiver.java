@@ -137,10 +137,11 @@ public class TestHoodieTimelineArchiver extends HoodieSparkClientTestHarness {
     initSparkContexts();
     initTimelineService();
     initMetaClient();
+    storage = metaClient.getHoodieStorage();
     hadoopConf = context.getHadoopConf().get();
     metaClient.getHoodieStorage().createDirectory(new HoodieLocation(basePath));
     metaClient = HoodieTestUtils.init(hadoopConf, basePath, tableType);
-    hadoopConf.addResource(((FileSystem) metaClient.getHoodieStorage().getFileSystem()).getConf());
+    hadoopConf.addResource(((FileSystem) storage.getFileSystem()).getConf());
   }
 
   private void initWriteConfigAndMetatableWriter(HoodieWriteConfig writeConfig, boolean enableMetadataTable) {
