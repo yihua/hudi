@@ -56,6 +56,10 @@ public class FileStatusDTO {
   }
 
   public static HoodieFileStatus toHoodieFileStatus(FileStatusDTO dto) {
+    if (null == dto) {
+      return null;
+    }
+
     return new HoodieFileStatus(
         FilePathDTO.toHoodieLocation(dto.path), dto.length, dto.blocksize, dto.isdir, dto.modificationTime);
   }
