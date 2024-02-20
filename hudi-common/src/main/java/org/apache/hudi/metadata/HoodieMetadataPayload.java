@@ -509,7 +509,7 @@ public class HoodieMetadataPayload implements HoodieRecordPayload<HoodieMetadata
           //       creating Hadoop's Path using more performant unsafe variant
           //CachingPath filePath = new CachingPath(partitionPath, createRelativePathUnsafe(e.getKey()));
           return new HoodieFileStatus(new HoodieLocation(partitionPath, e.getKey()), e.getValue().getSize(),
-              false, 0);
+              0, false, 0);
         })
         .collect(Collectors.toList());
   }

@@ -210,8 +210,8 @@ public class HoodieLocation implements Comparable<HoodieLocation>, Serializable 
     String authority = locationUri.getAuthority();
     String fragment = locationUri.getFragment();
 
-    if (scheme != null &&
-        (authority != null || defaultUri.getAuthority() == null)) {
+    if (scheme != null
+        && (authority != null || defaultUri.getAuthority() == null)) {
       return location;
     }
 

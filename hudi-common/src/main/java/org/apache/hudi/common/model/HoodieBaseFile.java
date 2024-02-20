@@ -144,7 +144,7 @@ public class HoodieBaseFile extends BaseFile {
       // fileId is the same as the original file name for externally created files
       HoodieLocation parent = fileStatus.getLocation().getParent();
       return new HoodieFileStatus(
-          new HoodieLocation(parent, fileId), fileStatus.getLength(),
+          new HoodieLocation(parent, fileId), fileStatus.getLength(), fileStatus.getBlockSize(),
           fileStatus.isDirectory(), fileStatus.getModificationTime());
     } else {
       return fileStatus;

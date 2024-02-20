@@ -64,7 +64,7 @@ public class HoodieMetaserverBasedTimeline extends HoodieActiveTimeline {
 
   @Override
   public void createFileInMetaPath(String filename, Option<byte[]> content, boolean allowOverwrite) {
-    HoodieFileStatus status = new HoodieFileStatus(new HoodieLocation(filename), 0, false, 0);
+    HoodieFileStatus status = new HoodieFileStatus(new HoodieLocation(filename), 0, 0, false, 0);
     HoodieInstant instant = new HoodieInstant(status);
     ValidationUtils.checkArgument(instant.getState().equals(HoodieInstant.State.REQUESTED));
     metaserverClient.createNewInstant(databaseName, tableName, instant, Option.empty());
@@ -77,7 +77,7 @@ public class HoodieMetaserverBasedTimeline extends HoodieActiveTimeline {
 
   @Override
   protected Option<byte[]> readDataFromPath(HoodieLocation detailPath) {
-    HoodieFileStatus status = new HoodieFileStatus(detailPath, 0, false, 0);
+    HoodieFileStatus status = new HoodieFileStatus(detailPath, 0, 0, false, 0);
     HoodieInstant instant = new HoodieInstant(status);
     return metaserverClient.getInstantMetadata(databaseName, tableName, instant);
   }

@@ -413,7 +413,7 @@ public class HoodieInputFormatUtils {
     TableFileSystemView.BaseFileOnlyView roView = new HoodieTableFileSystemView(tableMetaClient, timeline,
         Arrays.stream(fileStatuses)
             .map(e -> new HoodieFileStatus(
-                new HoodieLocation(e.getPath().toUri()), e.getLen(), e.isDirectory(),
+                new HoodieLocation(e.getPath().toUri()), e.getLen(), e.getBlockSize(), e.isDirectory(),
                 e.getModificationTime()))
             .collect(Collectors.toList()));
     List<String> commitsList = commitsToCheck.stream().map(HoodieInstant::getTimestamp).collect(Collectors.toList());

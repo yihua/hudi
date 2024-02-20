@@ -430,7 +430,7 @@ abstract class HoodieBaseRelation(val sqlContext: SQLContext,
         val fsView = new HoodieTableFileSystemView(
           metaClient, timeline, sparkAdapter.getSparkPartitionedFileUtils.toFileStatuses(partitionDirs)
             .map(fileStatus => new HoodieFileStatus(new HoodieLocation(fileStatus.getPath.toUri),
-              fileStatus.getLen, fileStatus.isDirectory, fileStatus.getModificationTime))
+              fileStatus.getLen, fileStatus.getBlockSize, fileStatus.isDirectory, fileStatus.getModificationTime))
             .asJava)
 
         fsView.getPartitionPaths.asScala.flatMap { partitionPath =>

@@ -32,17 +32,18 @@ public class TestHoodieBaseFile {
   private final String fileId = "136281f3-c24e-423b-a65a-95dbfbddce1d";
   private final String baseCommitTime = "100";
   private final int length = 10;
+  private final long blockSize = 1000000L;
 
   @Test
   void createFromHoodieBaseFile() {
-    HoodieFileStatus fileInfo = new HoodieFileStatus(new HoodieLocation(pathStr), length, false, 0);
+    HoodieFileStatus fileInfo = new HoodieFileStatus(new HoodieLocation(pathStr), length, blockSize, false, 0);
     HoodieBaseFile hoodieBaseFile = new HoodieBaseFile(fileInfo);
     assertFileGetters(fileInfo, new HoodieBaseFile(hoodieBaseFile), length, Option.empty());
   }
 
   @Test
   void createFromFileStatus() {
-    HoodieFileStatus fileInfo = new HoodieFileStatus(new HoodieLocation(pathStr), length, false, 0);
+    HoodieFileStatus fileInfo = new HoodieFileStatus(new HoodieLocation(pathStr), length, blockSize, false, 0);
     HoodieBaseFile hoodieBaseFile = new HoodieBaseFile(fileInfo);
     assertFileGetters(fileInfo, hoodieBaseFile, length, Option.empty());
   }
@@ -50,7 +51,7 @@ public class TestHoodieBaseFile {
   @Test
   void createFromFileStatusAndBootstrapBaseFile() {
     HoodieBaseFile bootstrapBaseFile = new HoodieBaseFile(pathStr);
-    HoodieFileStatus fileInfo = new HoodieFileStatus(new HoodieLocation(pathStr), length, false, 0);
+    HoodieFileStatus fileInfo = new HoodieFileStatus(new HoodieLocation(pathStr), length, blockSize, false, 0);
     HoodieBaseFile hoodieBaseFile = new HoodieBaseFile(fileInfo, bootstrapBaseFile);
     assertFileGetters(fileInfo, hoodieBaseFile, length, Option.of(bootstrapBaseFile));
   }
@@ -75,9 +76,9 @@ public class TestHoodieBaseFile {
         "file:/tmp/hoodie/2021/01/01/" + fileName + "_" + baseCommitTime + "_hudiext";
     String expectedPathString = "file:/tmp/hoodie/2021/01/01/" + fileName;
     HoodieFileStatus inputFileStatus = new HoodieFileStatus(
-        new HoodieLocation(storedPathString), length, false, 0);
+        new HoodieLocation(storedPathString), length, blockSize, false, 0);
     HoodieFileStatus expectedFileInfo = new HoodieFileStatus(
-        new HoodieLocation(expectedPathString), length, false, 0);
+        new HoodieLocation(expectedPathString), length, blockSize, false, 0);
     HoodieBaseFile hoodieBaseFile = new HoodieBaseFile(inputFileStatus);
 
     assertFileGetters(expectedFileInfo, hoodieBaseFile, length, Option.empty(), fileName,

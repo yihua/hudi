@@ -35,6 +35,8 @@ public class FileStatusDTO {
   long length;
   @JsonProperty("isdir")
   boolean isdir;
+  @JsonProperty("blocksize")
+  long blocksize;
   @JsonProperty("modificationTime")
   long modificationTime;
 
@@ -46,6 +48,7 @@ public class FileStatusDTO {
     FileStatusDTO dto = new FileStatusDTO();
     dto.path = FilePathDTO.fromHoodieLocation(fileStatus.getLocation());
     dto.length = fileStatus.getLength();
+    dto.blocksize = fileStatus.getBlockSize();
     dto.isdir = fileStatus.isDirectory();
     dto.modificationTime = fileStatus.getModificationTime();
 
@@ -54,6 +57,6 @@ public class FileStatusDTO {
 
   public static HoodieFileStatus toHoodieFileStatus(FileStatusDTO dto) {
     return new HoodieFileStatus(
-        FilePathDTO.toHoodieLocation(dto.path), dto.length, dto.isdir, dto.modificationTime);
+        FilePathDTO.toHoodieLocation(dto.path), dto.length, dto.blocksize, dto.isdir, dto.modificationTime);
   }
 }

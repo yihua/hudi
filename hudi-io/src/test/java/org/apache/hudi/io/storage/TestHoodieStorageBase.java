@@ -157,37 +157,37 @@ public abstract class TestHoodieStorageBase {
 
     validateHoodieFileStatusList(
         Arrays.stream(new HoodieFileStatus[] {
-            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/1.file"), 0, false, 0),
-            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/2.file"), 0, false, 0),
-            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/y"), 0, true, 0),
-            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/z"), 0, true, 0),
+            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/1.file"), 0, 0, false, 0),
+            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/2.file"), 0, 0, false, 0),
+            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/y"), 0, 0, true, 0),
+            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/z"), 0, 0, true, 0),
         }).collect(Collectors.toList()),
         storage.listDirectEntries(new HoodieLocation(getTempDir(), "x")));
 
     validateHoodieFileStatusList(
         Arrays.stream(new HoodieFileStatus[] {
-            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/1.file"), 0, false, 0),
-            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/2.file"), 0, false, 0),
-            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/y/1.file"), 0, false, 0),
-            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/y/2.file"), 0, false, 0),
-            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/z/1.file"), 0, false, 0),
-            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/z/2.file"), 0, false, 0)
+            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/1.file"), 0, 0, false, 0),
+            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/2.file"), 0, 0, false, 0),
+            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/y/1.file"), 0, 0, false, 0),
+            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/y/2.file"), 0, 0, false, 0),
+            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/z/1.file"), 0, 0, false, 0),
+            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/z/2.file"), 0, 0, false, 0)
         }).collect(Collectors.toList()),
         storage.listFiles(new HoodieLocation(getTempDir(), "x")));
 
     validateHoodieFileStatusList(
         Arrays.stream(new HoodieFileStatus[] {
-            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/2.file"), 0, false, 0)
+            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/2.file"), 0, 0, false, 0)
         }).collect(Collectors.toList()),
         storage.listDirectEntries(
             new HoodieLocation(getTempDir(), "x"), e -> e.getName().contains("2")));
 
     validateHoodieFileStatusList(
         Arrays.stream(new HoodieFileStatus[] {
-            new HoodieFileStatus(new HoodieLocation(getTempDir(), "w/1.file"), 0, false, 0),
-            new HoodieFileStatus(new HoodieLocation(getTempDir(), "w/2.file"), 0, false, 0),
-            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/z/1.file"), 0, false, 0),
-            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/z/2.file"), 0, false, 0)
+            new HoodieFileStatus(new HoodieLocation(getTempDir(), "w/1.file"), 0, 0, false, 0),
+            new HoodieFileStatus(new HoodieLocation(getTempDir(), "w/2.file"), 0, 0, false, 0),
+            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/z/1.file"), 0, 0, false, 0),
+            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/z/2.file"), 0, 0, false, 0)
         }).collect(Collectors.toList()),
         storage.listDirectEntries(Arrays.stream(new HoodieLocation[] {
             new HoodieLocation(getTempDir(), "w"),
@@ -199,21 +199,21 @@ public abstract class TestHoodieStorageBase {
 
     validateHoodieFileStatusList(
         Arrays.stream(new HoodieFileStatus[] {
-            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/y/1.file"), 0, false, 0),
-            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/z/1.file"), 0, false, 0)
+            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/y/1.file"), 0, 0, false, 0),
+            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/z/1.file"), 0, 0, false, 0)
         }).collect(Collectors.toList()),
         storage.globEntries(new HoodieLocation(getTempDir(), "x/*/1.file")));
 
     validateHoodieFileStatusList(
         Arrays.stream(new HoodieFileStatus[] {
-            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/1.file"), 0, false, 0),
-            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/2.file"), 0, false, 0),
+            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/1.file"), 0, 0, false, 0),
+            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/2.file"), 0, 0, false, 0),
         }).collect(Collectors.toList()),
         storage.globEntries(new HoodieLocation(getTempDir(), "x/*.file")));
 
     validateHoodieFileStatusList(
         Arrays.stream(new HoodieFileStatus[] {
-            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/y/1.file"), 0, false, 0),
+            new HoodieFileStatus(new HoodieLocation(getTempDir(), "x/y/1.file"), 0, 0, false, 0),
         }).collect(Collectors.toList()),
         storage.globEntries(
             new HoodieLocation(getTempDir(), "x/*/*.file"),

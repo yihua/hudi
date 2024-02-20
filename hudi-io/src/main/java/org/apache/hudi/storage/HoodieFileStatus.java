@@ -34,15 +34,18 @@ import java.io.Serializable;
 public class HoodieFileStatus implements Serializable {
   private final HoodieLocation location;
   private final long length;
+  private final long blockSize;
   private final boolean isDirectory;
   private final long modificationTime;
 
   public HoodieFileStatus(HoodieLocation location,
                           long length,
+                          long blockSize,
                           boolean isDirectory,
                           long modificationTime) {
     this.location = location;
     this.length = length;
+    this.blockSize = blockSize;
     this.isDirectory = isDirectory;
     this.modificationTime = modificationTime;
   }
@@ -61,6 +64,14 @@ public class HoodieFileStatus implements Serializable {
   @PublicAPIMethod(maturity = ApiMaturityLevel.EVOLVING)
   public long getLength() {
     return length;
+  }
+
+  /**
+   * @return the block size of a file if applied.
+   */
+  @PublicAPIMethod(maturity = ApiMaturityLevel.EVOLVING)
+  public long getBlockSize() {
+    return blockSize;
   }
 
   /**
@@ -113,6 +124,7 @@ public class HoodieFileStatus implements Serializable {
     return "HoodieFileStatus{"
         + "location=" + location
         + ", length=" + length
+        + ", blockSize=" + blockSize
         + ", isDirectory=" + isDirectory
         + ", modificationTime=" + modificationTime
         + '}';

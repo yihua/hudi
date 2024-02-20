@@ -60,6 +60,11 @@ public class HoodieHadoopStorage extends HoodieStorage {
   }
 
   @Override
+  public long getDefaultBlockSize(HoodieLocation path) {
+    return fs.getDefaultBlockSize(convertHoodieLocationToPath(path));
+  }
+
+  @Override
   public OutputStream create(HoodieLocation location, boolean overwrite) throws IOException {
     return fs.create(convertHoodieLocationToPath(location), overwrite);
   }
@@ -196,6 +201,7 @@ public class HoodieHadoopStorage extends HoodieStorage {
     return new HoodieFileStatus(
         convertPathToHoodieLocation(fileStatus.getPath()),
         fileStatus.getLen(),
+        fileStatus.getBlockSize(),
         fileStatus.isDirectory(),
         fileStatus.getModificationTime());
   }

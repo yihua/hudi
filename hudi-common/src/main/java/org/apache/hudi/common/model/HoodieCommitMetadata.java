@@ -25,6 +25,7 @@ import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.storage.HoodieFileStatus;
 import org.apache.hudi.storage.HoodieLocation;
+import org.apache.hudi.storage.HoodieStorageUtils;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -187,10 +188,10 @@ public class HoodieCommitMetadata implements Serializable {
         HoodieLocation fullPath = relativeFilePath != null
             ? FSUtils.getPartitionPath(basePath, relativeFilePath) : null;
         if (fullPath != null) {
-          //long blockSize =
-          //    FSUtils.getFs(fullPath.toString(), hadoopConf).getDefaultBlockSize(fullPath);
+          long blockSize =
+              HoodieStorageUtils.getHoodieStorage(fullPath.toString(), hadoopConf).getDefaultBlockSize(fullPath);
           HoodieFileStatus fileStatus = new HoodieFileStatus(
-              fullPath, stat.getFileSizeInBytes(), false, 0);
+              fullPath, stat.getFileSizeInBytes(), blockSize, false, 0);
           fullPathToFileStatus.put(fullPath.getName(), fileStatus);
         }
       }
@@ -223,7 +224,7 @@ public class HoodieCommitMetadata implements Serializable {
                 relativeFilePath) : null;
         if (fullPath != null) {
           HoodieFileStatus fileStatus =
-              new HoodieFileStatus(fullPath, stat.getFileSizeInBytes(), false, 0);
+              new HoodieFileStatus(fullPath, stat.getFileSizeInBytes(), 0, false, 0);
           fileIdToFileInfo.put(stat.getFileId(), fileStatus);
         }
       }

@@ -79,7 +79,7 @@ public class FileStatusUtils {
     }
 
     return new HoodieFileStatus(
-        new HoodieLocation(fileStatus.getPath().getUri()), fileStatus.getLength(),
+        new HoodieLocation(fileStatus.getPath().getUri()), fileStatus.getLength(), fileStatus.getBlockSize(),
         fileStatus.getIsDir() == null ? false : fileStatus.getIsDir(), fileStatus.getModificationTime());
   }
 

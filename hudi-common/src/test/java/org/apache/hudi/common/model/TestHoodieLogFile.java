@@ -34,17 +34,18 @@ public class TestHoodieLogFile {
   private final String fileExtension = "log";
 
   private final int length = 10;
+  private final long blockSize = 1000000L;
 
   @Test
   void createFromLogFile() {
-    HoodieFileStatus fileInfo = new HoodieFileStatus(new HoodieLocation(pathStr), length, false, 0);
+    HoodieFileStatus fileInfo = new HoodieFileStatus(new HoodieLocation(pathStr), length, blockSize, false, 0);
     HoodieLogFile hoodieLogFile = new HoodieLogFile(fileInfo);
     assertFileGetters(fileInfo, new HoodieLogFile(hoodieLogFile), length);
   }
 
   @Test
   void createFromFileStatus() {
-    HoodieFileStatus fileInfo = new HoodieFileStatus(new HoodieLocation(pathStr), length, false, 0);
+    HoodieFileStatus fileInfo = new HoodieFileStatus(new HoodieLocation(pathStr), length, blockSize, false, 0);
     HoodieLogFile hoodieLogFile = new HoodieLogFile(fileInfo);
     assertFileGetters(fileInfo, hoodieLogFile, length);
   }

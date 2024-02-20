@@ -61,6 +61,13 @@ public abstract class HoodieStorage implements Closeable {
   public abstract URI getUri();
 
   /**
+   * @return the default block size.
+   */
+  @PublicAPIMethod(maturity = ApiMaturityLevel.EVOLVING)
+  public abstract long getDefaultBlockSize(HoodieLocation path);
+
+
+  /**
    * Creates an OutputStream at the indicated location.
    *
    * @param location  the file to create.

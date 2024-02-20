@@ -494,7 +494,8 @@ object SparkHoodieTableFileIndex extends SparkAdapterSupport {
     new BaseHoodieTableFileIndex.FileStatusCache {
       override def get(path: HoodieLocation): org.apache.hudi.common.util.Option[java.util.List[HoodieFileStatus]] =
         toJavaOption(cache.getLeafFiles(new Path(path.toUri)).map(opt => opt.map(
-          e => new HoodieFileStatus(new HoodieLocation(e.getPath.toUri), e.getLen, e.isDirectory, e.getModificationTime)).toList.asJava))
+          e => new HoodieFileStatus(new HoodieLocation(e.getPath.toUri), e.getLen,
+            e.getBlockSize, e.isDirectory, e.getModificationTime)).toList.asJava))
 
       override def put(path: HoodieLocation, leafFiles: java.util.List[HoodieFileStatus]): Unit =
         cache.putLeafFiles(new Path(path.toUri), leafFiles.asScala.map(e => new FileStatus(

@@ -41,6 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 public class TestHoodieFileStatus {
   private static final Logger LOG = LoggerFactory.getLogger(TestHoodieFileStatus.class);
   private static final long LENGTH = 100;
+  private static final long BLOCK_SIZE = 1000000L;
   private static final long MODIFICATION_TIME = System.currentTimeMillis();
   private static final String PATH1 = "/abc/xyz1";
   private static final String PATH2 = "/abc/xyz2";
@@ -49,15 +50,15 @@ public class TestHoodieFileStatus {
 
   @Test
   public void testConstructor() {
-    HoodieFileStatus fileStatus = new HoodieFileStatus(LOCATION1, LENGTH, false, MODIFICATION_TIME);
+    HoodieFileStatus fileStatus = new HoodieFileStatus(LOCATION1, LENGTH, BLOCK_SIZE, false, MODIFICATION_TIME);
     validateAccessors(fileStatus, PATH1, LENGTH, false, MODIFICATION_TIME);
-    fileStatus = new HoodieFileStatus(LOCATION2, -1, true, MODIFICATION_TIME + 2L);
+    fileStatus = new HoodieFileStatus(LOCATION2, -1, BLOCK_SIZE, true, MODIFICATION_TIME + 2L);
     validateAccessors(fileStatus, PATH2, -1, true, MODIFICATION_TIME + 2L);
   }
 
   @Test
   public void testSerializability() throws IOException, ClassNotFoundException {
-    HoodieFileStatus fileStatus = new HoodieFileStatus(LOCATION1, LENGTH, false, MODIFICATION_TIME);
+    HoodieFileStatus fileStatus = new HoodieFileStatus(LOCATION1, LENGTH, BLOCK_SIZE, false, MODIFICATION_TIME);
     try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
          ObjectOutputStream oos = new ObjectOutputStream(baos)) {
       oos.writeObject(fileStatus);
@@ -72,18 +73,18 @@ public class TestHoodieFileStatus {
   @Test
   public void testEquals() {
     HoodieFileStatus fileStatus1 = new HoodieFileStatus(
-        new HoodieLocation(PATH1), LENGTH, false, MODIFICATION_TIME);
+        new HoodieLocation(PATH1), LENGTH, BLOCK_SIZE, false, MODIFICATION_TIME);
     HoodieFileStatus fileStatus2 = new HoodieFileStatus(
-        new HoodieLocation(PATH1), LENGTH + 2, false, MODIFICATION_TIME + 2L);
+        new HoodieLocation(PATH1), LENGTH + 2, BLOCK_SIZE, false, MODIFICATION_TIME + 2L);
     assertEquals(fileStatus1, fileStatus2);
   }
 
   @Test
   public void testNotEquals() {
     HoodieFileStatus fileStatus1 = new HoodieFileStatus(
-        LOCATION1, LENGTH, false, MODIFICATION_TIME);
+        LOCATION1, LENGTH, BLOCK_SIZE, false, MODIFICATION_TIME);
     HoodieFileStatus fileStatus2 = new HoodieFileStatus(
-        LOCATION2, LENGTH, false, MODIFICATION_TIME + 2L);
+        LOCATION2, LENGTH, BLOCK_SIZE, false, MODIFICATION_TIME + 2L);
     assertFalse(fileStatus1.equals(fileStatus2));
     assertFalse(fileStatus2.equals(fileStatus1));
   }

@@ -42,7 +42,7 @@ public class TestRollbackUtils {
   private static final String BASE_FILE_EXTENSION = HoodieTableConfig.BASE_FILE_FORMAT.defaultValue().getFileExtension();
 
   private HoodieFileStatus generateFileStatus(String filePath) {
-    return new HoodieFileStatus(new HoodieLocation(filePath), 1, true, 1);
+    return new HoodieFileStatus(new HoodieLocation(filePath), 1, 1000000L, true, 1);
   }
 
   @Test
