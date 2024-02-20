@@ -31,7 +31,7 @@ import java.io.Serializable;
  * with simplification based on what Hudi needs.
  */
 @PublicAPIClass(maturity = ApiMaturityLevel.EVOLVING)
-public class HoodieFileStatus implements Serializable {
+public class HoodieFileStatus implements Serializable, Comparable<HoodieFileStatus> {
   private final HoodieLocation location;
   private final long length;
   private final long blockSize;
@@ -96,6 +96,11 @@ public class HoodieFileStatus implements Serializable {
   @PublicAPIMethod(maturity = ApiMaturityLevel.EVOLVING)
   public long getModificationTime() {
     return modificationTime;
+  }
+
+  @Override
+  public int compareTo(HoodieFileStatus o) {
+    return this.getLocation().compareTo(o.getLocation());
   }
 
   @Override
