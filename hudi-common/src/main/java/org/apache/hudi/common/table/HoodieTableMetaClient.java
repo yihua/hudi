@@ -445,7 +445,7 @@ public class HoodieTableMetaClient implements Serializable {
   }
 
   public HoodieStorage getRawHoodieStorage() {
-    return HoodieStorageUtils.getRawHoodieStorage(storage);
+    return HoodieStorageUtils.getRawHoodieStorage(getHoodieStorage());
   }
 
   public Configuration getHadoopConf() {
