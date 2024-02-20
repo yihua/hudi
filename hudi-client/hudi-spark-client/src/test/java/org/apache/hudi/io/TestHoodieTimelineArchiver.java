@@ -49,6 +49,7 @@ import org.apache.hudi.common.testutils.HoodieTestTable;
 import org.apache.hudi.common.testutils.HoodieTestUtils;
 import org.apache.hudi.common.util.CollectionUtils;
 import org.apache.hudi.common.util.FileIOUtils;
+import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.config.HoodieArchivalConfig;
 import org.apache.hudi.config.HoodieCleanConfig;
@@ -57,12 +58,11 @@ import org.apache.hudi.config.HoodieLockConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.config.metrics.HoodieMetricsConfig;
 import org.apache.hudi.exception.HoodieException;
-import org.apache.hudi.storage.HoodieLocation;
-import org.apache.hudi.common.util.Option;
 import org.apache.hudi.metadata.HoodieTableMetadata;
 import org.apache.hudi.metadata.HoodieTableMetadataWriter;
 import org.apache.hudi.metadata.SparkHoodieBackedTableMetadataWriter;
 import org.apache.hudi.metrics.HoodieMetrics;
+import org.apache.hudi.storage.HoodieLocation;
 import org.apache.hudi.table.HoodieSparkTable;
 import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.testutils.HoodieSparkClientTestHarness;
@@ -140,7 +140,7 @@ public class TestHoodieTimelineArchiver extends HoodieSparkClientTestHarness {
     hadoopConf = context.getHadoopConf().get();
     metaClient.getHoodieStorage().createDirectory(new HoodieLocation(basePath));
     metaClient = HoodieTestUtils.init(hadoopConf, basePath, tableType);
-    hadoopConf.addResource(((FileSystem) storage.getFileSystem()).getConf());
+    hadoopConf.addResource(((FileSystem) metaClient.getHoodieStorage().getFileSystem()).getConf());
   }
 
   private void initWriteConfigAndMetatableWriter(HoodieWriteConfig writeConfig, boolean enableMetadataTable) {
