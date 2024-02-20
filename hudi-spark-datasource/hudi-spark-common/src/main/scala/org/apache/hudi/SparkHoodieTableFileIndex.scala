@@ -499,7 +499,7 @@ object SparkHoodieTableFileIndex extends SparkAdapterSupport {
 
       override def put(path: HoodieLocation, leafFiles: java.util.List[HoodieFileStatus]): Unit =
         cache.putLeafFiles(new Path(path.toUri), leafFiles.asScala.map(e => new FileStatus(
-          e.getLength, e.isDirectory, 0, 0, e.getModificationTime, new Path(e.getLocation.toUri))).toArray)
+          e.getLength, e.isDirectory, 0, e.getBlockSize, e.getModificationTime, new Path(e.getLocation.toUri))).toArray)
 
       override def invalidate(): Unit = cache.invalidateAll()
     }

@@ -119,7 +119,7 @@ public class HadoopFSUtils {
 
   public static FileStatus convertToHadoopFileStatus(HoodieFileStatus hoodieFileStatus) {
     return new FileStatus(
-        hoodieFileStatus.getLength(), hoodieFileStatus.isDirectory(), 0, 0,
+        hoodieFileStatus.getLength(), hoodieFileStatus.isDirectory(), 0, hoodieFileStatus.getBlockSize(),
         hoodieFileStatus.getModificationTime(), new Path(hoodieFileStatus.getLocation().toUri()));
   }
 

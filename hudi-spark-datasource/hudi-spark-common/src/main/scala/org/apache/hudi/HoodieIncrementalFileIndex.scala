@@ -66,7 +66,7 @@ class HoodieIncrementalFileIndex(override val spark: SparkSession,
                 null
               }
             }).filter(slice => slice != null)
-              .map(fileInfo => new FileStatus(fileInfo.getLength, fileInfo.isDirectory, 0, 0,
+              .map(fileInfo => new FileStatus(fileInfo.getLength, fileInfo.isDirectory, 0, fileInfo.getBlockSize,
                 fileInfo.getModificationTime, new Path(fileInfo.getLocation.toUri)))
             val c = fileSlices.filter(f => (includeLogFiles && f.getLogFiles.findAny().isPresent)
               || (f.getBaseFile.isPresent && f.getBaseFile.get().getBootstrapBaseFile.isPresent)).
@@ -90,7 +90,7 @@ class HoodieIncrementalFileIndex(override val spark: SparkSession,
               baseFileStatusOpt.foreach(f => files.append(f))
               files
             })
-              .map(fileInfo => new FileStatus(fileInfo.getLength, fileInfo.isDirectory, 0, 0,
+              .map(fileInfo => new FileStatus(fileInfo.getLength, fileInfo.isDirectory, 0, fileInfo.getBlockSize,
                 fileInfo.getModificationTime, new Path(fileInfo.getLocation.toUri)))
             sparkAdapter.getSparkPartitionedFileUtils.newPartitionDirectory(
               partitionValues, allCandidateFiles)
