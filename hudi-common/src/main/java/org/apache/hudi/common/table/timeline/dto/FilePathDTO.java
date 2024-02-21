@@ -23,6 +23,9 @@ import org.apache.hudi.storage.HoodieLocation;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.net.URI;
+import java.net.URISyntaxException;
+
 /**
  * The data transfer object of file path.
  */
@@ -46,6 +49,10 @@ public class FilePathDTO {
       return null;
     }
 
-    return new HoodieLocation(dto.uri);
+    try {
+      return new HoodieLocation(new URI(dto.uri));
+    } catch (URISyntaxException e) {
+      throw new RuntimeException(e);
+    }
   }
 }
