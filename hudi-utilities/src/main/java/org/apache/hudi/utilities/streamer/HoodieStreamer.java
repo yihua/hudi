@@ -667,7 +667,7 @@ public class HoodieStreamer implements Serializable {
           .withMinSyncInternalSeconds(cfg.minSyncIntervalSeconds).build());
       this.cfg = cfg;
       this.hoodieSparkContext = hoodieSparkContext;
-      this.storage = this.storage;
+      this.storage = storage;
       this.hiveConf = conf;
       this.sparkSession = SparkSession.builder().config(hoodieSparkContext.getConf()).getOrCreate();
       this.asyncCompactService = Option.empty();
