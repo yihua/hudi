@@ -29,6 +29,7 @@ import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.exception.MetadataNotFoundException;
 import org.apache.hudi.hadoop.fs.HadoopFSUtils;
+import org.apache.hudi.io.hadoop.OrcReaderIterator;
 import org.apache.hudi.keygen.BaseKeyGenerator;
 import org.apache.hudi.storage.HoodieStorage;
 import org.apache.hudi.storage.HoodieStorageUtils;
@@ -103,7 +104,7 @@ public class OrcUtils extends BaseFileUtils {
       if (keyCol == -1 || partitionCol == -1) {
         throw new HoodieException(String.format("Couldn't find row keys or partition path in %s.", filePath));
       }
-      return new OrcReaderIterator<>(recordReader, readSchema, orcSchema);
+      return new org.apache.hudi.io.hadoop.OrcReaderIterator<>(recordReader, readSchema, orcSchema);
     } catch (IOException e) {
       throw new HoodieIOException("Failed to open reader from ORC file:" + filePath, e);
     }
@@ -172,7 +173,7 @@ public class OrcUtils extends BaseFileUtils {
       TypeDescription orcSchema = reader.getSchema();
       try (RecordReader recordReader = reader.rows(
           new Options(configuration.unwrapAs(Configuration.class)).schema(orcSchema))) {
-        OrcReaderIterator<GenericRecord> iterator = new OrcReaderIterator<>(recordReader, avroSchema, orcSchema);
+        org.apache.hudi.io.hadoop.OrcReaderIterator<GenericRecord> iterator = new OrcReaderIterator<>(recordReader, avroSchema, orcSchema);
         while (iterator.hasNext()) {
           GenericRecord record = iterator.next();
           records.add(record);
