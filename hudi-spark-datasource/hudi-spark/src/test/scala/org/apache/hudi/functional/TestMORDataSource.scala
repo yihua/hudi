@@ -20,7 +20,7 @@ package org.apache.hudi.functional
 import org.apache.hudi.DataSourceWriteOptions._
 import org.apache.hudi.HoodieConversionUtils.toJavaOption
 import org.apache.hudi.client.SparkRDDWriteClient
-import org.apache.hudi.common.config.TimestampKeyGeneratorConfig.{TIMESTAMP_INPUT_DATE_FORMAT, TIMESTAMP_INPUT_TIMEZONE_FORMAT, TIMESTAMP_OUTPUT_DATE_FORMAT, TIMESTAMP_OUTPUT_TIMEZONE_FORMAT, TIMESTAMP_TIMEZONE_FORMAT, TIMESTAMP_TYPE_FIELD}
+import org.apache.hudi.common.config.TimestampKeyGeneratorConfig.{INPUT_TIME_UNIT, TIMESTAMP_INPUT_DATE_FORMAT, TIMESTAMP_INPUT_TIMEZONE_FORMAT, TIMESTAMP_OUTPUT_DATE_FORMAT, TIMESTAMP_OUTPUT_TIMEZONE_FORMAT, TIMESTAMP_TIMEZONE_FORMAT, TIMESTAMP_TYPE_FIELD}
 import org.apache.hudi.common.config.{HoodieMetadataConfig, HoodieStorageConfig}
 import org.apache.hudi.common.model.HoodieRecord.HoodieRecordType
 import org.apache.hudi.common.model._
@@ -32,6 +32,7 @@ import org.apache.hudi.config.{HoodieCompactionConfig, HoodieIndexConfig, Hoodie
 import org.apache.hudi.functional.TestCOWDataSource.convertColumnsToNullable
 import org.apache.hudi.hadoop.config.HoodieRealtimeConfig
 import org.apache.hudi.index.HoodieIndex.IndexType
+import org.apache.hudi.keygen.CustomKeyGenerator
 import org.apache.hudi.table.action.compact.CompactionTriggerStrategy
 import org.apache.hudi.testutils.{DataSourceTestUtils, HoodieSparkClientTestBase}
 import org.apache.hudi.util.JFunction
@@ -50,6 +51,7 @@ import org.junit.jupiter.params.provider.{CsvSource, EnumSource}
 import org.slf4j.LoggerFactory
 
 import java.util.TimeZone
+import java.util.concurrent.TimeUnit
 import java.util.function.Consumer
 
 import scala.collection.JavaConversions.mapAsJavaMap
@@ -1214,10 +1216,16 @@ class TestMORDataSource extends HoodieSparkClientTestBase with SparkDatasetMixin
   }
 
   @ParameterizedTest
-  @CsvSource(Array("true,AVRO,yyyy-MM-dd,UTC,UTC,UTC,UTC", "true,SPARK,yyyy-MM,EDT,CST,EDT,EDT",
-    "false,AVRO,yyyy,EST,IST,IST,IST", "false,SPARK,yyyy/MM/dd,EST,MST,SGT,GMT", "false,SPARK,yyyy/MM/dd,EST,,SGT,GMT"))
+  @CsvSource(Array(
+    "true,AVRO,org.apache.hudi.keygen.TimestampBasedKeyGenerator,yyyy-MM-dd,UTC,UTC,UTC,UTC",
+    "true,AVRO,org.apache.hudi.keygen.CustomKeyGenerator,yyyy-MM-dd,UTC,UTC,UTC,UTC",
+    "true,SPARK,org.apache.hudi.keygen.TimestampBasedKeyGenerator,yyyy-MM,EDT,CST,EDT,EDT",
+    "false,AVRO,org.apache.hudi.keygen.TimestampBasedKeyGenerator,yyyy,EST,IST,IST,IST",
+    "false,SPARK,org.apache.hudi.keygen.TimestampBasedKeyGenerator,yyyy/MM/dd,EST,MST,SGT,GMT",
+    "false,SPARK,org.apache.hudi.keygen.TimestampBasedKeyGenerator,yyyy/MM/dd,EST,,SGT,GMT"))
   def testPrunePartitionForTimestampBasedKeyGeneratorWithInformationLoss(enableFileIndex: Boolean,
                                                                          recordType: HoodieRecordType,
+                                                                         keyGenClassName: String,
                                                                          timestampOutputFormat: String,
                                                                          timestampInputTimezone: String,
                                                                          timestampOutputTimezone: String,
@@ -1237,12 +1245,19 @@ class TestMORDataSource extends HoodieSparkClientTestBase with SparkDatasetMixin
     var options = commonOpts ++ Map(
       "hoodie.compact.inline" -> "false",
       DataSourceWriteOptions.TABLE_TYPE.key -> DataSourceWriteOptions.MOR_TABLE_TYPE_OPT_VAL,
-      DataSourceWriteOptions.KEYGENERATOR_CLASS_NAME.key -> "org.apache.hudi.keygen.TimestampBasedKeyGenerator",
-      TIMESTAMP_TYPE_FIELD.key -> "DATE_STRING",
+      DataSourceWriteOptions.KEYGENERATOR_CLASS_NAME.key -> keyGenClassName,
+      TIMESTAMP_TYPE_FIELD.key -> "SCALAR",
+      INPUT_TIME_UNIT.key -> TimeUnit.MICROSECONDS.toString,
       TIMESTAMP_OUTPUT_DATE_FORMAT.key -> timestampOutputFormat,
       TIMESTAMP_INPUT_TIMEZONE_FORMAT.key -> timestampInputTimezone,
       TIMESTAMP_INPUT_DATE_FORMAT.key -> inputFormat
-    ) ++ writeOpts + (PARTITIONPATH_FIELD.key() -> "extra_partition_field")
+    ) ++ writeOpts + (PARTITIONPATH_FIELD.key() -> {
+      if (classOf[CustomKeyGenerator].getCanonicalName.equals(keyGenClassName)) {
+        "extra_partition_field:timestamp"
+      } else {
+        "extra_partition_field"
+      }
+    })
     if (timestampOutputTimezone != null) {
       options = options + (TIMESTAMP_OUTPUT_TIMEZONE_FORMAT.key -> timestampOutputTimezone)
     }
@@ -1250,9 +1265,13 @@ class TestMORDataSource extends HoodieSparkClientTestBase with SparkDatasetMixin
     val dataGen = new HoodieTestDataGenerator()
     val records1 = recordsToStrings(dataGen.generateInserts("001", 96)).asScala
     var inputDF1 = spark.read.json(spark.sparkContext.parallelize(records1, 1)).orderBy("_row_key")
-    val timestampColumnValues = Seq.range(0, 96).map(i => Row(new DateTime(2024, 7, 29, i / 4, 15 * (i % 4), outputTimezone).withZone(writeZone).toString(inputFormat)))
-    var timestampDf = spark.createDataFrame(spark.sparkContext.parallelize(timestampColumnValues, 1), StructType(Seq(StructField("extra_partition_field", StringType))))
-    timestampDf = timestampDf.withColumn("dateid", monotonically_increasing_id())
+    val timestampColumnValues = Seq.range(0, 96).map(i => Row(new DateTime(
+      2024, 7, 29, i / 4, 15 * (i % 4), i / 2, i * 10, outputTimezone).withZone(writeZone).toString(inputFormat)))
+
+    var timestampDf = spark.createDataFrame(spark.sparkContext.parallelize(timestampColumnValues, 1), StructType(Seq(StructField("extra_partition_ts", StringType))))
+    timestampDf = timestampDf
+      .withColumn("extra_partition_field", to_timestamp(col("extra_partition_ts"), inputFormat))
+      .withColumn("dateid", monotonically_increasing_id())
 
     inputDF1 = inputDF1.withColumn("dateid", monotonically_increasing_id())
     inputDF1 = inputDF1.join(timestampDf, "dateid").repartition(6)

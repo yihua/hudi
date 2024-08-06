@@ -19,14 +19,13 @@ package org.apache.hudi
 
 import org.apache.hudi.HoodieFileIndex.{DataSkippingFailureMode, collectReferencedColumns, convertFilterForTimestampKeyGenerator, getConfigProperties}
 import org.apache.hudi.HoodieSparkConfUtils.getConfigValue
-import org.apache.hudi.common.config.TimestampKeyGeneratorConfig.{TIMESTAMP_INPUT_DATE_FORMAT, TIMESTAMP_OUTPUT_DATE_FORMAT}
 import org.apache.hudi.common.config.{HoodieMetadataConfig, TimestampKeyGeneratorConfig, TypedProperties}
 import org.apache.hudi.common.model.{FileSlice, HoodieBaseFile, HoodieLogFile}
 import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.common.util.{DateTimeUtils, StringUtils}
 import org.apache.hudi.exception.HoodieException
 import org.apache.hudi.keygen.parser.HoodieDateTimeParser
-import org.apache.hudi.keygen.{TimestampBasedAvroKeyGenerator, TimestampBasedKeyGenerator}
+import org.apache.hudi.keygen.{CustomAvroKeyGenerator, CustomKeyGenerator, TimestampBasedAvroKeyGenerator, TimestampBasedKeyGenerator}
 import org.apache.hudi.metadata.HoodieMetadataPayload
 import org.apache.hudi.util.JFunction
 
@@ -482,14 +481,20 @@ object HoodieFileIndex extends Logging {
     val keyGenerator = tableConfig.getKeyGeneratorClassName
 
     if (keyGenerator != null && (keyGenerator.equals(classOf[TimestampBasedKeyGenerator].getCanonicalName) ||
-        keyGenerator.equals(classOf[TimestampBasedAvroKeyGenerator].getCanonicalName))) {
-      val inputFormat = tableConfig.getString(TIMESTAMP_INPUT_DATE_FORMAT)
-      val outputFormat = tableConfig.getString(TIMESTAMP_OUTPUT_DATE_FORMAT)
+      keyGenerator.equals(classOf[TimestampBasedAvroKeyGenerator].getCanonicalName) ||
+      keyGenerator.equals(classOf[CustomKeyGenerator].getCanonicalName) ||
+      keyGenerator.equals(classOf[CustomAvroKeyGenerator].getCanonicalName))) {
+      val inputFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ" // tableConfig.getString(TIMESTAMP_INPUT_DATE_FORMAT)
+      val outputFormat = "yyyy-MM-dd" // tableConfig.getString(TIMESTAMP_OUTPUT_DATE_FORMAT)
       if (StringUtils.isNullOrEmpty(inputFormat) || StringUtils.isNullOrEmpty(outputFormat) || inputFormat.equals(outputFormat)) {
         partitionFilters
       } else {
         try {
           val propsForTimestampParser = new TypedProperties(tableConfig.getProps)
+          propsForTimestampParser.setProperty(
+            TimestampKeyGeneratorConfig.TIMESTAMP_INPUT_DATE_FORMAT.key, inputFormat)
+          propsForTimestampParser.setProperty(
+            TimestampKeyGeneratorConfig.TIMESTAMP_OUTPUT_DATE_FORMAT.key, outputFormat)
           propsForTimestampParser.setProperty(TimestampKeyGeneratorConfig.TIMESTAMP_TYPE_FIELD.key,
             TimestampBasedAvroKeyGenerator.TimestampType.DATE_STRING.name())
           val dtParser = new HoodieDateTimeParser(propsForTimestampParser)
