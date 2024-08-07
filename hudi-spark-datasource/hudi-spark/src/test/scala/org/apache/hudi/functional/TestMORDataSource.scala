@@ -1217,14 +1217,21 @@ class TestMORDataSource extends HoodieSparkClientTestBase with SparkDatasetMixin
 
   @ParameterizedTest
   @CsvSource(Array(
-    "true,AVRO,org.apache.hudi.keygen.TimestampBasedKeyGenerator,yyyy-MM-dd,UTC,UTC,UTC,UTC",
-    "true,AVRO,org.apache.hudi.keygen.CustomKeyGenerator,yyyy-MM-dd,UTC,UTC,UTC,UTC",
-    "true,SPARK,org.apache.hudi.keygen.TimestampBasedKeyGenerator,yyyy-MM,EDT,CST,EDT,EDT",
-    "false,AVRO,org.apache.hudi.keygen.TimestampBasedKeyGenerator,yyyy,EST,IST,IST,IST",
-    "false,SPARK,org.apache.hudi.keygen.TimestampBasedKeyGenerator,yyyy/MM/dd,EST,MST,SGT,GMT",
-    "false,SPARK,org.apache.hudi.keygen.TimestampBasedKeyGenerator,yyyy/MM/dd,EST,,SGT,GMT"))
+    "true,AVRO,DATE_STRING,org.apache.hudi.keygen.TimestampBasedKeyGenerator,yyyy-MM-dd,UTC,UTC,UTC,UTC",
+    "true,AVRO,DATE_STRING,org.apache.hudi.keygen.CustomKeyGenerator,yyyy-MM-dd,UTC,UTC,UTC,UTC",
+    "true,SPARK,DATE_STRING,org.apache.hudi.keygen.TimestampBasedKeyGenerator,yyyy-MM,EDT,CST,EDT,EDT",
+    "false,AVRO,DATE_STRING,org.apache.hudi.keygen.TimestampBasedKeyGenerator,yyyy,EST,IST,IST,IST",
+    "false,SPARK,DATE_STRING,org.apache.hudi.keygen.TimestampBasedKeyGenerator,yyyy/MM/dd,EST,MST,SGT,GMT",
+    "false,SPARK,DATE_STRING,org.apache.hudi.keygen.TimestampBasedKeyGenerator,yyyy/MM/dd,EST,,SGT,GMT",
+    "true,AVRO,SCALAR,org.apache.hudi.keygen.TimestampBasedKeyGenerator,yyyy-MM-dd,UTC,UTC,UTC,UTC",
+    "true,AVRO,SCALAR,org.apache.hudi.keygen.CustomKeyGenerator,yyyy-MM-dd,UTC,UTC,UTC,UTC",
+    "true,SPARK,SCALAR,org.apache.hudi.keygen.TimestampBasedKeyGenerator,yyyy-MM,EDT,CST,EDT,EDT",
+    "false,AVRO,SCALAR,org.apache.hudi.keygen.TimestampBasedKeyGenerator,yyyy,EST,IST,IST,IST",
+    "false,SPARK,SCALAR,org.apache.hudi.keygen.TimestampBasedKeyGenerator,yyyy/MM/dd,EST,MST,SGT,GMT",
+    "false,SPARK,SCALAR,org.apache.hudi.keygen.TimestampBasedKeyGenerator,yyyy/MM/dd,EST,,SGT,GMT"))
   def testPrunePartitionForTimestampBasedKeyGeneratorWithInformationLoss(enableFileIndex: Boolean,
                                                                          recordType: HoodieRecordType,
+                                                                         timestampType: String,
                                                                          keyGenClassName: String,
                                                                          timestampOutputFormat: String,
                                                                          timestampInputTimezone: String,
@@ -1246,7 +1253,7 @@ class TestMORDataSource extends HoodieSparkClientTestBase with SparkDatasetMixin
       "hoodie.compact.inline" -> "false",
       DataSourceWriteOptions.TABLE_TYPE.key -> DataSourceWriteOptions.MOR_TABLE_TYPE_OPT_VAL,
       DataSourceWriteOptions.KEYGENERATOR_CLASS_NAME.key -> keyGenClassName,
-      TIMESTAMP_TYPE_FIELD.key -> "SCALAR",
+      TIMESTAMP_TYPE_FIELD.key -> timestampType,
       INPUT_TIME_UNIT.key -> TimeUnit.MICROSECONDS.toString,
       TIMESTAMP_OUTPUT_DATE_FORMAT.key -> timestampOutputFormat,
       TIMESTAMP_INPUT_TIMEZONE_FORMAT.key -> timestampInputTimezone,
@@ -1263,14 +1270,20 @@ class TestMORDataSource extends HoodieSparkClientTestBase with SparkDatasetMixin
     }
 
     val dataGen = new HoodieTestDataGenerator()
-    val records1 = recordsToStrings(dataGen.generateInserts("001", 96)).asScala
+    val records1 = recordsToStrings(dataGen.generateInserts("001", 192)).asScala
     var inputDF1 = spark.read.json(spark.sparkContext.parallelize(records1, 1)).orderBy("_row_key")
-    val timestampColumnValues = Seq.range(0, 96).map(i => Row(new DateTime(
-      2024, 7, 29, i / 4, 15 * (i % 4), i / 2, i * 10, outputTimezone).withZone(writeZone).toString(inputFormat)))
+    val timestampColumnValues = Seq.range(0, 192).map(i => Row(new DateTime(
+      2024, 7, 29 + i / 96, (i % 96) / 4, 15 * (i % 4), (i % 96) / 2, (i % 96) * 10, outputTimezone)
+      .withZone(writeZone).toString(inputFormat)))
 
     var timestampDf = spark.createDataFrame(spark.sparkContext.parallelize(timestampColumnValues, 1), StructType(Seq(StructField("extra_partition_ts", StringType))))
     timestampDf = timestampDf
-      .withColumn("extra_partition_field", to_timestamp(col("extra_partition_ts"), inputFormat))
+      .withColumn("extra_partition_field",
+        if ("DATE_STRING".equals(timestampType)) {
+          col("extra_partition_ts")
+        } else {
+          to_timestamp(col("extra_partition_ts"), inputFormat)
+        })
       .withColumn("dateid", monotonically_increasing_id())
 
     inputDF1 = inputDF1.withColumn("dateid", monotonically_increasing_id())
@@ -1283,11 +1296,11 @@ class TestMORDataSource extends HoodieSparkClientTestBase with SparkDatasetMixin
 
     spark.read.format("hudi").options(readOpts).load(basePath).createTempView("firstwrite")
 
-    val fiveFourFiveTS = new DateTime(2024, 7, 29, 5, 45, outputTimezone).withZone(readZone).toString(inputFormat)
-    val sixFourFiveTS = new DateTime(2024, 7, 29, 6, 45, outputTimezone).withZone(readZone).toString(inputFormat)
+    val fiveFourFiveTS = new DateTime(2024, 7, 29, 5, 45, 11, 230, outputTimezone).withZone(readZone).toString(inputFormat)
+    val sixFourFiveTS = new DateTime(2024, 7, 29, 6, 45, 13, 270, outputTimezone).withZone(readZone).toString(inputFormat)
 
-    val fiveFourFourTS = new DateTime(2024, 7, 29, 5, 44, 59, 999, outputTimezone).withZone(readZone).toString(inputFormat)
-    val sixFourFivePlusTS = new DateTime(2024, 7, 29, 6, 45, 0, 1, outputTimezone).withZone(readZone).toString(inputFormat)
+    val fiveFourFiveMinusTS = new DateTime(2024, 7, 29, 5, 45, 11, 229, outputTimezone).withZone(readZone).toString(inputFormat)
+    val sixFourFivePlusTS = new DateTime(2024, 7, 29, 6, 45, 13, 271, outputTimezone).withZone(readZone).toString(inputFormat)
 
     val id545 = 23L
     val id600 = 24L
@@ -1301,10 +1314,12 @@ class TestMORDataSource extends HoodieSparkClientTestBase with SparkDatasetMixin
     assertEquals(id600 + id615 + id630, spark.sql(s"""select * from firstwrite where to_timestamp("$fiveFourFiveTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ") < firstwrite.extra_partition_field"""
       + s""" and to_timestamp("$sixFourFiveTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ") > firstwrite.extra_partition_field""").agg(sum("dateid")).first.get(0))
 
-    assertEquals(id545 + id600 + id615 + id630 + id645, spark.sql(s"""select * from firstwrite where firstwrite.extra_partition_field > to_timestamp("$fiveFourFourTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ") """
+    assertEquals(id545 + id600 + id615 + id630 + id645, spark.sql(
+      s"""select * from firstwrite where firstwrite.extra_partition_field > to_timestamp("$fiveFourFiveMinusTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ") """
       + s""" and firstwrite.extra_partition_field < to_timestamp("$sixFourFivePlusTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ")""").agg(sum("dateid")).first.get(0))
 
-    assertEquals(id545 + id600 + id615 + id630 + id645, spark.sql(s"""select * from firstwrite where to_timestamp("$fiveFourFourTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ") < firstwrite.extra_partition_field"""
+    assertEquals(id545 + id600 + id615 + id630 + id645, spark.sql(
+      s"""select * from firstwrite where to_timestamp("$fiveFourFiveMinusTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ") < firstwrite.extra_partition_field"""
       + s""" and to_timestamp("$sixFourFivePlusTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ") > firstwrite.extra_partition_field""").agg(sum("dateid")).first.get(0))
 
     assertEquals(id545 + id600 + id615 + id630 + id645, spark.sql(s"""select * from firstwrite where firstwrite.extra_partition_field >= to_timestamp("$fiveFourFiveTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ") """
@@ -1313,10 +1328,18 @@ class TestMORDataSource extends HoodieSparkClientTestBase with SparkDatasetMixin
     assertEquals(id545 + id600 + id615 + id630 + id645, spark.sql(s"""select * from firstwrite where to_timestamp("$fiveFourFiveTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ") <= firstwrite.extra_partition_field"""
       + s""" and to_timestamp("$sixFourFiveTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ") >= firstwrite.extra_partition_field""").agg(sum("dateid")).first.get(0))
 
-    val records2 = recordsToStrings(dataGen.generateUniqueUpdates("002", 96)).asScala
+    val records2 = recordsToStrings(dataGen.generateUniqueUpdates("002", 192)).asScala
     var inputDF2 = spark.read.json(spark.sparkContext.parallelize(records2, 1)).orderBy("_row_key")
-    var timestampDf2 = spark.createDataFrame(spark.sparkContext.parallelize(timestampColumnValues, 1), StructType(Seq(StructField("extra_partition_field", StringType))))
-    timestampDf2 = timestampDf2.withColumn("dateid", monotonically_increasing_id())
+
+    var timestampDf2 = spark.createDataFrame(spark.sparkContext.parallelize(timestampColumnValues, 1), StructType(Seq(StructField("extra_partition_ts", StringType))))
+    timestampDf2 = timestampDf2
+      .withColumn("extra_partition_field",
+        if ("DATE_STRING".equals(timestampType)) {
+          col("extra_partition_ts")
+        } else {
+          to_timestamp(col("extra_partition_ts"), inputFormat)
+        })
+      .withColumn("dateid", monotonically_increasing_id())
 
     inputDF2 = inputDF2.withColumn("dateid", monotonically_increasing_id())
     inputDF2 = inputDF2.join(timestampDf2, "dateid").filter("dateid % 2 == 0").repartition(6)
@@ -1326,7 +1349,6 @@ class TestMORDataSource extends HoodieSparkClientTestBase with SparkDatasetMixin
       .mode(SaveMode.Append)
       .save(basePath)
 
-
     spark.read.format("hudi").options(readOpts).load(basePath).createTempView("secondwrite")
 
     assertEquals(id600 + id615 + id630, spark.sql(s"""select * from secondwrite where secondwrite.extra_partition_field > to_timestamp("$fiveFourFiveTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ") """
@@ -1335,10 +1357,12 @@ class TestMORDataSource extends HoodieSparkClientTestBase with SparkDatasetMixin
     assertEquals(id600 + id615 + id630, spark.sql(s"""select * from secondwrite where to_timestamp("$fiveFourFiveTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ") < secondwrite.extra_partition_field"""
       + s""" and to_timestamp("$sixFourFiveTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ") > secondwrite.extra_partition_field""").agg(sum("dateid")).first.get(0))
 
-    assertEquals(id545 + id600 + id615 + id630 + id645, spark.sql(s"""select * from secondwrite where secondwrite.extra_partition_field > to_timestamp("$fiveFourFourTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ") """
+    assertEquals(id545 + id600 + id615 + id630 + id645, spark.sql(
+      s"""select * from secondwrite where secondwrite.extra_partition_field > to_timestamp("$fiveFourFiveMinusTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ") """
       + s""" and secondwrite.extra_partition_field < to_timestamp("$sixFourFivePlusTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ")""").agg(sum("dateid")).first.get(0))
 
-    assertEquals(id545 + id600 + id615 + id630 + id645, spark.sql(s"""select * from secondwrite where to_timestamp("$fiveFourFourTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ") < secondwrite.extra_partition_field"""
+    assertEquals(id545 + id600 + id615 + id630 + id645, spark.sql(
+      s"""select * from secondwrite where to_timestamp("$fiveFourFiveMinusTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ") < secondwrite.extra_partition_field"""
       + s""" and to_timestamp("$sixFourFivePlusTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ") > secondwrite.extra_partition_field""").agg(sum("dateid")).first.get(0))
 
     assertEquals(id545 + id600 + id615 + id630 + id645, spark.sql(s"""select * from secondwrite where secondwrite.extra_partition_field >= to_timestamp("$fiveFourFiveTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ") """

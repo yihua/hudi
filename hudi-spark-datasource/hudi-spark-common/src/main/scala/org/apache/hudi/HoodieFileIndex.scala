@@ -484,8 +484,17 @@ object HoodieFileIndex extends Logging {
       keyGenerator.equals(classOf[TimestampBasedAvroKeyGenerator].getCanonicalName) ||
       keyGenerator.equals(classOf[CustomKeyGenerator].getCanonicalName) ||
       keyGenerator.equals(classOf[CustomAvroKeyGenerator].getCanonicalName))) {
-      val inputFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ" // tableConfig.getString(TIMESTAMP_INPUT_DATE_FORMAT)
-      val outputFormat = "yyyy-MM-dd" // tableConfig.getString(TIMESTAMP_OUTPUT_DATE_FORMAT)
+      var inputFormat = tableConfig.getString(TimestampKeyGeneratorConfig.TIMESTAMP_INPUT_DATE_FORMAT)
+      var outputFormat = tableConfig.getString(TimestampKeyGeneratorConfig.TIMESTAMP_OUTPUT_DATE_FORMAT)
+
+      if (inputFormat == null || outputFormat == null) {
+        if (keyGenerator.equals(classOf[CustomKeyGenerator].getCanonicalName) ||
+          keyGenerator.equals(classOf[CustomAvroKeyGenerator].getCanonicalName)) {
+          inputFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ"
+          outputFormat = "yyyy-MM-dd"
+        }
+      }
+
       if (StringUtils.isNullOrEmpty(inputFormat) || StringUtils.isNullOrEmpty(outputFormat) || inputFormat.equals(outputFormat)) {
         partitionFilters
       } else {
@@ -518,6 +527,7 @@ object HoodieFileIndex extends Logging {
                 val converted = dateObj.toString(outputFormat)
                 val dateObjRounded = outDateFormatter.parseDateTime(converted)
                 Literal(DateTimeUtils.instantToMicros(new Timestamp(dateObjRounded.getMillis).toInstant), TimestampType)
+              //Literal(UTF8String.fromString(converted), StringType)
               case GreaterThan(left, right) => GreaterThanOrEqual(left, right)
               case LessThan(left, right) => LessThanOrEqual(left, right)
             }
