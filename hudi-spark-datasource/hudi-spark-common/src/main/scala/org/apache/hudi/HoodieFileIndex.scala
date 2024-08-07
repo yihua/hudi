@@ -496,8 +496,10 @@ object HoodieFileIndex extends Logging {
       }
 
       if (StringUtils.isNullOrEmpty(inputFormat) || StringUtils.isNullOrEmpty(outputFormat) || inputFormat.equals(outputFormat)) {
-        partitionFilters
+        Seq.empty[Expression]//partitionFilters
       } else {
+        Seq.empty[Expression]
+        /*
         try {
           val propsForTimestampParser = new TypedProperties(tableConfig.getProps)
           propsForTimestampParser.setProperty(
@@ -536,7 +538,7 @@ object HoodieFileIndex extends Logging {
           case NonFatal(e) =>
             logWarning("Fail to convert filters for TimestampBaseAvroKeyGenerator", e)
             partitionFilters
-        }
+        }*/
       }
     } else {
       partitionFilters
