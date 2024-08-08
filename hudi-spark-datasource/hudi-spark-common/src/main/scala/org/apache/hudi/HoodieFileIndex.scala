@@ -32,7 +32,7 @@ import org.apache.hudi.util.JFunction
 import org.apache.hadoop.fs.{FileStatus, Path}
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{And, Expression, GreaterThan, GreaterThanOrEqual, LessThan, LessThanOrEqual, Literal}
+import org.apache.spark.sql.catalyst.expressions.{And, Cast, Expression, GreaterThan, GreaterThanOrEqual, LessThan, LessThanOrEqual, Literal}
 import org.apache.spark.sql.execution.datasources.{FileIndex, FileStatusCache, NoopCache, PartitionDirectory}
 import org.apache.spark.sql.hudi.DataSkippingUtils.translateIntoColumnStatsIndexFilterExpr
 import org.apache.spark.sql.hudi.HoodieSqlCommonUtils
@@ -484,22 +484,12 @@ object HoodieFileIndex extends Logging {
       keyGenerator.equals(classOf[TimestampBasedAvroKeyGenerator].getCanonicalName) ||
       keyGenerator.equals(classOf[CustomKeyGenerator].getCanonicalName) ||
       keyGenerator.equals(classOf[CustomAvroKeyGenerator].getCanonicalName))) {
-      var inputFormat = tableConfig.getString(TimestampKeyGeneratorConfig.TIMESTAMP_INPUT_DATE_FORMAT)
-      var outputFormat = tableConfig.getString(TimestampKeyGeneratorConfig.TIMESTAMP_OUTPUT_DATE_FORMAT)
-
-      if (inputFormat == null || outputFormat == null) {
-        if (keyGenerator.equals(classOf[CustomKeyGenerator].getCanonicalName) ||
-          keyGenerator.equals(classOf[CustomAvroKeyGenerator].getCanonicalName)) {
-          inputFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ"
-          outputFormat = "yyyy-MM-dd"
-        }
-      }
+      var inputFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ" // tableConfig.getString(TimestampKeyGeneratorConfig.TIMESTAMP_INPUT_DATE_FORMAT)
+      var outputFormat = "yyyy-MM-dd" // tableConfig.getString(TimestampKeyGeneratorConfig.TIMESTAMP_OUTPUT_DATE_FORMAT)
 
       if (StringUtils.isNullOrEmpty(inputFormat) || StringUtils.isNullOrEmpty(outputFormat) || inputFormat.equals(outputFormat)) {
-        Seq.empty[Expression]//partitionFilters
+        partitionFilters
       } else {
-        Seq.empty[Expression]
-        /*
         try {
           val propsForTimestampParser = new TypedProperties(tableConfig.getProps)
           propsForTimestampParser.setProperty(
@@ -528,17 +518,20 @@ object HoodieFileIndex extends Logging {
                 val dateObj = new DateTime(javaTime.getTime, outTimeZone)
                 val converted = dateObj.toString(outputFormat)
                 val dateObjRounded = outDateFormatter.parseDateTime(converted)
-                Literal(DateTimeUtils.instantToMicros(new Timestamp(dateObjRounded.getMillis).toInstant), TimestampType)
-              //Literal(UTF8String.fromString(converted), StringType)
+                //Literal(DateTimeUtils.instantToMicros(new Timestamp(dateObjRounded.getMillis).toInstant), TimestampType)
+                Literal(UTF8String.fromString(converted), StringType)
               case GreaterThan(left, right) => GreaterThanOrEqual(left, right)
               case LessThan(left, right) => LessThanOrEqual(left, right)
+              case Cast(child, dateType, _, _) => {
+                child
+              }
             }
           }
         } catch {
           case NonFatal(e) =>
             logWarning("Fail to convert filters for TimestampBaseAvroKeyGenerator", e)
             partitionFilters
-        }*/
+        }
       }
     } else {
       partitionFilters

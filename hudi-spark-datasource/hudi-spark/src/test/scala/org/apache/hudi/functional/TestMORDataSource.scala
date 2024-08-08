@@ -1308,6 +1308,10 @@ class TestMORDataSource extends HoodieSparkClientTestBase with SparkDatasetMixin
     val id630 = 26L
     val id645 = 27L
 
+    spark.sql(
+      s"""select * from firstwrite where firstwrite.extra_partition_field > to_timestamp("$fiveFourFiveTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ") """
+        + s""" and firstwrite.extra_partition_field < to_timestamp("$sixFourFiveTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ")""").show(false)
+
     assertEquals(id600 + id615 + id630, spark.sql(s"""select * from firstwrite where firstwrite.extra_partition_field > to_timestamp("$fiveFourFiveTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ") """
       + s""" and firstwrite.extra_partition_field < to_timestamp("$sixFourFiveTS", "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ")""").agg(sum("dateid")).first.get(0))
 

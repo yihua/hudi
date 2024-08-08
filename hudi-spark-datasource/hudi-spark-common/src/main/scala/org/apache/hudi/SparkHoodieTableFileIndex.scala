@@ -17,7 +17,6 @@
 
 package org.apache.hudi
 
-import org.apache.hadoop.fs.{FileStatus, Path}
 import org.apache.hudi.BaseHoodieTableFileIndex.PartitionPath
 import org.apache.hudi.DataSourceReadOptions._
 import org.apache.hudi.HoodieConversionUtils.toJavaOption
@@ -33,6 +32,8 @@ import org.apache.hudi.internal.schema.Types.RecordType
 import org.apache.hudi.internal.schema.utils.Conversions
 import org.apache.hudi.keygen.{StringPartitionPathFormatter, TimestampBasedAvroKeyGenerator, TimestampBasedKeyGenerator}
 import org.apache.hudi.util.JFunction
+
+import org.apache.hadoop.fs.{FileStatus, Path}
 import org.apache.spark.api.java.JavaSparkContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
@@ -42,9 +43,11 @@ import org.apache.spark.sql.catalyst.{InternalRow, expressions}
 import org.apache.spark.sql.execution.datasources.{FileStatusCache, NoopCache}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
+import org.apache.spark.unsafe.types.UTF8String
 
 import java.util.Collections
 import javax.annotation.concurrent.NotThreadSafe
+
 import scala.collection.JavaConverters._
 import scala.language.implicitConversions
 import scala.util.{Success, Try}
@@ -242,11 +245,11 @@ class SparkHoodieTableFileIndex(spark: SparkSession,
         val boundPredicate = InterpretedPredicate(predicate.transform {
           case a: AttributeReference =>
             val index = partitionSchema.indexWhere(a.name == _.name)
-            BoundReference(index, partitionSchema(index).dataType, nullable = true)
+            BoundReference(index, StringType, nullable = true)
         })
 
         val prunedPartitionPaths = partitionPaths.filter {
-          partitionPath => boundPredicate.eval(InternalRow.fromSeq(partitionPath.values))
+          partitionPath => boundPredicate.eval(InternalRow.fromSeq(Seq(UTF8String.fromString(partitionPath.path))))
         }
 
         logInfo(s"Using provided predicates to prune number of target table's partitions scanned from" +
