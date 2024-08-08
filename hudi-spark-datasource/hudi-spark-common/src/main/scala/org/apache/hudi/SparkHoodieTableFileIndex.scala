@@ -245,11 +245,30 @@ class SparkHoodieTableFileIndex(spark: SparkSession,
         val boundPredicate = InterpretedPredicate(predicate.transform {
           case a: AttributeReference =>
             val index = partitionSchema.indexWhere(a.name == _.name)
-            BoundReference(index, StringType, nullable = true)
+            val dataType = partitionSchema(index).dataType
+            BoundReference(index, if (dataType == TimestampType) StringType else dataType, nullable = true)
         })
 
         val prunedPartitionPaths = partitionPaths.filter {
-          partitionPath => boundPredicate.eval(InternalRow.fromSeq(Seq(UTF8String.fromString(partitionPath.path))))
+          partitionPath => {
+            val transformedValues = if (partitionPath.values.length > 1) {
+              partitionPath.values
+            } else {
+              partitionPath.values
+                .zipWithIndex
+                .map {
+                  case (value, i) =>
+                    if (partitionSchema(i).dataType == TimestampType
+                      || (partitionSchema(i).dataType == StringType
+                      && (!value.isInstanceOf[String] || !value.isInstanceOf[UTF8String]))) {
+                      UTF8String.fromString(partitionPath.path)
+                    } else {
+                      value
+                    }
+                }
+            }
+            boundPredicate.eval(InternalRow.fromSeq(transformedValues))
+          }
         }
 
         logInfo(s"Using provided predicates to prune number of target table's partitions scanned from" +

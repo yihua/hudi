@@ -19,9 +19,9 @@ package org.apache.hudi
 
 import org.apache.hudi.HoodieFileIndex.{DataSkippingFailureMode, collectReferencedColumns, convertFilterForTimestampKeyGenerator, getConfigProperties}
 import org.apache.hudi.HoodieSparkConfUtils.getConfigValue
-import org.apache.hudi.common.config.{HoodieMetadataConfig, TimestampKeyGeneratorConfig, TypedProperties}
+import org.apache.hudi.common.config.{ConfigProperty, HoodieMetadataConfig, TimestampKeyGeneratorConfig, TypedProperties}
 import org.apache.hudi.common.model.{FileSlice, HoodieBaseFile, HoodieLogFile}
-import org.apache.hudi.common.table.HoodieTableMetaClient
+import org.apache.hudi.common.table.{HoodieTableConfig, HoodieTableMetaClient}
 import org.apache.hudi.common.util.{DateTimeUtils, StringUtils}
 import org.apache.hudi.exception.HoodieException
 import org.apache.hudi.keygen.parser.HoodieDateTimeParser
@@ -40,7 +40,6 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Column, SparkSession}
 import org.apache.spark.unsafe.types.UTF8String
-import org.joda.time.format.DateTimeFormat
 import org.joda.time.{DateTime, DateTimeZone}
 
 import java.sql.Timestamp
@@ -282,7 +281,7 @@ case class HoodieFileIndex(spark: SparkSession,
     // NOTE: Non-partitioned tables are assumed to consist from a single partition
     //       encompassing the whole table
     val prunedPartitions = if (shouldEmbedFileSlices) {
-      listMatchingPartitionPaths(convertFilterForTimestampKeyGenerator(metaClient, partitionFilters))
+      listMatchingPartitionPaths(convertFilterForTimestampKeyGenerator(metaClient, options, partitionFilters))
     } else {
       listMatchingPartitionPaths(partitionFilters)
     }
@@ -475,7 +474,8 @@ object HoodieFileIndex extends Logging {
   }
 
   def convertFilterForTimestampKeyGenerator(metaClient: HoodieTableMetaClient,
-      partitionFilters: Seq[Expression]): Seq[Expression] = {
+                                            options: Map[String, String],
+                                            partitionFilters: Seq[Expression]): Seq[Expression] = {
 
     val tableConfig = metaClient.getTableConfig
     val keyGenerator = tableConfig.getKeyGeneratorClassName
@@ -484,18 +484,38 @@ object HoodieFileIndex extends Logging {
       keyGenerator.equals(classOf[TimestampBasedAvroKeyGenerator].getCanonicalName) ||
       keyGenerator.equals(classOf[CustomKeyGenerator].getCanonicalName) ||
       keyGenerator.equals(classOf[CustomAvroKeyGenerator].getCanonicalName))) {
-      var inputFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZ" // tableConfig.getString(TimestampKeyGeneratorConfig.TIMESTAMP_INPUT_DATE_FORMAT)
-      var outputFormat = "yyyy-MM-dd" // tableConfig.getString(TimestampKeyGeneratorConfig.TIMESTAMP_OUTPUT_DATE_FORMAT)
+      val inputFormat = getTimestampKeyGenConfig(
+        tableConfig, options, TimestampKeyGeneratorConfig.TIMESTAMP_INPUT_DATE_FORMAT)
+      val outputFormat = getTimestampKeyGenConfig(
+        tableConfig, options, TimestampKeyGeneratorConfig.TIMESTAMP_OUTPUT_DATE_FORMAT)
 
       if (StringUtils.isNullOrEmpty(inputFormat) || StringUtils.isNullOrEmpty(outputFormat) || inputFormat.equals(outputFormat)) {
         partitionFilters
       } else {
         try {
           val propsForTimestampParser = new TypedProperties(tableConfig.getProps)
-          propsForTimestampParser.setProperty(
-            TimestampKeyGeneratorConfig.TIMESTAMP_INPUT_DATE_FORMAT.key, inputFormat)
-          propsForTimestampParser.setProperty(
-            TimestampKeyGeneratorConfig.TIMESTAMP_OUTPUT_DATE_FORMAT.key, outputFormat)
+          if (!StringUtils.isNullOrEmpty(inputFormat)) {
+            propsForTimestampParser.setProperty(
+              TimestampKeyGeneratorConfig.TIMESTAMP_INPUT_DATE_FORMAT.key, inputFormat)
+          }
+          if (!StringUtils.isNullOrEmpty(outputFormat)) {
+            propsForTimestampParser.setProperty(
+              TimestampKeyGeneratorConfig.TIMESTAMP_OUTPUT_DATE_FORMAT.key, outputFormat)
+          }
+          val inputTimezone = getTimestampKeyGenConfig(
+            tableConfig, options, TimestampKeyGeneratorConfig.TIMESTAMP_INPUT_TIMEZONE_FORMAT)
+          if (!StringUtils.isNullOrEmpty(inputTimezone)) {
+            propsForTimestampParser.setProperty(
+              TimestampKeyGeneratorConfig.TIMESTAMP_INPUT_TIMEZONE_FORMAT.key,
+              inputTimezone)
+          }
+          val outputTimezone = getTimestampKeyGenConfig(
+            tableConfig, options, TimestampKeyGeneratorConfig.TIMESTAMP_OUTPUT_TIMEZONE_FORMAT)
+          if (!StringUtils.isNullOrEmpty(outputTimezone)) {
+            propsForTimestampParser.setProperty(
+              TimestampKeyGeneratorConfig.TIMESTAMP_OUTPUT_TIMEZONE_FORMAT.key,
+              outputTimezone)
+          }
           propsForTimestampParser.setProperty(TimestampKeyGeneratorConfig.TIMESTAMP_TYPE_FIELD.key,
             TimestampBasedAvroKeyGenerator.TimestampType.DATE_STRING.name())
           val dtParser = new HoodieDateTimeParser(propsForTimestampParser)
@@ -505,7 +525,6 @@ object HoodieFileIndex extends Logging {
           } else {
             dtParser.getOutputDateTimeZone
           }
-          val outDateFormatter = DateTimeFormat.forPattern(dtParser.getOutputDateFormat).withZone(outTimeZone)
 
           partitionFilters.toArray.map {
             _.transformUp {
@@ -517,14 +536,10 @@ object HoodieFileIndex extends Logging {
                 val javaTime = Timestamp.from(DateTimeUtils.microsToInstant(value.asInstanceOf[Long]))
                 val dateObj = new DateTime(javaTime.getTime, outTimeZone)
                 val converted = dateObj.toString(outputFormat)
-                val dateObjRounded = outDateFormatter.parseDateTime(converted)
-                //Literal(DateTimeUtils.instantToMicros(new Timestamp(dateObjRounded.getMillis).toInstant), TimestampType)
                 Literal(UTF8String.fromString(converted), StringType)
               case GreaterThan(left, right) => GreaterThanOrEqual(left, right)
               case LessThan(left, right) => LessThanOrEqual(left, right)
-              case Cast(child, dateType, _, _) => {
-                child
-              }
+              case Cast(child, dataType, _, _) if dataType == TimestampType => child
             }
           }
         } catch {
@@ -535,6 +550,22 @@ object HoodieFileIndex extends Logging {
       }
     } else {
       partitionFilters
+    }
+  }
+
+  private def getTimestampKeyGenConfig(tableConfig: HoodieTableConfig,
+                                       options: Map[String, String],
+                                       configProp: ConfigProperty[String]): String = {
+    val value = tableConfig.getString(configProp)
+    if (value != null) {
+      value
+    } else {
+      val findConfigValue: PartialFunction[String, String] = {
+        case key if options.contains(key) => options(key)
+      }
+      options.getOrElse(
+        configProp.key(),
+        configProp.getAlternatives.asScala.collectFirst(findConfigValue).orNull)
     }
   }
 

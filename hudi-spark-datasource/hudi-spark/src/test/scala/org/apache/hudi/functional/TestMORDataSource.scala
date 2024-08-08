@@ -1238,7 +1238,7 @@ class TestMORDataSource extends HoodieSparkClientTestBase with SparkDatasetMixin
                                                                          timestampOutputTimezone: String,
                                                                          writeTimezone: String,
                                                                          readTimezone: String): Unit = {
-    val (writeOpts, readOpts) = getWriterReaderOpts(recordType, enableFileIndex = enableFileIndex)
+    var (writeOpts, readOpts) = getWriterReaderOpts(recordType, enableFileIndex = enableFileIndex)
     val outputTimezone = if (timestampOutputTimezone == null) {
       DateTimeZone.UTC
     } else {
@@ -1265,6 +1265,15 @@ class TestMORDataSource extends HoodieSparkClientTestBase with SparkDatasetMixin
         "extra_partition_field"
       }
     })
+
+    if (classOf[CustomKeyGenerator].getCanonicalName.equals(keyGenClassName)) {
+      readOpts += (TIMESTAMP_INPUT_DATE_FORMAT.key -> inputFormat)
+      readOpts += (TIMESTAMP_OUTPUT_DATE_FORMAT.key -> timestampOutputFormat)
+      if (timestampOutputTimezone != null) {
+        readOpts += (TIMESTAMP_OUTPUT_TIMEZONE_FORMAT.key -> timestampOutputTimezone)
+      }
+    }
+
     if (timestampOutputTimezone != null) {
       options = options + (TIMESTAMP_OUTPUT_TIMEZONE_FORMAT.key -> timestampOutputTimezone)
     }

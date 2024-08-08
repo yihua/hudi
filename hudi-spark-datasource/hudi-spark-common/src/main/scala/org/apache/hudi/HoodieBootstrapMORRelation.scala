@@ -70,7 +70,7 @@ case class HoodieBootstrapMORRelation(override val sqlContext: SQLContext,
   protected override def getFileSlices(partitionFilters: Seq[Expression], dataFilters: Seq[Expression]): Seq[FileSlice] = {
     if (globPaths.isEmpty) {
       fileIndex.listFileSlices(HoodieFileIndex.
-        convertFilterForTimestampKeyGenerator(metaClient, partitionFilters)).values.flatten.toSeq
+        convertFilterForTimestampKeyGenerator(metaClient, optParams, partitionFilters)).values.flatten.toSeq
     } else {
       listLatestFileSlices(globPaths, partitionFilters, dataFilters)
     }

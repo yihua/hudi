@@ -19,6 +19,7 @@ package org.apache.spark.sql.hudi.analysis
 
 import org.apache.hudi.SparkAdapterSupport.sparkAdapter
 import org.apache.hudi.{HoodieBaseRelation, HoodieFileIndex}
+
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.catalog.CatalogStatistics
 import org.apache.spark.sql.catalyst.expressions.{And, AttributeReference, AttributeSet, Expression, ExpressionSet, NamedExpression, PredicateHelper, SubqueryExpression}
@@ -51,7 +52,8 @@ case class HoodiePruneFileSourcePartitions(spark: SparkSession) extends Rule[Log
 
       // [[HudiFileIndex]] is a caching one, therefore we don't need to reconstruct new relation,
       // instead we simply just refresh the index and update the stats
-      fileIndex.listFiles(HoodieFileIndex.convertFilterForTimestampKeyGenerator(fileIndex.metaClient, partitionPruningFilters), Seq())
+      fileIndex.listFiles(HoodieFileIndex.convertFilterForTimestampKeyGenerator(
+        fileIndex.metaClient, fileIndex.options, partitionPruningFilters), Seq())
 
       if (partitionPruningFilters.nonEmpty) {
         // Change table stats based on the sizeInBytes of pruned files
