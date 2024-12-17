@@ -29,7 +29,10 @@ import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.engine.HoodieLocalEngineContext;
 import org.apache.hudi.common.engine.HoodieReaderContext;
+import org.apache.hudi.common.model.BaseFile;
 import org.apache.hudi.common.model.FileSlice;
+import org.apache.hudi.common.model.HoodieBaseFile;
+import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
@@ -52,10 +55,12 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static org.apache.hudi.common.model.HoodieRecordMerger.PAYLOAD_BASED_MERGE_STRATEGY_UUID;
@@ -67,7 +72,11 @@ import static org.apache.hudi.common.table.HoodieTableConfig.RECORD_MERGE_MODE;
 import static org.apache.hudi.common.table.HoodieTableConfig.RECORD_MERGE_STRATEGY_ID;
 import static org.apache.hudi.common.testutils.HoodieTestUtils.getLogFileListFromFileSlice;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 
 /**
@@ -85,6 +94,9 @@ public abstract class TestHoodieFileGroupReaderBase<T> {
 
   public abstract String getCustomPayload();
 
+  public abstract void bootstrapTable(List<HoodieRecord> recordList,
+                                      Map<String, String> writeConfigs);
+
   public abstract void commitToTable(List<HoodieRecord> recordList, String operation,
                                      Map<String, String> writeConfigs);
 
@@ -92,14 +104,7 @@ public abstract class TestHoodieFileGroupReaderBase<T> {
                                                   List<T> actualRecordList,
                                                   Schema schema,
                                                   FileSlice fileSlice,
-                                                  boolean isSkipMerge);
-
-  public void validateRecordsInFileGroup(String tablePath,
-                                                  List<T> actualRecordList,
-                                                  Schema schema,
-                                                  FileSlice fileSlice) {
-    validateRecordsInFileGroup(tablePath, actualRecordList, schema, fileSlice, false);
-  }
+                                                  boolean skipMerge);
 
   private static Stream<Arguments> testArguments() {
     return Stream.of(
@@ -157,6 +162,30 @@ public abstract class TestHoodieFileGroupReaderBase<T> {
     }
   }
 
+  @ParameterizedTest
+  @MethodSource("testArguments")
+  public void testReadFileGroupInBootstrapMergeOnReadTable(RecordMergeMode recordMergeMode, String logDataBlockFormat) throws Exception {
+    Map<String, String> writeConfigs = new HashMap<>(getCommonConfigs(recordMergeMode));
+    writeConfigs.put(HoodieStorageConfig.LOGFILE_DATA_BLOCK_FORMAT.key(), logDataBlockFormat);
+
+    try (HoodieTestDataGenerator dataGen = new HoodieTestDataGenerator(0xDEEF)) {
+      // One commit; reading one file group containing a base file only
+      commitToTable(dataGen.generateInserts("001", 100), INSERT.value(), writeConfigs);
+      validateOutputFromFileGroupReader(
+          getStorageConf(), getBasePath(), dataGen.getPartitionPaths(), true, 0, recordMergeMode);
+
+      // Two commits; reading one file group containing a base file and a log file
+      commitToTable(dataGen.generateUpdates("002", 100), UPSERT.value(), writeConfigs);
+      validateOutputFromFileGroupReader(
+          getStorageConf(), getBasePath(), dataGen.getPartitionPaths(), true, 1, recordMergeMode);
+
+      // Three commits; reading one file group containing a base file and two log files
+      commitToTable(dataGen.generateUpdates("003", 100), UPSERT.value(), writeConfigs);
+      validateOutputFromFileGroupReader(
+          getStorageConf(), getBasePath(), dataGen.getPartitionPaths(), true, 2, recordMergeMode);
+    }
+  }
+
   private Map<String, String> getCommonConfigs(RecordMergeMode recordMergeMode) {
     Map<String, String> configMapping = new HashMap<>();
     configMapping.put(KeyGeneratorOptions.RECORDKEY_FIELD_NAME.key(), "_row_key");
@@ -184,7 +213,7 @@ public abstract class TestHoodieFileGroupReaderBase<T> {
                                                  int expectedLogFileNum,
                                                  RecordMergeMode recordMergeMode) throws Exception {
     HoodieTableMetaClient metaClient = HoodieTestUtils.createMetaClient(storageConf, tablePath);
-    Schema avroSchema = new TableSchemaResolver(metaClient).getTableAvroSchema();
+    Schema tableSchema = new TableSchemaResolver(metaClient).getTableAvroSchema();
     HoodieEngineContext engineContext = new HoodieLocalEngineContext(storageConf);
     HoodieMetadataConfig metadataConfig = HoodieMetadataConfig.newBuilder().build();
     FileSystemViewManager viewManager = FileSystemViewManager.createViewManager(
@@ -197,7 +226,6 @@ public abstract class TestHoodieFileGroupReaderBase<T> {
     List<String> logFilePathList = getLogFileListFromFileSlice(fileSlice);
     assertEquals(expectedLogFileNum, logFilePathList.size());
 
-    List<T> actualRecordList = new ArrayList<>();
     TypedProperties props = new TypedProperties();
     props.setProperty("hoodie.datasource.write.precombine.field", "timestamp");
     props.setProperty("hoodie.payload.ordering.field", "timestamp");
@@ -214,15 +242,15 @@ public abstract class TestHoodieFileGroupReaderBase<T> {
       props.setProperty(PARTITION_FIELDS.key(), metaClient.getTableConfig().getString(PARTITION_FIELDS));
     }
     assertEquals(containsBaseFile, fileSlice.getBaseFile().isPresent());
-    if (shouldValidatePartialRead(fileSlice, avroSchema)) {
+    if (shouldValidatePartialRead(fileSlice, tableSchema)) {
       assertThrows(IllegalArgumentException.class, () -> new HoodieFileGroupReader<>(
-          getHoodieReaderContext(tablePath, avroSchema, storageConf),
+          getHoodieReaderContext(tablePath, tableSchema, storageConf),
           metaClient.getStorage(),
           tablePath,
           metaClient.getActiveTimeline().lastInstant().get().requestedTime(),
           fileSlice,
-          avroSchema,
-          avroSchema,
+          tableSchema,
+          tableSchema,
           Option.empty(),
           metaClient,
           props,
@@ -230,52 +258,60 @@ public abstract class TestHoodieFileGroupReaderBase<T> {
           fileSlice.getTotalFileSize(),
           false));
     }
-    HoodieFileGroupReader<T> fileGroupReader = new HoodieFileGroupReader<>(
-        getHoodieReaderContext(tablePath, avroSchema, storageConf),
-        metaClient.getStorage(),
-        tablePath,
-        metaClient.getActiveTimeline().lastInstant().get().requestedTime(),
-        fileSlice,
-        avroSchema,
-        avroSchema,
-        Option.empty(),
-        metaClient,
-        props,
-        0,
-        fileSlice.getTotalFileSize(),
-        false);
-    fileGroupReader.initRecordIterators();
-    while (fileGroupReader.hasNext()) {
-      actualRecordList.add(fileGroupReader.next());
+
+    // Set the length of bytes to read in the base file the same as the file size,
+    // all records should be read from the base file
+    if (containsBaseFile) {
+      HoodieBaseFile baseFile = fileSlice.getBaseFile().get();
+      assertNotNull(baseFile.getPathInfo());
+      assertTrue(baseFile.getFileSize() >= 0);
+      if (baseFile.getBootstrapBaseFile().isPresent()) {
+        assertNotNull(baseFile.getBootstrapBaseFile().get().getPathInfo());
+        assertTrue(baseFile.getBootstrapBaseFile().get().getFileLen() >= 0);
+      }
     }
-    fileGroupReader.close();
+    if (fileSlice.getLogFiles().findAny().isPresent()) {
+      assertFalse(fileSlice.getLogFiles().anyMatch(f -> f.getPathInfo() == null));
+      assertFalse(fileSlice.getLogFiles().anyMatch(f -> f.getFileSize() < 0));
+    }
+    constructFileGroupReaderAndValidateRecords(
+        metaClient, tablePath, tableSchema, fileSlice, fileSlice.getTotalFileSize(), props, false);
+    // Set the length of bytes to read in the base file to be -1, while the file slice still
+    // contains the base file size, all records should be read from the base file
+    constructFileGroupReaderAndValidateRecords(
+        metaClient, tablePath, tableSchema, fileSlice, -1, props, false);
+    // Set the length of bytes to read in the base file to be -1, and the file slice
+    // does not contain the base file size; the file group reader should fetch the base file
+    // length and all records should be read from the base file
+    FileSlice fileSliceWithNoPathInfo = new FileSlice(
+        fileSlice.getFileGroupId(), fileSlice.getBaseInstantTime(),
+        containsBaseFile
+            ? new HoodieBaseFile(fileSlice.getBaseFile().get().getPath(),
+            fileSlice.getBaseFile().get().getBootstrapBaseFile().isPresent()
+                ? new BaseFile(fileSlice.getBaseFile().get().getBootstrapBaseFile().get().getPath())
+                : null)
+            : null,
+        fileSlice.getLogFiles().map(
+            f -> new HoodieLogFile(f.getPath())).collect(Collectors.toList()));
+    if (containsBaseFile) {
+      HoodieBaseFile baseFile = fileSlice.getBaseFile().get();
+      assertNull(fileSliceWithNoPathInfo.getBaseFile().get().getPathInfo());
+      assertTrue(fileSliceWithNoPathInfo.getBaseFile().get().getFileSize() < 0);
+      if (baseFile.getBootstrapBaseFile().isPresent()) {
+        assertNull(baseFile.getBootstrapBaseFile().get().getPathInfo());
+        assertTrue(baseFile.getBootstrapBaseFile().get().getFileLen() < 0);
+      }
+    }
+    if (fileSliceWithNoPathInfo.getLogFiles().findAny().isPresent()) {
+      assertFalse(fileSliceWithNoPathInfo.getLogFiles().anyMatch(f -> f.getPathInfo() != null));
+      assertFalse(fileSliceWithNoPathInfo.getLogFiles().anyMatch(f -> f.getFileSize() >= 0));
+    }
+    constructFileGroupReaderAndValidateRecords(
+        metaClient, tablePath, tableSchema, fileSliceWithNoPathInfo, -1, props, false);
 
-    validateRecordsInFileGroup(tablePath, actualRecordList, avroSchema, fileSlice);
-
-    //validate skip merge
-    actualRecordList.clear();
     props.setProperty(HoodieReaderConfig.MERGE_TYPE.key(), HoodieReaderConfig.REALTIME_SKIP_MERGE);
-    fileGroupReader = new HoodieFileGroupReader<>(
-        getHoodieReaderContext(tablePath, avroSchema, storageConf),
-        metaClient.getStorage(),
-        tablePath,
-        metaClient.getActiveTimeline().lastInstant().get().requestedTime(),
-        fileSlice,
-        avroSchema,
-        avroSchema,
-        Option.empty(),
-        metaClient,
-        props,
-        0,
-        fileSlice.getTotalFileSize(),
-        false);
-    fileGroupReader.initRecordIterators();
-    while (fileGroupReader.hasNext()) {
-      actualRecordList.add(fileGroupReader.next());
-    }
-    fileGroupReader.close();
-
-    validateRecordsInFileGroup(tablePath, actualRecordList, avroSchema, fileSlice, true);
+    constructFileGroupReaderAndValidateRecords(
+        metaClient, tablePath, tableSchema, fileSlice, fileSlice.getTotalFileSize(), props, true);
   }
 
   private boolean shouldValidatePartialRead(FileSlice fileSlice, Schema requestedSchema) {
@@ -288,5 +324,32 @@ public abstract class TestHoodieFileGroupReaderBase<T> {
       return !dataAndMetaCols.getLeft().isEmpty() && !dataAndMetaCols.getRight().isEmpty();
     }
     return false;
+  }
+
+  private void constructFileGroupReaderAndValidateRecords(
+      HoodieTableMetaClient metaClient, String tablePath, Schema tableSchema, FileSlice fileSlice,
+      long length, TypedProperties props, boolean skipMerge) throws IOException {
+    List<T> actualRecordList = new ArrayList<>();
+    try (HoodieFileGroupReader<T> fileGroupReader = new HoodieFileGroupReader<>(
+        getHoodieReaderContext(tablePath, tableSchema, metaClient.getStorageConf()),
+        metaClient.getStorage(),
+        tablePath,
+        metaClient.getActiveTimeline().lastInstant().get().requestedTime(),
+        fileSlice,
+        tableSchema,
+        tableSchema,
+        Option.empty(),
+        metaClient,
+        props,
+        0,
+        length,
+        false)) {
+      fileGroupReader.initRecordIterators();
+      while (fileGroupReader.hasNext()) {
+        actualRecordList.add(fileGroupReader.next());
+      }
+    }
+
+    validateRecordsInFileGroup(tablePath, actualRecordList, tableSchema, fileSlice, skipMerge);
   }
 }

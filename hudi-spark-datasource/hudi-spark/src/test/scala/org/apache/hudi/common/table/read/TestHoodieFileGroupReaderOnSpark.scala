@@ -19,23 +19,27 @@
 
 package org.apache.hudi.common.table.read
 
+import org.apache.hudi.{DataSourceWriteOptions, HoodieDataSourceHelpers, SparkAdapterSupport, SparkFileFormatInternalRowReaderContext}
 import org.apache.hudi.common.config.HoodieReaderConfig
 import org.apache.hudi.common.config.HoodieReaderConfig.FILE_GROUP_READER_ENABLED
 import org.apache.hudi.common.engine.HoodieReaderContext
 import org.apache.hudi.common.model.{FileSlice, HoodieRecord, WriteOperationType}
 import org.apache.hudi.common.table.HoodieTableMetaClient
+import org.apache.hudi.common.table.timeline.HoodieTimeline
 import org.apache.hudi.common.testutils.{HoodieTestUtils, RawTripTestPayload}
+import org.apache.hudi.config.{HoodieBootstrapConfig, HoodieWriteConfig}
+import org.apache.hudi.keygen.SimpleKeyGenerator
 import org.apache.hudi.storage.StorageConfiguration
-import org.apache.hudi.{SparkAdapterSupport, SparkFileFormatInternalRowReaderContext}
+import org.apache.hudi.util.SparkConfigUtils
 
 import org.apache.avro.Schema
 import org.apache.hadoop.conf.Configuration
+import org.apache.spark.{HoodieSparkKryoRegistrar, SparkConf}
+import org.apache.spark.sql.{Dataset, HoodieInternalRowUtils, HoodieUnsafeUtils, Row, SaveMode, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.functions.col
-import org.apache.spark.sql.{Dataset, HoodieInternalRowUtils, HoodieUnsafeUtils, Row, SaveMode, SparkSession}
-import org.apache.spark.{HoodieSparkKryoRegistrar, SparkConf}
-import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.{AfterEach, BeforeEach}
+import org.junit.jupiter.api.Assertions.assertEquals
 
 import java.util
 
@@ -88,6 +92,37 @@ class TestHoodieFileGroupReaderOnSpark extends TestHoodieFileGroupReaderBase[Int
     val metaClient = HoodieTableMetaClient.builder().setConf(storageConf).setBasePath(tablePath).build
     val recordKeyField = metaClient.getTableConfig.getRecordKeyFields.get()(0)
     new SparkFileFormatInternalRowReaderContext(reader, Seq.empty, Seq.empty)
+  }
+
+  override def bootstrapTable(recordList: util.List[HoodieRecord[_]],
+                              options: util.Map[String, String]): Unit = {
+    val recs = RawTripTestPayload.recordsToStrings(recordList)
+    val bootstrapDF: Dataset[Row] = spark.read.json(spark.sparkContext.parallelize(recs.asScala.toList, 4))
+    val partitionPathField = SparkConfigUtils.getStringWithAltKeys(
+      options.asScala.toMap, DataSourceWriteOptions.PARTITIONPATH_FIELD)
+    val bootstrapSourcePath = SparkConfigUtils.getStringWithAltKeys(
+      options.asScala.toMap, HoodieBootstrapConfig.BASE_PATH)
+
+    // Write parquet table
+    bootstrapDF.write.format("parquet")
+      .partitionBy(partitionPathField)
+      .mode(SaveMode.Overwrite)
+      .save(bootstrapSourcePath)
+
+    val basePath = getBasePath
+    // Write Hudi table with bootstrap operation
+    spark.emptyDataFrame.write
+      .format("hudi")
+      .options(options.asScala)
+      .option("hoodie.datasource.write.operation", DataSourceWriteOptions.BOOTSTRAP_OPERATION_OPT_VAL)
+      .option("hoodie.datasource.write.table.type", "MERGE_ON_READ")
+      .option(HoodieWriteConfig.KEYGENERATOR_CLASS_NAME.key, classOf[SimpleKeyGenerator].getName)
+      .mode(SaveMode.Overwrite)
+      .save(basePath)
+
+    val bootstrapInstantTime: String =
+      HoodieDataSourceHelpers.latestCommit(HoodieTestUtils.getStorage(basePath), basePath)
+    assertEquals(HoodieTimeline.METADATA_BOOTSTRAP_INSTANT_TS, bootstrapInstantTime)
   }
 
   override def commitToTable(recordList: util.List[HoodieRecord[_]], operation: String, options: util.Map[String, String]): Unit = {
