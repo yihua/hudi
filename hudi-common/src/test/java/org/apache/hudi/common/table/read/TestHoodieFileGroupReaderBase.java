@@ -40,6 +40,7 @@ import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.hudi.common.table.view.FileSystemViewManager;
 import org.apache.hudi.common.table.view.FileSystemViewStorageConfig;
+import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
 import org.apache.hudi.common.testutils.HoodieTestUtils;
 import org.apache.hudi.common.util.DefaultSizeEstimator;
@@ -48,10 +49,8 @@ import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.ExternalSpillableMap;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.keygen.constant.KeyGeneratorOptions;
-import org.apache.hudi.metadata.HoodieMetadataFileSystemView;
 import org.apache.hudi.metadata.HoodieTableMetadata;
 import org.apache.hudi.storage.StorageConfiguration;
-import org.apache.hudi.storage.StoragePath;
 
 import org.apache.avro.Schema;
 import org.junit.jupiter.api.io.TempDir;
@@ -375,12 +374,12 @@ public abstract class TestHoodieFileGroupReaderBase<T> {
         HoodieCommonConfig.newBuilder().build(),
         mc -> HoodieTableMetadata.create(
             engineContext, mc.getStorage(), metadataConfig, tablePath));
-    HoodieMetadataFileSystemView fsView =
-        (HoodieMetadataFileSystemView) viewManager.getFileSystemView(metaClient);
-    fsView.loadAllPartitions();
-    String relativePartitionPath = FSUtils.getRelativePartitionPath(
-        new StoragePath(getBasePath()), fsView.getPartitionPaths().get(0));
-    FileSlice fileSlice = fsView.getAllFileSlices(relativePartitionPath)
+    HoodieTableFileSystemView fsView =
+        (HoodieTableFileSystemView) viewManager.getFileSystemView(metaClient);
+    List<String> relativePartitionPathList = FSUtils.getAllPartitionPaths(
+        engineContext, metaClient.getStorage(),
+        metadataConfig, metaClient.getBasePath().toString());
+    FileSlice fileSlice = fsView.getAllFileSlices(relativePartitionPathList.get(0))
         .filter(e -> e.getLogFiles().count() == expectedLogFileNum)
         .findAny().get();
     assertEquals(containsBaseFile, fileSlice.getBaseFile().isPresent());

@@ -126,6 +126,11 @@ public class TestHoodieFileGroupReaderOnHive extends TestHoodieFileGroupReaderBa
   }
 
   @Override
+  @Disabled("HUDI-8773: Support bootstrap table testing at the file group reader layer in Hive")
+  public void testReadFileGroupInBootstrapMergeOnReadTable(RecordMergeMode recordMergeMode, String logDataBlockFormat) throws Exception {
+  }
+
+  @Override
   public StorageConfiguration<?> getStorageConf() {
     return storageConf;
   }
