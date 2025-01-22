@@ -373,6 +373,7 @@ class TestDataSourceForBootstrap {
       .options(writeOpts)
       .option(DataSourceWriteOptions.OPERATION.key, DataSourceWriteOptions.UPSERT_OPERATION_OPT_VAL)
       .option(DataSourceWriteOptions.TABLE_TYPE.key, DataSourceWriteOptions.MOR_TABLE_TYPE_OPT_VAL)
+      .option(HoodieWriteConfig.MERGE_SMALL_FILE_GROUP_CANDIDATES_LIMIT.key, "0")
       .option(HoodieClusteringConfig.INLINE_CLUSTERING.key, "true")
       .option(HoodieClusteringConfig.INLINE_CLUSTERING_MAX_COMMITS.key, "1")
       .option(HoodieClusteringConfig.PLAN_STRATEGY_SORT_COLUMNS.key, "datestr")
@@ -436,6 +437,7 @@ class TestDataSourceForBootstrap {
       .options(writeOpts)
       .option(DataSourceWriteOptions.OPERATION.key, DataSourceWriteOptions.UPSERT_OPERATION_OPT_VAL)
       .option(DataSourceWriteOptions.TABLE_TYPE.key, DataSourceWriteOptions.MOR_TABLE_TYPE_OPT_VAL)
+      .option(HoodieWriteConfig.MERGE_SMALL_FILE_GROUP_CANDIDATES_LIMIT.key, "0")
       .option(HoodieCompactionConfig.INLINE_COMPACT.key, "true")
       .option(HoodieCompactionConfig.INLINE_COMPACT_NUM_DELTA_COMMITS.key, "1")
       .mode(SaveMode.Append)
@@ -712,9 +714,8 @@ object TestDataSourceForBootstrap {
 
   def assertDfEquals(df1: DataFrame, df2: DataFrame): Unit = {
     assertEquals(df1.count, df2.count)
-    // TODO(HUDI-8723): fix reading partition path field on metadata bootstrap table
-    assertEquals(0, df1.drop(partitionColName).except(df2.drop(partitionColName)).count)
-    assertEquals(0, df2.drop(partitionColName).except(df1.drop(partitionColName)).count)
+    assertEquals(0, df1.except(df2).count)
+    assertEquals(0, df2.except(df1).count)
   }
 
   def assertMetaColsNotNull(df: DataFrame): Unit = {
