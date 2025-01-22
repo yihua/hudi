@@ -112,8 +112,15 @@ public final class HoodieFileGroupReader<T> implements Closeable {
     boolean isSkipMerge = ConfigUtils.getStringWithAltKeys(props, HoodieReaderConfig.MERGE_TYPE, true).equalsIgnoreCase(HoodieReaderConfig.REALTIME_SKIP_MERGE);
     readerContext.setShouldMergeUseRecordPosition(shouldUseRecordPosition && !isSkipMerge);
     readerContext.setHasLogFiles(!this.logFiles.isEmpty());
-    if (readerContext.getHasLogFiles() && start != 0) {
-      throw new IllegalArgumentException("Filegroup reader is doing log file merge but not reading from the start of the base file");
+    if (start != 0) {
+      if (readerContext.getHasLogFiles()) {
+        throw new IllegalArgumentException(
+            "File group reader is doing log file merge but not reading from the start of the base file");
+      } else if (fileSlice.hasBootstrapBase()) {
+        throw new IllegalArgumentException(
+            "File group reader is doing bootstrap merging of skeleton and data files "
+                + "but not reading from the start of the base file");
+      }
     }
     readerContext.setHasBootstrapBaseFile(hoodieBaseFileOption.isPresent() && hoodieBaseFileOption.get().getBootstrapBaseFile().isPresent());
     readerContext.setSchemaHandler(readerContext.supportsParquetRowIndex()

@@ -209,7 +209,7 @@ public class TestHoodieFileGroupReaderOnHive extends TestHoodieFileGroupReaderBa
 
   @Override
   public void validateRecordsInFileGroup(String tablePath, List<ArrayWritable> actualRecordList, Schema schema, FileSlice fileSlice,
-                                         boolean skipMerge) {
+                                         boolean skipMerge, List<String> partitionColumns) {
     assertEquals(HoodieAvroUtils.addMetadataFields(HoodieTestDataGenerator.AVRO_SCHEMA), schema);
     String fileGroupId = fileSlice.getFileId();
     try {

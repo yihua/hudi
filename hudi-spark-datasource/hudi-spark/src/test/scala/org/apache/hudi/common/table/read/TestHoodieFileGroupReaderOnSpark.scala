@@ -24,12 +24,11 @@ import org.apache.hudi.common.config.HoodieReaderConfig
 import org.apache.hudi.common.config.HoodieReaderConfig.FILE_GROUP_READER_ENABLED
 import org.apache.hudi.common.engine.HoodieReaderContext
 import org.apache.hudi.common.model.{FileSlice, HoodieRecord, WriteOperationType}
-import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.common.table.timeline.HoodieTimeline
 import org.apache.hudi.common.testutils.{HoodieTestUtils, RawTripTestPayload}
 import org.apache.hudi.config.{HoodieBootstrapConfig, HoodieWriteConfig}
 import org.apache.hudi.keygen.SimpleKeyGenerator
-import org.apache.hudi.storage.StorageConfiguration
+import org.apache.hudi.storage.{StorageConfiguration, StoragePath}
 import org.apache.hudi.util.SparkConfigUtils
 
 import org.apache.avro.Schema
@@ -39,8 +38,6 @@ import org.apache.spark.sql.{Dataset, HoodieInternalRowUtils, HoodieUnsafeUtils,
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.types.StructType
-import org.apache.spark.sql.{Dataset, HoodieInternalRowUtils, HoodieUnsafeUtils, Row, SaveMode, SparkSession}
-import org.apache.spark.{HoodieSparkKryoRegistrar, SparkConf}
 import org.junit.jupiter.api.{AfterEach, BeforeEach}
 import org.junit.jupiter.api.Assertions.assertEquals
 
@@ -87,7 +84,7 @@ class TestHoodieFileGroupReaderOnSpark extends TestHoodieFileGroupReaderBase[Int
   }
 
   override def getBasePath: String = {
-    tempDir.toAbsolutePath.toUri.toString
+    new StoragePath(tempDir.toAbsolutePath.toUri.toString, "hudi_table").toString
   }
 
   override def getHoodieReaderContext(tablePath: String, avroSchema: Schema, storageConf: StorageConfiguration[_]): HoodieReaderContext[InternalRow] = {
@@ -144,17 +141,21 @@ class TestHoodieFileGroupReaderOnSpark extends TestHoodieFileGroupReaderBase[Int
                                           actualRecordList: util.List[InternalRow],
                                           schema: Schema,
                                           fileSlice: FileSlice,
-                                          isSkipMerge: Boolean): Unit = {
+                                          isSkipMerge: Boolean,
+                                          partitionColumns: util.List[String]): Unit = {
     //TODO [HUDI-8207] get rid of this if block, and revert the argument change from (fileGroupId: String -> fileSlice: FileSlice)
-    if (!isSkipMerge || fileSlice.getLogFiles.count() < 2) {
+    if (!isSkipMerge || (fileSlice.getLogFiles.count() < 2 && !fileSlice.hasBootstrapBase)) {
+      val excludedColumns = if (fileSlice.hasBootstrapBase) partitionColumns.asScala.toSeq else Seq[String]()
       val expectedDf = spark.read.format("hudi")
         .option(FILE_GROUP_READER_ENABLED.key(), "false")
         .option(HoodieReaderConfig.MERGE_TYPE.key, if (isSkipMerge) HoodieReaderConfig.REALTIME_SKIP_MERGE else HoodieReaderConfig.REALTIME_PAYLOAD_COMBINE)
         .load(basePath)
         .where(col(HoodieRecord.FILENAME_METADATA_FIELD).contains(fileSlice.getFileId))
+        .drop(excludedColumns: _*)
       assertEquals(expectedDf.count, actualRecordList.size)
       val actualDf = HoodieUnsafeUtils.createDataFrameFromInternalRows(
         spark, actualRecordList.asScala.toSeq, HoodieInternalRowUtils.getCachedSchema(schema))
+        .drop(excludedColumns: _*)
       assertEquals(0, expectedDf.except(actualDf).count())
       assertEquals(0, actualDf.except(expectedDf).count())
     }
