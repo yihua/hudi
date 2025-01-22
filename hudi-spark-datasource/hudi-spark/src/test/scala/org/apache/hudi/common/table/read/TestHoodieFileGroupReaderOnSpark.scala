@@ -144,7 +144,11 @@ class TestHoodieFileGroupReaderOnSpark extends TestHoodieFileGroupReaderBase[Int
                                           isSkipMerge: Boolean,
                                           partitionColumns: util.List[String]): Unit = {
     //TODO [HUDI-8207] get rid of this if block, and revert the argument change from (fileGroupId: String -> fileSlice: FileSlice)
+    // For a file slice with bootstrap data and skeleton files, the skip merging without the
+    // file group reader enabled does not take effect, so we skip the validation in this case.
     if (!isSkipMerge || (fileSlice.getLogFiles.count() < 2 && !fileSlice.hasBootstrapBase)) {
+      // TODO(HUDI-8896): support reading partition columns for bootstrapped table
+      //  in the file group reader directly, instead of engine-specific handling
       val excludedColumns = if (fileSlice.hasBootstrapBase) partitionColumns.asScala.toSeq else Seq[String]()
       val expectedDf = spark.read.format("hudi")
         .option(FILE_GROUP_READER_ENABLED.key(), "false")

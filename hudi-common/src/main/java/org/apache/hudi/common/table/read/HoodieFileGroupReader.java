@@ -183,6 +183,8 @@ public final class HoodieFileGroupReader<T> implements Closeable {
     }
 
     StoragePathInfo baseFileStoragePathInfo = baseFile.getPathInfo();
+    // If the base file length passed in is invalid, i.e., -1,
+    // the file group reader fetches the length from the file system
     long fileLength = length >= 0 ? length
         : (baseFileStoragePathInfo != null ? baseFileStoragePathInfo.getLength()
         : storage.getPathInfo(baseFile.getStoragePath()).getLength());
@@ -242,6 +244,8 @@ public final class HoodieFileGroupReader<T> implements Closeable {
       return Option.of(Pair.of(readerContext.getFileRecordIterator(fileStoragePathInfo, 0, file.getFileLen(),
           readerContext.getSchemaHandler().createSchemaFromFields(allFields), requiredSchema, storage), requiredSchema));
     } else {
+      // If the base file length passed in is invalid, i.e., -1,
+      // the file group reader fetches the length from the file system
       long fileLength = file.getFileLen() >= 0
           ? file.getFileLen() : storage.getPathInfo(file.getStoragePath()).getLength();
       return Option.of(Pair.of(readerContext.getFileRecordIterator(file.getStoragePath(), 0, fileLength,
