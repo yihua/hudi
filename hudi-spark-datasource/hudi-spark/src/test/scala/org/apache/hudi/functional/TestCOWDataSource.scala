@@ -32,9 +32,8 @@ import org.apache.hudi.common.model.{HoodieRecord, WriteOperationType}
 import org.apache.hudi.common.model.HoodieRecord.HoodieRecordType
 import org.apache.hudi.common.table.{HoodieTableMetaClient, TableSchemaResolver}
 import org.apache.hudi.common.table.timeline.{HoodieInstant, HoodieTimeline, TimelineUtils}
-import org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_GENERATOR
-import org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_FILE_NAME_GENERATOR
 import org.apache.hudi.common.testutils.{HoodieTestDataGenerator, HoodieTestUtils}
+import org.apache.hudi.common.testutils.HoodieTestUtils.{INSTANT_FILE_NAME_GENERATOR, INSTANT_GENERATOR}
 import org.apache.hudi.common.testutils.RawTripTestPayload.{deleteRecordsToStrings, recordsToStrings}
 import org.apache.hudi.common.util.{ClusteringUtils, Option}
 import org.apache.hudi.config.HoodieWriteConfig
@@ -1791,7 +1790,7 @@ class TestCOWDataSource extends HoodieSparkClientTestBase with ScalaAssertionSup
       HoodieWriteConfig.KEYGENERATOR_CLASS_NAME.key() -> "org.apache.hudi.keygen.ComplexKeyGenerator",
       KeyGeneratorOptions.HIVE_STYLE_PARTITIONING_ENABLE.key() -> "true",
       HiveSyncConfigHolder.HIVE_SYNC_ENABLED.key() -> "false",
-      HoodieWriteConfig.RECORD_MERGE_IMPL_CLASSES.key() -> "org.apache.hudi.DefaultSparkRecordMerger"
+      HoodieWriteConfig.RECORD_MERGE_IMPL_CLASSES.key() -> "org.apache.hudi.EventTimeBasedSparkRecordMerger"
     )
     df1.write.format("hudi").options(hudiOptions).mode(SaveMode.Append).save(basePath)
 

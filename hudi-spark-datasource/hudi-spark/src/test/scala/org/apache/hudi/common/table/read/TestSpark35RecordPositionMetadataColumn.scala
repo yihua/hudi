@@ -39,7 +39,7 @@ import org.junit.jupiter.api.Assertions.{assertArrayEquals, assertEquals, assert
 
 class TestSpark35RecordPositionMetadataColumn extends SparkClientFunctionalTestHarness {
   private val PARQUET_FORMAT = "parquet"
-  private val SPARK_MERGER = "org.apache.hudi.DefaultSparkRecordMerger"
+  private val SPARK_MERGER = "org.apache.hudi.EventTimeBasedSparkRecordMerger"
 
   @BeforeEach
   def setUp(): Unit = {

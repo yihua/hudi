@@ -95,7 +95,7 @@ public class TestHoodieMergeHandleWithSparkMerger extends SparkClientFunctionalT
   public void testDefaultMerger() throws Exception {
     HoodieWriteConfig writeConfig = buildDefaultWriteConfig(SCHEMA);
     HoodieRecordMerger merger = writeConfig.getRecordMerger();
-    assertTrue(merger instanceof DefaultMerger);
+    assertTrue(merger instanceof EventTimeBasedMerger);
     assertTrue(writeConfig.getBooleanOrDefault(FILE_GROUP_READER_ENABLED.key(), false));
     insertAndUpdate(writeConfig, 114);
   }
@@ -160,7 +160,7 @@ public class TestHoodieMergeHandleWithSparkMerger extends SparkClientFunctionalT
     Properties extraProperties = new Properties();
     extraProperties.setProperty(
         RECORD_MERGE_IMPL_CLASSES.key(),
-        "org.apache.hudi.DefaultSparkRecordMerger");
+        "org.apache.hudi.EventTimeBasedSparkRecordMerger");
     extraProperties.setProperty(
         LOGFILE_DATA_BLOCK_FORMAT.key(),
         "parquet");
@@ -229,7 +229,7 @@ public class TestHoodieMergeHandleWithSparkMerger extends SparkClientFunctionalT
     Map<String, String> properties = new HashMap<>();
     properties.put(
         RECORD_MERGE_IMPL_CLASSES.key(),
-        "org.apache.hudi.DefaultSparkRecordMerger");
+        "org.apache.hudi.EventTimeBasedSparkRecordMerger");
     properties.put(
         LOGFILE_DATA_BLOCK_FORMAT.key(),
         "parquet");
@@ -335,7 +335,7 @@ public class TestHoodieMergeHandleWithSparkMerger extends SparkClientFunctionalT
 
     @Override
     public HoodieRecordMerger getRecordMerger() {
-      return new DefaultMerger();
+      return new EventTimeBasedMerger();
     }
   }
 
@@ -361,21 +361,21 @@ public class TestHoodieMergeHandleWithSparkMerger extends SparkClientFunctionalT
     }
   }
 
-  public static class DefaultMerger extends DefaultSparkRecordMerger {
+  public static class EventTimeBasedMerger extends EventTimeBasedSparkRecordMerger {
     @Override
     public boolean shouldFlush(HoodieRecord record, Schema schema, TypedProperties props) {
       return true;
     }
   }
 
-  public static class NoFlushMerger extends DefaultSparkRecordMerger {
+  public static class NoFlushMerger extends EventTimeBasedSparkRecordMerger {
     @Override
     public boolean shouldFlush(HoodieRecord record, Schema schema, TypedProperties props) {
       return false;
     }
   }
 
-  public static class CustomMerger extends DefaultSparkRecordMerger {
+  public static class CustomMerger extends EventTimeBasedSparkRecordMerger {
     @Override
     public boolean shouldFlush(HoodieRecord record, Schema schema, TypedProperties props) throws IOException {
       return !((HoodieSparkRecord) record).getData().getString(0).equals("001");
