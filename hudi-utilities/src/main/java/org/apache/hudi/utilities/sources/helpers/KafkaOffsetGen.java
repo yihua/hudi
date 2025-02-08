@@ -132,7 +132,7 @@ public class KafkaOffsetGen {
           .sorted(SORT_BY_PARTITION)
           .collect(Collectors.toList())
           .toArray(new OffsetRange[toOffsetMap.size()]);
-      LOG.debug("numEvents {}, minPartitions {}, ranges {}", numEvents, minPartitions, ranges);
+      LOG.info("numEvents {}, minPartitions {}, ranges {}", numEvents, minPartitions, ranges);
 
       // choose the actualNumEvents with min(totalEvents, numEvents)
       long actualNumEvents = Math.min(totalNewMessages(ranges), numEvents);
