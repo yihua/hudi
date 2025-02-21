@@ -18,6 +18,10 @@
 
 package org.apache.hudi.common.table.timeline;
 
+import org.apache.hudi.storage.StoragePathInfo;
+
+import java.util.Set;
+
 import static org.apache.hudi.common.table.timeline.InstantComparison.GREATER_THAN_OR_EQUALS;
 import static org.apache.hudi.common.table.timeline.InstantComparison.compareTimestamps;
 
@@ -70,7 +74,7 @@ public interface HoodieArchivedTimeline extends HoodieTimeline {
   /**
    * A time based filter with range (startTs, endTs].
    */
-  public static class TimeRangeFilter {
+  class TimeRangeFilter {
     protected final String startTs;
     protected final String endTs;
 
@@ -81,6 +85,38 @@ public interface HoodieArchivedTimeline extends HoodieTimeline {
 
     public boolean isInRange(String instantTime) {
       return InstantComparison.isInRange(instantTime, this.startTs, this.endTs);
+    }
+  }
+
+  class InclusiveStartAndEndTsFilter extends TimeRangeFilter {
+    private final String startTs;
+    private final String endTs;
+
+    public InclusiveStartAndEndTsFilter(String startTs, String endTs) {
+      super(startTs, endTs);
+      this.startTs = startTs;
+      this.endTs = endTs;
+    }
+
+    @Override
+    public boolean isInRange(String instantTime) {
+      return InstantComparison.isInClosedRange(instantTime, this.startTs, this.endTs);
+    }
+
+    public boolean isInRange(HoodieInstant instant) {
+      return InstantComparison.isInClosedRange(instant.requestedTime(), this.startTs, this.endTs);
+    }
+  }
+
+  public static class LogFileFilter {
+    private final Set<String> logFiles;
+
+    public LogFileFilter(Set<String> logFiles) {
+      this.logFiles = logFiles;
+    }
+
+    public boolean shouldLoadFile(StoragePathInfo storagePathInfo) {
+      return logFiles.contains(storagePathInfo.getPath().toString());
     }
   }
 
