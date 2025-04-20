@@ -299,6 +299,17 @@ public class TestHFileReader {
   }
 
   @Test
+  public void testRead() throws Exception {
+    try (HFileReader reader = getHFileReader("/hfile/hudi_1_0_hbase_2_4_13_16KB_GZ_20000_2.hfile")) {
+      reader.initializeMetadata();
+      reader.seekTo();
+      reader.seekTo(new UTF8StringKey("aZud4Oj9wxA=AZcHyzibzy8=bJfAFKIt2udY/eEKkDkFba=="));
+      reader.seekTo(new UTF8StringKey("aZud4Oj9wxA=AZcHyzibzy8=bJfAFKIt2udY/eEKkDkFbg=="));
+      assertNotNull(reader.getKeyValue());
+    }
+  }
+
+  @Test
   public void testReadHFileWithNonUniqueKeys() throws IOException {
     try (HFileReader reader = getHFileReader("/hfile/hudi_1_0_hbase_2_4_9_16KB_GZ_200_20_non_unique.hfile")) {
       reader.initializeMetadata();

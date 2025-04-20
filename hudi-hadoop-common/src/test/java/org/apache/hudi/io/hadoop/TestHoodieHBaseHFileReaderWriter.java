@@ -32,9 +32,12 @@ import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.IndexedRecord;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellComparatorImpl;
+import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.io.compress.Compression;
 import org.apache.hadoop.hbase.io.hfile.HFile;
+import org.apache.hadoop.hbase.io.hfile.HFileScanner;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -51,8 +54,9 @@ import java.util.stream.StreamSupport;
 
 import static org.apache.hudi.common.testutils.SchemaTestUtil.getSchemaFromResource;
 import static org.apache.hudi.common.util.CollectionUtils.toStream;
-import static org.apache.hudi.io.hfile.TestHFileReader.KEY_CREATOR;
+import static org.apache.hudi.common.util.StringUtils.getUTF8Bytes;
 import static org.apache.hudi.io.hfile.TestHFileReader.VALUE_CREATOR;
+import static org.apache.hudi.io.hfile.TestHFileReader.readHFileFromResources;
 import static org.apache.hudi.io.storage.TestHoodieReaderWriterUtils.writeHFileForTesting;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -68,6 +72,22 @@ public class TestHoodieHBaseHFileReaderWriter extends TestHoodieHFileReaderWrite
                                                             byte[] content) throws IOException {
     FileSystem fs = HadoopFSUtils.getFs(getFilePath().toString(), new Configuration());
     return new HoodieHBaseAvroHFileReader(storage.getConf(), new StoragePath(DUMMY_BASE_PATH), storage, content, Option.empty());
+  }
+
+  @Test
+  void testColStatsHFile() throws IOException {
+    KeyValue keyValue = new KeyValue(getUTF8Bytes("aZud4Oj9wxA=AZcHyzibzy8=bJfAFKIt2udY/eEKkDkFba=="), null, null, null);
+    byte[] content = readHFileFromResources("/hfile/col-stats-0001-0_1-170431-5847084_20250418193125815.hfile");
+    HoodieStorage storage = HoodieTestUtils.getStorage(getFilePath());
+    try (HFile.Reader reader =
+             HoodieHFileUtils.createHFileReader(storage, new StoragePath(DUMMY_BASE_PATH), content);
+         HFileScanner scanner = reader.getScanner(true, true)) {
+      int result = scanner.seekTo(keyValue);
+      Cell key = scanner.getKey();
+      int result2 = scanner.seekTo(keyValue);
+      Cell key2 = scanner.getKey();
+      scanner.isSeeked();
+    }
   }
 
   @Override
@@ -122,21 +142,19 @@ public class TestHoodieHBaseHFileReaderWriter extends TestHoodieHFileReaderWrite
   @Disabled("This is used for generating testing HFile only")
   @ParameterizedTest
   @CsvSource({
-      "512,GZ,20000,true", "16,GZ,20000,true",
-      "64,NONE,5000,true", "16,NONE,5000,true",
-      "16,GZ,200,false"
+      "16,GZ,20000,true",
   })
   void generateHFileForTesting(int blockSizeKB,
                                String compressionCodec,
                                int numEntries,
                                boolean uniqueKeys) throws IOException {
     writeHFileForTesting(
-        String.format("/tmp/hudi_1_0_hbase_2_4_9_%sKB_%s_%s.hfile",
+        String.format("/tmp/hudi_1_0_hbase_2_4_13_%sKB_%s_%s_2.hfile",
             blockSizeKB, compressionCodec, numEntries),
         blockSizeKB * 1024,
         Compression.Algorithm.valueOf(compressionCodec),
         numEntries,
-        KEY_CREATOR,
+        i -> String.format("hudi-key-%09d-abcdefghij", i),
         VALUE_CREATOR,
         uniqueKeys);
   }
