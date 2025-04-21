@@ -51,7 +51,6 @@ import java.util.stream.StreamSupport;
 
 import static org.apache.hudi.common.testutils.SchemaTestUtil.getSchemaFromResource;
 import static org.apache.hudi.common.util.CollectionUtils.toStream;
-import static org.apache.hudi.io.hfile.TestHFileReader.KEY_CREATOR;
 import static org.apache.hudi.io.hfile.TestHFileReader.VALUE_CREATOR;
 import static org.apache.hudi.io.storage.TestHoodieReaderWriterUtils.writeHFileForTesting;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -122,21 +121,26 @@ public class TestHoodieHBaseHFileReaderWriter extends TestHoodieHFileReaderWrite
   @Disabled("This is used for generating testing HFile only")
   @ParameterizedTest
   @CsvSource({
-      "512,GZ,20000,true", "16,GZ,20000,true",
-      "64,NONE,5000,true", "16,NONE,5000,true",
-      "16,GZ,200,false", "16,GZ,200000,true"
+      //"512,GZ,20000,true", "16,GZ,20000,true",
+      //"64,NONE,5000,true", "16,NONE,5000,true",
+      //"16,GZ,200,false",
+      "1,GZ,2000,true",
+      "1,GZ,5000,true",
+      "1,GZ,10000,true",
+      "1,GZ,20000,true",
+      "1,GZ,50000,true"
   })
   void generateHFileForTesting(int blockSizeKB,
                                String compressionCodec,
                                int numEntries,
                                boolean uniqueKeys) throws IOException {
     writeHFileForTesting(
-        String.format("/tmp/hudi_1_0_hbase_2_4_13_%sKB_%s_%s.hfile",
+        String.format("/tmp/hudi_1_0_hbase_2_4_13_%sKB_%s_%s_large_keys_deep_index.hfile",
             blockSizeKB, compressionCodec, numEntries),
         blockSizeKB * 1024,
         Compression.Algorithm.valueOf(compressionCodec),
         numEntries,
-        KEY_CREATOR,
+        i -> String.format("hudi-key-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-%09d", i),
         VALUE_CREATOR,
         uniqueKeys);
   }

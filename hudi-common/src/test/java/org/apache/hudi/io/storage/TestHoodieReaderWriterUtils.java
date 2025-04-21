@@ -56,6 +56,8 @@ public class TestHoodieReaderWriterUtils {
         .withCompression(compressionAlgo)
         .build();
     Configuration conf = new Configuration();
+    conf.set("hfile.index.block.max.size", "2048");
+    conf.set("hfile.index.block.min.entries", "4");
     CacheConfig cacheConfig = new CacheConfig(conf);
     Path filePath = new Path(fileLocation);
     FileSystem fs = filePath.getFileSystem(conf);
