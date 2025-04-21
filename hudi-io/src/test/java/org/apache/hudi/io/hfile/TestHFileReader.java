@@ -63,6 +63,9 @@ public class TestHFileReader {
       "/////wAAABQBAAABID797Rg6cC9QEnS/mT3C01cdQGaLYH2jbOCLtMA0RWppEH1HQg==";
   public static final Function<Integer, String> KEY_CREATOR = i -> String.format("hudi-key-%09d", i);
   public static final Function<Integer, String> VALUE_CREATOR = i -> String.format("hudi-value-%09d", i);
+  private static final String LARGE_KEY_PREFIX = "hudi-key-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-";
+  private static final Function<Integer, String> LARGE_KEY_CREATOR = i -> LARGE_KEY_PREFIX + String.format("%09d", i);
   private static final int SEEK_TO_THROW_EXCEPTION = -2;
 
   static Stream<Arguments> testArgsReadHFilePointAndPrefixLookup() {
@@ -70,6 +73,7 @@ public class TestHFileReader {
         Arguments.of(
             "/hfile/hudi_1_0_hbase_2_4_9_16KB_GZ_20000.hfile",
             20000,
+            KEY_CREATOR,
             Arrays.asList(
                 // before first key
                 new KeyLookUpInfo("", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
@@ -133,6 +137,7 @@ public class TestHFileReader {
         Arguments.of(
             "/hfile/hudi_1_0_hbase_2_4_9_512KB_GZ_20000.hfile",
             20000,
+            KEY_CREATOR,
             Arrays.asList(
                 // before first key
                 new KeyLookUpInfo("", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
@@ -166,6 +171,7 @@ public class TestHFileReader {
         Arguments.of(
             "/hfile/hudi_1_0_hbase_2_4_9_16KB_NONE_5000.hfile",
             5000,
+            KEY_CREATOR,
             Arrays.asList(
                 // before first key
                 new KeyLookUpInfo("", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
@@ -227,6 +233,7 @@ public class TestHFileReader {
         Arguments.of(
             "/hfile/hudi_1_0_hbase_2_4_9_64KB_NONE_5000.hfile",
             5000,
+            KEY_CREATOR,
             Arrays.asList(
                 // before first key
                 new KeyLookUpInfo("", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
@@ -260,6 +267,7 @@ public class TestHFileReader {
         Arguments.of(
             "/hfile/hudi_1_0_hbase_2_4_13_1KB_GZ_20000.hfile",
             20000,
+            KEY_CREATOR,
             Arrays.asList(
                 // before first key
                 new KeyLookUpInfo("", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
@@ -274,6 +282,7 @@ public class TestHFileReader {
         Arguments.of(
             "/hfile/hudi_1_0_hbase_2_4_13_1KB_GZ_50000.hfile",
             50000,
+            KEY_CREATOR,
             Arrays.asList(
                 // before first key
                 new KeyLookUpInfo("", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
@@ -288,6 +297,7 @@ public class TestHFileReader {
         Arguments.of(
             "/hfile/hudi_1_0_hbase_2_4_13_1KB_GZ_100000.hfile",
             100000,
+            KEY_CREATOR,
             Arrays.asList(
                 // before first key
                 new KeyLookUpInfo("", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
@@ -302,135 +312,161 @@ public class TestHFileReader {
         Arguments.of(
             "/hfile/hudi_1_0_hbase_2_4_13_1KB_GZ_20000_large_keys.hfile",
             20000,
+            LARGE_KEY_CREATOR,
             Arrays.asList(
                 // before first key
                 new KeyLookUpInfo("", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
                 new KeyLookUpInfo("a", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
-                new KeyLookUpInfo("hudi-key-0000000", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "0000000", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
                 // first key
-                new KeyLookUpInfo("hudi-key-000000000", SEEK_TO_FOUND, "hudi-key-000000000", "hudi-value-000000000"),
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "000000000", SEEK_TO_FOUND, LARGE_KEY_PREFIX + "000000000", "hudi-value-000000000"),
                 // last key of block 0
-                new KeyLookUpInfo("hudi-key-000001110", SEEK_TO_FOUND, "hudi-key-000001110", "hudi-value-000001110")
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "000001110", SEEK_TO_FOUND, LARGE_KEY_PREFIX + "000001110", "hudi-value-000001110")
             )
         ),
         Arguments.of(
             "/hfile/hudi_1_0_hbase_2_4_13_1KB_GZ_50000_large_keys.hfile",
             50000,
+            LARGE_KEY_CREATOR,
             Arrays.asList(
                 // before first key
                 new KeyLookUpInfo("", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
                 new KeyLookUpInfo("a", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
-                new KeyLookUpInfo("hudi-key-0000000", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "0000000", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
                 // first key
-                new KeyLookUpInfo("hudi-key-000000000", SEEK_TO_FOUND, "hudi-key-000000000", "hudi-value-000000000"),
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "000000000", SEEK_TO_FOUND, LARGE_KEY_PREFIX + "000000000", "hudi-value-000000000"),
                 // last key of block 0
-                new KeyLookUpInfo("hudi-key-000001110", SEEK_TO_FOUND, "hudi-key-000001110", "hudi-value-000001110")
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "000001110", SEEK_TO_FOUND, LARGE_KEY_PREFIX + "000001110", "hudi-value-000001110")
             )
         ),
         Arguments.of(
             "/hfile/hudi_1_0_hbase_2_4_13_1KB_GZ_100000_large_keys.hfile",
             100000,
+            LARGE_KEY_CREATOR,
             Arrays.asList(
                 // before first key
                 new KeyLookUpInfo("", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
                 new KeyLookUpInfo("a", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
-                new KeyLookUpInfo("hudi-key-0000000", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "0000000", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
                 // first key
-                new KeyLookUpInfo("hudi-key-000000000", SEEK_TO_FOUND, "hudi-key-000000000", "hudi-value-000000000"),
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "000000000", SEEK_TO_FOUND, LARGE_KEY_PREFIX + "000000000", "hudi-value-000000000"),
                 // last key of block 0
-                new KeyLookUpInfo("hudi-key-000001110", SEEK_TO_FOUND, "hudi-key-000001110", "hudi-value-000001110")
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "000001110", SEEK_TO_FOUND, LARGE_KEY_PREFIX + "000001110", "hudi-value-000001110")
             )
         ),
         Arguments.of(
             "/hfile/hudi_1_0_hbase_2_4_13_1KB_GZ_10000_large_keys.hfile",
             10000,
+            LARGE_KEY_CREATOR,
             Arrays.asList(
                 // before first key
                 new KeyLookUpInfo("", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
                 new KeyLookUpInfo("a", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
-                new KeyLookUpInfo("hudi-key-0000000", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "0000000", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
                 // first key
-                new KeyLookUpInfo("hudi-key-000000000", SEEK_TO_FOUND, "hudi-key-000000000", "hudi-value-000000000"),
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "000000000", SEEK_TO_FOUND, LARGE_KEY_PREFIX + "000000000", "hudi-value-000000000"),
                 // last key of block 0
-                new KeyLookUpInfo("hudi-key-000001110", SEEK_TO_FOUND, "hudi-key-000001110", "hudi-value-000001110")
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "000001110", SEEK_TO_FOUND, LARGE_KEY_PREFIX + "000001110", "hudi-value-000001110")
             )
         ),
         Arguments.of(
             "/hfile/hudi_1_0_hbase_2_4_13_1KB_GZ_5000_large_keys.hfile",
             5000,
+            LARGE_KEY_CREATOR,
             Arrays.asList(
                 // before first key
                 new KeyLookUpInfo("", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
                 new KeyLookUpInfo("a", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
-                new KeyLookUpInfo("hudi-key-0000000", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "0000000", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
                 // first key
-                new KeyLookUpInfo("hudi-key-000000000", SEEK_TO_FOUND, "hudi-key-000000000", "hudi-value-000000000"),
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "000000000", SEEK_TO_FOUND, LARGE_KEY_PREFIX + "000000000", "hudi-value-000000000"),
                 // last key of block 0
-                new KeyLookUpInfo("hudi-key-000001110", SEEK_TO_FOUND, "hudi-key-000001110", "hudi-value-000001110")
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "000001110", SEEK_TO_FOUND, LARGE_KEY_PREFIX + "000001110", "hudi-value-000001110")
             )
         ),
         Arguments.of(
             "/hfile/hudi_1_0_hbase_2_4_13_1KB_GZ_2000_large_keys.hfile",
             2000,
+            LARGE_KEY_CREATOR,
             Arrays.asList(
                 // before first key
                 new KeyLookUpInfo("", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
                 new KeyLookUpInfo("a", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
-                new KeyLookUpInfo("hudi-key-0000000", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "0000000", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
                 // first key
-                new KeyLookUpInfo("hudi-key-000000000", SEEK_TO_FOUND, "hudi-key-000000000", "hudi-value-000000000"),
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "000000000", SEEK_TO_FOUND, LARGE_KEY_PREFIX + "000000000", "hudi-value-000000000"),
                 // last key of block 0
-                new KeyLookUpInfo("hudi-key-000001110", SEEK_TO_FOUND, "hudi-key-000001110", "hudi-value-000001110")
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "000001110", SEEK_TO_FOUND, LARGE_KEY_PREFIX + "000001110", "hudi-value-000001110")
             )
         ),
         Arguments.of(
             "/hfile/hudi_1_0_hbase_2_4_13_1KB_GZ_2000_large_keys_deep_index.hfile",
             2000,
+            LARGE_KEY_CREATOR,
             Arrays.asList(
                 // before first key
                 new KeyLookUpInfo("a", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "0000000", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
+                // first key
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "000000000", SEEK_TO_FOUND, LARGE_KEY_PREFIX + "000000000", "hudi-value-000000000"),
                 // last key of block 0
-                new KeyLookUpInfo("hudi-key-000001110", SEEK_TO_FOUND, "hudi-key-000001110", "hudi-value-000001110")
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "000001110", SEEK_TO_FOUND, LARGE_KEY_PREFIX + "000001110", "hudi-value-000001110")
             )
         ),
         Arguments.of(
             "/hfile/hudi_1_0_hbase_2_4_13_1KB_GZ_5000_large_keys_deep_index.hfile",
             5000,
+            LARGE_KEY_CREATOR,
             Arrays.asList(
                 // before first key
                 new KeyLookUpInfo("a", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "0000000", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
+                // first key
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "000000000", SEEK_TO_FOUND, LARGE_KEY_PREFIX + "000000000", "hudi-value-000000000"),
                 // last key of block 0
-                new KeyLookUpInfo("hudi-key-000001110", SEEK_TO_FOUND, "hudi-key-000001110", "hudi-value-000001110")
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "000001110", SEEK_TO_FOUND, LARGE_KEY_PREFIX + "000001110", "hudi-value-000001110")
             )
         ),
         Arguments.of(
             "/hfile/hudi_1_0_hbase_2_4_13_1KB_GZ_10000_large_keys_deep_index.hfile",
             10000,
+            LARGE_KEY_CREATOR,
             Arrays.asList(
                 // before first key
                 new KeyLookUpInfo("a", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "0000000", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
+                // first key
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "000000000", SEEK_TO_FOUND, LARGE_KEY_PREFIX + "000000000", "hudi-value-000000000"),
                 // last key of block 0
-                new KeyLookUpInfo("hudi-key-000001110", SEEK_TO_FOUND, "hudi-key-000001110", "hudi-value-000001110")
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "000001110", SEEK_TO_FOUND, LARGE_KEY_PREFIX + "000001110", "hudi-value-000001110")
             )
         ),
         Arguments.of(
             "/hfile/hudi_1_0_hbase_2_4_13_1KB_GZ_20000_large_keys_deep_index.hfile",
             20000,
+            LARGE_KEY_CREATOR,
             Arrays.asList(
                 // before first key
                 new KeyLookUpInfo("a", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "0000000", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
+                // first key
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "000000000", SEEK_TO_FOUND, LARGE_KEY_PREFIX + "000000000", "hudi-value-000000000"),
                 // last key of block 0
-                new KeyLookUpInfo("hudi-key-000001110", SEEK_TO_FOUND, "hudi-key-000001110", "hudi-value-000001110")
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "000001110", SEEK_TO_FOUND, LARGE_KEY_PREFIX + "000001110", "hudi-value-000001110")
             )
         ),
         Arguments.of(
             "/hfile/hudi_1_0_hbase_2_4_13_1KB_GZ_50000_large_keys_deep_index.hfile",
             50000,
+            LARGE_KEY_CREATOR,
             Arrays.asList(
                 // before first key
                 new KeyLookUpInfo("a", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "0000000", SEEK_TO_BEFORE_FIRST_KEY, "", ""),
+                // first key
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "000000000", SEEK_TO_FOUND, LARGE_KEY_PREFIX + "000000000", "hudi-value-000000000"),
                 // last key of block 0
-                new KeyLookUpInfo("hudi-key-000001110", SEEK_TO_FOUND, "hudi-key-000001110", "hudi-value-000001110")
+                new KeyLookUpInfo(LARGE_KEY_PREFIX + "000001110", SEEK_TO_FOUND, LARGE_KEY_PREFIX + "000001110", "hudi-value-000001110")
             )
         )
     );
@@ -440,8 +476,9 @@ public class TestHFileReader {
   @MethodSource("testArgsReadHFilePointAndPrefixLookup")
   public void testReadHFilePointAndPrefixLookup(String filename,
                                                 int numEntries,
+                                                Function<Integer, String> keyCreator,
                                                 List<KeyLookUpInfo> keyLookUpInfoList) throws IOException {
-    verifyHFileRead(filename, numEntries, KEY_CREATOR, VALUE_CREATOR, keyLookUpInfoList);
+    verifyHFileRead(filename, numEntries, keyCreator, VALUE_CREATOR, keyLookUpInfoList);
   }
 
   @Test
