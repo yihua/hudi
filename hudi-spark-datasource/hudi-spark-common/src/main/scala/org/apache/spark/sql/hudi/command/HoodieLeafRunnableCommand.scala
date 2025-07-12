@@ -21,6 +21,9 @@ import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, Project}
 import org.apache.spark.sql.catalyst.trees.HoodieLeafLike
 import org.apache.spark.sql.execution.command.RunnableCommand
 import org.apache.spark.sql.hudi.HoodieSqlCommonUtils.isMetaField
+import org.apache.spark.sql.Row
+
+import scala.collection.mutable.ArrayBuffer
 
 /**
  * Similar to `LeafRunnableCommand` in Spark3.2, `HoodieLeafRunnableCommand` mixed in
@@ -40,4 +43,7 @@ object HoodieLeafRunnableCommand {
     }
   }
 
+  private[hudi] def append(buffer: ArrayBuffer[Row], column: String, dataType: String, comment: String): Unit = {
+    buffer += Row(column, dataType, comment)
+  }
 }
