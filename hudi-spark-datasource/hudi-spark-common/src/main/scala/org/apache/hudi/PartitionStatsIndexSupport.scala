@@ -70,6 +70,8 @@ class PartitionStatsIndexSupport(spark: SparkSession,
     checkState(targetColumns.nonEmpty)
     val encodedTargetColumnNames = targetColumns.map(colName => new ColumnIndexID(colName).asBase64EncodedString())
     logDebug(s"Loading column stats for columns: ${targetColumns.mkString(", ")},  Encoded column names: ${encodedTargetColumnNames.mkString(", ")}")
+    // have a method to read column stats instead of calling getRecordsByKeyPrefixes directly
+
     val metadataRecords: HoodieData[HoodieRecord[HoodieMetadataPayload]] =
       metadataTable.getRecordsByKeyPrefixes(
         HoodieListData.eager(encodedTargetColumnNames.asJava), HoodieTableMetadataUtil.PARTITION_NAME_PARTITION_STATS, shouldReadInMemory,

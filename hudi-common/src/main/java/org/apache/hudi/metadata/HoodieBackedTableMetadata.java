@@ -174,6 +174,7 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
     }
   }
 
+  // metadata record key, and metadata partition name
   @Override
   protected Option<HoodieRecord<HoodieMetadataPayload>> getRecordByKey(String key, String partitionName) {
     List<HoodieRecord<HoodieMetadataPayload>> records = getRecordsByKeys(
@@ -218,6 +219,10 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
         .collect(Collectors.toList());
   }
 
+  // keyPrefixes refer to "processed keys" from the actual data table
+  // (depending on index types, e.g. (1) column stats: it's base64-encoded string from column value
+  // (2) secondary index: original secondary column values)
+  // that need to be transformed to metadata record keys using keyEncodingFn
   @Override
   public HoodieData<HoodieRecord<HoodieMetadataPayload>> getRecordsByKeyPrefixes(HoodieData<String> keyPrefixes,
                                                                                  String partitionName,
@@ -362,6 +367,8 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
     return result.filter((HoodieRecord<HoodieMetadataPayload> v) -> !v.getData().isDeleted());
   }
 
+  // naming: readXYZRecords -> record only, readXYZRecordsWithKeys -> key and record pairs
+  // XYZ can be ColumnStats, RecordIndex, SecondaryIndex, etc.
   /**
    * Reads record keys from record-level index. Deleted records are filtered out.
    * <p>
@@ -583,6 +590,7 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
     return FileGroupRecordBufferLoader.createReusable(readerContext);
   }
 
+  // consolidate lookupKeyRecordPairs (to remove) and lookupRecords (to keep) -> readSliceAndFilterByKeysIntoList
   private HoodiePairData<String, HoodieRecord<HoodieMetadataPayload>> lookupKeyRecordPairs(String partitionName,
                                                                                            List<String> sortedKeys,
                                                                                            FileSlice fileSlice) {
@@ -604,6 +612,7 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
     return HoodieListData.lazy(res);
   }
 
+  // consolidate: lookupKeyRecordPairsItr, lookupRecordsItr, into -> readSliceAndFilterByKeys
   private ClosableIterator<Pair<String, HoodieRecord<HoodieMetadataPayload>>> lookupKeyRecordPairsItr(String partitionName,
                                                                                                       List<String> sortedKeys,
                                                                                                       FileSlice fileSlice) {
@@ -625,6 +634,7 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
         }, true);
   }
 
+  // readSliceWithFilter
   /**
    * Lookup records and produce a lazy iterator of mapped HoodieRecords.
    * @param isFullKey If true, perform exact key match. If false, perform prefix match.
@@ -838,6 +848,8 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
 
     Map<String, Set<String>> res = getRecordsByKeyPrefixes(keys, partitionName, false, SecondaryIndexKeyUtils::escapeSpecialChars)
             .map(record -> {
+              // We need to fix this in the payload merging of hudi metadata record
+              // this type of check should not exist in this case
               if (!record.getData().isDeleted()) {
                 return SecondaryIndexKeyUtils.getSecondaryKeyRecordKeyPair(record.getRecordKey());
               }

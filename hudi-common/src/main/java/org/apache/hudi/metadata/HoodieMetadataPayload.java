@@ -379,6 +379,7 @@ public class HoodieMetadataPayload implements HoodieRecordPayload<HoodieMetadata
         .concat(new FileIndexID(fileName).asBase64EncodedString());
   }
 
+  // This is not used in production code any more. Is anything missing?
   public static Option<HoodieRecord<HoodieMetadataPayload>> combineSecondaryIndexRecord(
       HoodieRecord<HoodieMetadataPayload> oldRecord,
       HoodieRecord<HoodieMetadataPayload> newRecord) {

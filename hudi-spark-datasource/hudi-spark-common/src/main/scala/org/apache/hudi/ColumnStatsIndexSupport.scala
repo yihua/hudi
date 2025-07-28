@@ -342,6 +342,7 @@ class ColumnStatsIndexSupport(spark: SparkSession,
     //    - Filtering out nulls
     checkState(targetColumns.nonEmpty)
 
+    // have a method to read column stats instead of calling getRecordsByKeyPrefixes directly
     // TODO encoding should be done internally w/in HoodieBackedTableMetadata
     val encodedTargetColumnNames = targetColumns.map(colName => new ColumnIndexID(colName).asBase64EncodedString())
     // encode column name and parition name if partition list is available

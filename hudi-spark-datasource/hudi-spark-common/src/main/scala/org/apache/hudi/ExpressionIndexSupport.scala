@@ -357,6 +357,8 @@ class ExpressionIndexSupport(spark: SparkSession,
       encodedTargetColumnNames
     }
 
+    // have a method to read column stats instead of calling getRecordsByKeyPrefixes directly
+
     val metadataRecords: HoodieData[HoodieRecord[HoodieMetadataPayload]] =
       metadataTable.getRecordsByKeyPrefixes(
         HoodieListData.eager(keyPrefixes.toSeq.asJava), HoodieTableMetadataUtil.PARTITION_NAME_COLUMN_STATS, shouldReadInMemory,
@@ -561,6 +563,8 @@ class ExpressionIndexSupport(spark: SparkSession,
   }
 
   private def loadExpressionIndexForColumnsInternal(indexPartition: String, shouldReadInMemory: Boolean, keyPrefixes: Iterable[String] with (String with Int => Any)) = {
+    // have a method to read column stats instead of calling getRecordsByKeyPrefixes directly
+
     val metadataRecords: HoodieData[HoodieRecord[HoodieMetadataPayload]] =
       metadataTable.getRecordsByKeyPrefixes(
         HoodieListData.eager(keyPrefixes.toSeq.asJava), indexPartition, shouldReadInMemory,

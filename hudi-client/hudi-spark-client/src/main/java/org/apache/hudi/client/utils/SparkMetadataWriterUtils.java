@@ -400,6 +400,7 @@ public class SparkMetadataWriterUtils {
             .filter(Objects::nonNull)
             .collect(Collectors.toSet());
         // Fetch EI column stat records for above files
+        // have a method to read column stats instead of calling getRecordsByKeyPrefixes directly
         List<HoodieColumnRangeMetadata<Comparable>> partitionColumnMetadata =
             tableMetadata.getRecordsByKeyPrefixes(
                     HoodieListData.lazy(HoodieTableMetadataUtil.generateKeyPrefixes(validColumnsToIndex, partitionName)), indexPartition, false, IDENTITY_ENCODING)

@@ -217,6 +217,7 @@ public abstract class BaseTableMetadata extends AbstractHoodieTableMetadata {
     metrics.ifPresent(m -> m.setMetric(HoodieMetadataMetrics.LOOKUP_BLOOM_FILTERS_FILE_COUNT_STR, partitionIDFileIDStringsList.size()));
 
     Map<Pair<String, String>, BloomFilter> partitionFileToBloomFilterMap = new HashMap<>(hoodieRecords.size());
+    // this requires key as the partition and file id
     for (final Map.Entry<String, HoodieRecord<HoodieMetadataPayload>> entry : hoodieRecords.entrySet()) {
       final Option<HoodieMetadataBloomFilter> bloomFilterMetadata =
           entry.getValue().getData().getBloomFilterMetadata();
@@ -329,6 +330,7 @@ public abstract class BaseTableMetadata extends AbstractHoodieTableMetadata {
             );
 
     HoodieTimer timer = HoodieTimer.start();
+    // this needs key as the partition ID
     Map<String, HoodieRecord<HoodieMetadataPayload>> partitionIdRecordPairs =
         HoodieDataUtils.dedupeAndCollectAsMap(
             getRecordsByKeys(HoodieListData.eager(new ArrayList<>(partitionIdToPathMap.keySet())),

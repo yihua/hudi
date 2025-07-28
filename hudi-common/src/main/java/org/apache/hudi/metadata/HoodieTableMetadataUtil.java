@@ -2701,6 +2701,7 @@ public class HoodieTableMetadataUtil {
               .filter(Objects::nonNull)
               .collect(Collectors.toSet());
           // Fetch metadata table COLUMN_STATS partition records for above files
+          // have a method to read column stats instead of calling getRecordsByKeyPrefixes directly
           List<HoodieColumnRangeMetadata<Comparable>> partitionColumnMetadata = tableMetadata
               .getRecordsByKeyPrefixes(
                   HoodieListData.lazy(generateKeyPrefixes(colsToIndex, partitionName)), MetadataPartitionType.COLUMN_STATS.getPartitionPath(), false, IDENTITY_ENCODING)

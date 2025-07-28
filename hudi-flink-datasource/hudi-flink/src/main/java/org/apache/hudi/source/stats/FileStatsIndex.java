@@ -388,6 +388,7 @@ public class FileStatsIndex implements ColumnStatsIndex {
     ValidationUtils.checkArgument(targetColumns.length > 0,
         "Column stats is only valid when push down filters have referenced columns");
 
+    // have a method to read column stats instead of calling getRecordsByKeyPrefixes directly with the same logic
     // Read Metadata Table's column stats Flink's RowData list by
     //    - Fetching the records by key-prefixes (encoded column names)
     //    - Deserializing fetched records into [[RowData]]s
