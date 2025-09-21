@@ -77,7 +77,6 @@ private[sql] object SchemaConverters {
       case FLOAT => SchemaType(FloatType, nullable = false)
       case LONG => avroSchema.getLogicalType match {
         case _: TimestampMillis | _: TimestampMicros => SchemaType(TimestampType, nullable = false)
-        case _: LocalTimestampMillis | _: LocalTimestampMicros => SchemaType(TimestampNTZType, nullable = false)
         case _ => SchemaType(LongType, nullable = false)
       }
 
@@ -166,8 +165,6 @@ private[sql] object SchemaConverters {
         LogicalTypes.date().addToSchema(builder.intType())
       case TimestampType =>
         LogicalTypes.timestampMicros().addToSchema(builder.longType())
-      case TimestampNTZType =>
-        LogicalTypes.localTimestampMicros().addToSchema(builder.longType())
       case FloatType => builder.floatType()
       case DoubleType => builder.doubleType()
       case StringType | CharType(_) | VarcharType(_) => builder.stringType()
