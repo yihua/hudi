@@ -85,7 +85,7 @@ public abstract class HoodieAvroHFileReaderImplBase extends HoodieAvroFileReader
     }
   }
 
-  protected static GenericRecord deserialize(final byte[] keyBytes, int keyOffset, int keyLength,
+  public static GenericRecord deserialize(final byte[] keyBytes, int keyOffset, int keyLength,
                                              final byte[] valueBytes, int valueOffset, int valueLength,
                                              GenericDatumReader<GenericRecord> datumReader,
                                              Schema.Field keyFieldSchema) throws IOException {
