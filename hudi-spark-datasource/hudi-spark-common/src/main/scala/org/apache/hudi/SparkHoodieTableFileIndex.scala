@@ -39,7 +39,7 @@ import org.apache.hadoop.fs.{FileStatus, Path}
 import org.apache.spark.api.java.JavaSparkContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.expressions.{AttributeReference, BoundReference, EmptyRow, EqualTo, Expression, InterpretedPredicate, Literal}
+import org.apache.spark.sql.catalyst.expressions.{AttributeReference, BasePredicate, BoundReference, EmptyRow, EqualTo, Expression, InterpretedPredicate, Literal}
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.catalyst.{InternalRow, expressions}
 import org.apache.spark.sql.execution.datasources.{FileStatusCache, NoopCache}
@@ -243,12 +243,24 @@ class SparkHoodieTableFileIndex(spark: SparkSession,
       //       the whole table
       if (haveProperPartitionValues(partitionPaths.toSeq) && partitionSchema.nonEmpty) {
         val predicate = partitionPruningPredicates.reduce(expressions.And)
-        val boundPredicate = InterpretedPredicate(predicate.transform {
+        val transformedPredicate = predicate.transform {
           case a: AttributeReference =>
             val index = partitionSchema.indexWhere(a.name == _.name)
             BoundReference(index, partitionSchema(index).dataType, nullable = true)
-        })
-
+        }
+        val boundPredicate: BasePredicate = try {
+          // Try using 1-arg constructor via reflection
+          val clazz = Class.forName("org.apache.spark.sql.catalyst.expressions.InterpretedPredicate")
+          val ctor = clazz.getConstructor(classOf[Expression])
+          ctor.newInstance(transformedPredicate).asInstanceOf[BasePredicate]
+        } catch {
+          case _: NoSuchMethodException | _: IllegalArgumentException =>
+            // Fallback: Try using 2-arg constructor for certain Spark runtime
+            val clazz = Class.forName("org.apache.spark.sql.catalyst.expressions.InterpretedPredicate")
+            val ctor = clazz.getConstructor(classOf[Expression], classOf[Boolean])
+            ctor.newInstance(transformedPredicate, java.lang.Boolean.FALSE)
+              .asInstanceOf[BasePredicate]
+        }
         val prunedPartitionPaths = partitionPaths.filter {
           partitionPath => boundPredicate.eval(InternalRow.fromSeq(partitionPath.values))
         }.toSeq
