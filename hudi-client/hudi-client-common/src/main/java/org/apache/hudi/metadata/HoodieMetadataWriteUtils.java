@@ -21,6 +21,7 @@ package org.apache.hudi.metadata;
 import org.apache.hudi.avro.model.HoodieMetadataRecord;
 import org.apache.hudi.client.FailOnFirstErrorWriteStatus;
 import org.apache.hudi.client.transaction.lock.InProcessLockProvider;
+import org.apache.hudi.common.config.HoodieMemoryConfig;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.config.HoodieReaderConfig;
 import org.apache.hudi.common.config.HoodieStorageConfig;
@@ -96,6 +97,7 @@ import java.util.stream.Stream;
 
 import static java.util.stream.Collectors.toList;
 import static org.apache.hudi.avro.HoodieAvroUtils.addMetadataFields;
+import static org.apache.hudi.common.config.HoodieMemoryConfig.MAX_MEMORY_FOR_COMPACTION;
 import static org.apache.hudi.common.config.HoodieMetadataConfig.DEFAULT_METADATA_ASYNC_CLEAN;
 import static org.apache.hudi.common.config.HoodieMetadataConfig.DEFAULT_METADATA_CLEANER_COMMITS_RETAINED;
 import static org.apache.hudi.common.config.HoodieMetadataConfig.DEFAULT_METADATA_POPULATE_META_FIELDS;
@@ -191,6 +193,11 @@ public class HoodieMetadataWriteUtils {
             .build())
         .withMetadataConfig(HoodieMetadataConfig.newBuilder().enable(false)
             .withFileListingParallelism(writeConfig.getFileListingParallelism()).build())
+        .withMemoryConfig(HoodieMemoryConfig.newBuilder()
+            .withMaxMemoryMaxSize(
+                writeConfig.getMaxMemoryPerPartitionMerge(),
+                Long.parseLong(writeConfig.getString(MAX_MEMORY_FOR_COMPACTION)))
+            .build())
         .withAvroSchemaValidate(false)
         .withEmbeddedTimelineServerEnabled(false)
         .withMarkersType(MarkerType.DIRECT.name())
