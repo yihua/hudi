@@ -32,6 +32,8 @@ import org.apache.hudi.common.testutils.HoodieTestUtils;
 import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.io.hadoop.HoodieAvroHFileWriter;
 import org.apache.hudi.io.hadoop.TestHoodieOrcReaderWriter;
+import org.apache.hudi.io.hfile.HFileReader;
+import org.apache.hudi.io.hfile.HFileReaderImpl;
 import org.apache.hudi.storage.HoodieStorage;
 import org.apache.hudi.storage.StoragePath;
 
@@ -44,6 +46,7 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -117,6 +120,44 @@ public class TestHoodieNativeAvroHFileReaderCaching {
     testMissingKeysLookup();
 
     System.out.println("================================================================\n");
+  }
+
+  @Test
+  public void readHFile() throws IOException {
+    StoragePath path = new StoragePath(
+        "/Users/ethan/Work/tmp/mdt-microbenchmark/dim-table-6/spark_catalog.default.hudi_oss_spark_hudi_ds_dim/"
+            + ".hoodie/metadata/record_index/record-index-0000-0_0-142-3228_20251121131951585.hfile");
+    HoodieStorage storage = HoodieTestUtils.getStorage(path);
+    long fileSize = storage.getPathInfo(path).getLength();
+    try (HFileReader reader = new HFileReaderImpl(storage.openSeekable(path, false), fileSize)) {
+      reader.initializeMetadata();
+      reader.seekTo();
+      int count = 0;
+      while (reader.next()) {
+        reader.getKeyValue();
+        count++;
+      }
+      System.out.println(count);
+    }
+  }
+
+  @Test
+  public void readHFileWithLargerBlockSize() throws IOException {
+    StoragePath path = new StoragePath(
+        "/Users/ethan/Work/tmp/mdt-microbenchmark/dim-table-5-1/spark_catalog.default.hudi_oss_spark_hudi_ds_dim/"
+            + ".hoodie/metadata/record_index/record-index-0000-0_0-3-9_20251123220329308.hfile");
+    HoodieStorage storage = HoodieTestUtils.getStorage(path);
+    long fileSize = storage.getPathInfo(path).getLength();
+    try (HFileReader reader = new HFileReaderImpl(storage.openSeekable(path, false), fileSize)) {
+      reader.initializeMetadata();
+      reader.seekTo();
+      int count = 0;
+      while (reader.next()) {
+        reader.getKeyValue();
+        count++;
+      }
+      System.out.println(count);
+    }
   }
 
   private void testExistingKeysLookup() throws Exception {
