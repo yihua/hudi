@@ -143,9 +143,14 @@ public class TestHoodieNativeAvroHFileReaderCaching {
 
   @Test
   public void readHFileWithLargerBlockSize() throws IOException {
+    /*
     StoragePath path = new StoragePath(
         "/Users/ethan/Work/tmp/mdt-microbenchmark/dim-table-5-1/spark_catalog.default.hudi_oss_spark_hudi_ds_dim/"
             + ".hoodie/metadata/record_index/record-index-0000-0_0-3-9_20251123220329308.hfile");
+    */
+    StoragePath path = new StoragePath(
+        "/Users/ethan/Work/tmp/mdt-microbenchmark/dim-table-5-3/spark_catalog.default.hudi_oss_spark_hudi_ds_dim/"
+            + ".hoodie/metadata/record_index/record-index-0000-0_0-3-9_20251124140003026.hfile");
     HoodieStorage storage = HoodieTestUtils.getStorage(path);
     long fileSize = storage.getPathInfo(path).getLength();
     try (HFileReader reader = new HFileReaderImpl(storage.openSeekable(path, false), fileSize)) {
