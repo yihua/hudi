@@ -225,6 +225,7 @@ public class TestHoodieHFileReaderWriter extends TestHoodieReaderWriterBase {
     HoodieAvroHFileReaderImplBase hoodieHFileReader =
         (HoodieAvroHFileReaderImplBase) createReader(storage);
     List<IndexedRecord> records = HoodieAvroHFileReaderImplBase.readAllRecords(hoodieHFileReader);
+    records.forEach(e -> e.get(0));
     assertEquals(new ArrayList<>(recordMap.values()), records);
 
     hoodieHFileReader.close();

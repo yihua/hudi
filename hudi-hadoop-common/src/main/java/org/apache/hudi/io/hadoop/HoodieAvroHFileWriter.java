@@ -48,7 +48,6 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.util.concurrent.atomic.AtomicLong;
 
-import static org.apache.hudi.common.util.StringUtils.EMPTY_STRING;
 import static org.apache.hudi.common.util.StringUtils.getUTF8Bytes;
 
 /**
@@ -134,6 +133,7 @@ public class HoodieAvroHFileWriter
     boolean isRecordSerialized = false;
     if (keyFieldSchema.isPresent()) {
       IndexedRecord keyExcludedRecord = record;
+      /*
       int keyFieldPos = this.keyFieldSchema.get().pos();
       boolean isKeyAvailable = (record.get(keyFieldPos) != null
           && !(record.get(keyFieldPos).toString().isEmpty()));
@@ -143,7 +143,7 @@ public class HoodieAvroHFileWriter
         value = HoodieAvroUtils.avroToBytes(keyExcludedRecord);
         keyExcludedRecord.put(keyFieldPos, originalKey);
         isRecordSerialized = true;
-      }
+      }*/
     }
     if (!isRecordSerialized) {
       value = HoodieAvroUtils.avroToBytes(record);

@@ -408,15 +408,19 @@ public class HoodieWriteMergeHandle<T, I, K, O> extends HoodieAbstractMergeHandl
   }
 
   protected void writeToFile(HoodieKey key, HoodieRecord<T> record, Schema schema, Properties props, boolean shouldPreserveRecordMetadata) throws IOException {
-    if (shouldPreserveRecordMetadata) {
-      // NOTE: `FILENAME_METADATA_FIELD` has to be rewritten to correctly point to the
-      //       file holding this record even in cases when overall metadata is preserved
-      HoodieRecord populatedRecord = record.updateMetaField(schema, HoodieRecord.FILENAME_META_FIELD_ORD, newFilePath.getName());
-      fileWriter.write(key.getRecordKey(), populatedRecord, writeSchemaWithMetaFields, props);
+    if (getConfig().populateMetaFields()) {
+      if (shouldPreserveRecordMetadata) {
+        // NOTE: `FILENAME_METADATA_FIELD` has to be rewritten to correctly point to the
+        //       file holding this record even in cases when overall metadata is preserved
+        HoodieRecord populatedRecord = record.updateMetaField(schema, HoodieRecord.FILENAME_META_FIELD_ORD, newFilePath.getName());
+        fileWriter.write(key.getRecordKey(), populatedRecord, writeSchemaWithMetaFields, props);
+      } else {
+        // rewrite the record to include metadata fields in schema, and the values will be set later.
+        record = record.prependMetaFields(schema, writeSchemaWithMetaFields, new MetadataValues(), config.getProps());
+        fileWriter.writeWithMetadata(key, record, writeSchemaWithMetaFields, props);
+      }
     } else {
-      // rewrite the record to include metadata fields in schema, and the values will be set later.
-      record = record.prependMetaFields(schema, writeSchemaWithMetaFields, new MetadataValues(), config.getProps());
-      fileWriter.writeWithMetadata(key, record, writeSchemaWithMetaFields, props);
+      fileWriter.write(key.getRecordKey(), record, writeSchemaWithMetaFields, props);
     }
   }
 
