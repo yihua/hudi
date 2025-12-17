@@ -28,6 +28,7 @@ import org.apache.hudi.common.model.HoodieWriteStat;
 import org.apache.hudi.common.util.DateTimeUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.Pair;
+import org.apache.hudi.exception.HoodieException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -176,6 +177,7 @@ public class WriteStatus implements Serializable {
       errors.put(record.getKey(), t);
     }
     updateStatsForFailure();
+    throw new HoodieException("Error writing record " + record, t);
   }
 
   /**
@@ -192,6 +194,7 @@ public class WriteStatus implements Serializable {
       errors.put(recordDelegate.getHoodieKey(), t);
     }
     updateStatsForFailure();
+    throw new HoodieException("Error writing record " + recordKey, t);
   }
 
   private void updateStatsForFailure() {

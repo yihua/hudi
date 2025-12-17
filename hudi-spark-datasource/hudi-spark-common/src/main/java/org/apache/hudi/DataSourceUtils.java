@@ -337,18 +337,18 @@ public class DataSourceUtils {
 
         LOG.error(errorSummary);
 
-        if (LOG.isTraceEnabled()) {
-          LOG.trace("Printing out the top 100 errors");
+        // if (LOG.isTraceEnabled()) {
+        LOG.error("Printing out the top 100 errors");
 
-          HoodieJavaRDD.getJavaRDD(writeStatusesOpt.get()).filter(WriteStatus::hasErrors)
-              .take(100)
-              .forEach(ws -> {
-                LOG.trace("Global error:", ws.getGlobalError());
-                if (!ws.getErrors().isEmpty()) {
-                  ws.getErrors().forEach((k, v) -> LOG.trace("Error for key {}: {}", k, v));
-                }
-              });
-        }
+        HoodieJavaRDD.getJavaRDD(writeStatusesOpt.get()).filter(WriteStatus::hasErrors)
+            .take(100)
+            .forEach(ws -> {
+              LOG.trace("Global error:", ws.getGlobalError());
+              if (!ws.getErrors().isEmpty()) {
+                ws.getErrors().forEach((k, v) -> LOG.trace("Error for key {}: {}", k, v));
+              }
+            });
+        // }
         return false;
       } else {
         return true;

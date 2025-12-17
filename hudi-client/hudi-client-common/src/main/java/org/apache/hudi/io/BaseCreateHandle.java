@@ -120,7 +120,6 @@ public abstract class BaseCreateHandle<T, I, K, O> extends HoodieWriteHandle<T, 
       // Not throwing exception from here, since we don't want to fail the entire job
       // for a single record
       writeStatus.markFailure(record, t, recordMetadata);
-      LOG.error("Error writing record " + record, t);
     }
   }
 
