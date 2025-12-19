@@ -630,7 +630,9 @@ public abstract class BaseHoodieTimeline implements HoodieTimeline {
     MessageDigest md;
     try {
       md = MessageDigest.getInstance(HASHING_ALGORITHM);
-      instants.forEach(i -> md
+      instants
+          .stream().filter(i -> i.getAction().equals(DELTA_COMMIT_ACTION))
+          .forEach(i -> md
           .update(getUTF8Bytes(StringUtils.joinUsingDelim("_", i.requestedTime(), i.getAction(), i.getState().name()))));
     } catch (NoSuchAlgorithmException nse) {
       throw new HoodieException(nse);

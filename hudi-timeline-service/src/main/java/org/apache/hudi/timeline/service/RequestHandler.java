@@ -675,6 +675,7 @@ public class RequestHandler {
       String localTimelineHash = localTimeline.getTimelineHash();
       // refresh if timeline hash mismatches
       if (!localTimelineHash.equals(timelineHashFromClient)) {
+        LOG.info("Client Hash mismatch [ LastTs={}, TimelineHash={}], localTimeline={}", lastKnownInstantFromClient, timelineHashFromClient, localTimeline.getInstants());
         return true;
       }
 
