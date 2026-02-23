@@ -415,7 +415,7 @@ class TestJsonKinesisSource extends SparkClientFunctionalTestHarness {
         Set<String> shardsReachedEnd) {
       this.lastCheckpointData = lastCheckpointData;
       this.shardsReachedEnd = shardsReachedEnd;
-      return createCheckpointFromBatch(batch, shardRanges);
+      return createCheckpointFromBatch(batch, shardRanges, shardRanges);
     }
   }
 }

@@ -120,13 +120,19 @@ class TestKinesisSourceFiltering extends SparkClientFunctionalTestHarness {
     Option<Checkpoint> lastCheckpoint = Option.of(
         new StreamerCheckpointV1(STREAM_NAME + ",shard-0:200,shard-1:100"));
 
-    source.fetchNext(lastCheckpoint, 1000L);
+    org.apache.hudi.utilities.sources.InputBatch<JavaRDD<String>> batch =
+        source.fetchNext(lastCheckpoint, 1000L);
 
     List<String> passedShards = source.getToBatchShardIds();
     assertEquals(2, passedShards.size(), "Only shard-1 and shard-2 should be passed");
     assertTrue(passedShards.contains("shard-1"));
     assertTrue(passedShards.contains("shard-2"));
     assertFalse(passedShards.contains("shard-0"));
+
+    // Checkpoint must include filtered shard-0 so next run doesn't re-read from TRIM_HORIZON
+    String checkpoint = batch.getCheckpointForNextBatch().getCheckpointKey();
+    assertTrue(checkpoint.contains("shard-0"), "Filtered shard-0 must be in checkpoint");
+    assertTrue(checkpoint.contains("shard-1"));
   }
 
   @Test
@@ -237,13 +243,25 @@ class TestKinesisSourceFiltering extends SparkClientFunctionalTestHarness {
 
     @Override
     protected String createCheckpointFromBatch(JavaRDD<String> batch,
-        KinesisOffsetGen.KinesisShardRange[] shardRanges) {
+        KinesisOffsetGen.KinesisShardRange[] shardRangesRead,
+        KinesisOffsetGen.KinesisShardRange[] allShardRanges) {
       lastCheckpointData = new java.util.HashMap<>();
-      for (KinesisOffsetGen.KinesisShardRange r : shardRanges) {
+      for (KinesisOffsetGen.KinesisShardRange r : shardRangesRead) {
         lastCheckpointData.put(r.getShardId(), r.getStartingSequenceNumber().orElse(""));
       }
-      return KinesisOffsetGen.CheckpointUtils.offsetsToStr(
-          offsetGen.getStreamName(), lastCheckpointData);
+      // Include filtered shards from allShardRanges so checkpoint is complete
+      java.util.Map<String, String> full = new java.util.HashMap<>();
+      for (KinesisOffsetGen.KinesisShardRange r : allShardRanges) {
+        String lastSeq = lastCheckpointData.containsKey(r.getShardId())
+            ? lastCheckpointData.get(r.getShardId())
+            : r.getStartingSequenceNumber().orElse("");
+        String endSeq = r.getEndingSequenceNumber().orElse(null);
+        if (lastSeq != null && !lastSeq.isEmpty()) {
+          full.put(r.getShardId(),
+              endSeq != null ? lastSeq + "|" + endSeq : lastSeq);
+        }
+      }
+      return KinesisOffsetGen.CheckpointUtils.offsetsToStr(offsetGen.getStreamName(), full);
     }
 
     @Override
