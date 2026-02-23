@@ -51,6 +51,7 @@ import static org.apache.hudi.common.util.ConfigUtils.getBooleanWithAltKeys;
 import static org.apache.hudi.common.util.ConfigUtils.getIntWithAltKeys;
 import static org.apache.hudi.common.util.ConfigUtils.getLongWithAltKeys;
 import static org.apache.hudi.common.util.ConfigUtils.getStringWithAltKeys;
+import static org.apache.hudi.utilities.sources.helpers.KinesisOffsetGen.LOCALSTACK_END_SEQ_SENTINEL;
 
 /**
  * Source to read JSON data from AWS Kinesis Data Streams using Spark.
@@ -116,8 +117,6 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
         // Evenly set the max events per shard.
         shardRanges.length > 0 ? Math.max(1, getLongWithAltKeys(props, KinesisSourceConfig.MAX_EVENTS_FROM_KINESIS_SOURCE) / shardRanges.length) : Long.MAX_VALUE);
 
-    // Assume: number of closed shards is small.
-    // TODO: filter closed shards in which all records have been consumed.
     JavaRDD<ShardFetchResult> fetchRdd = sparkContext.parallelize(
         java.util.Arrays.asList(shardRanges), shardRanges.length)
         .mapPartitions(shardRangeIt -> {
@@ -226,9 +225,6 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
     }
     return checkpoint;
   }
-
-  /** LocalStack returns Long.MAX_VALUE for closed shards' endingSequenceNumber; real AWS returns actual value. */
-  private static final String LOCALSTACK_END_SEQ_SENTINEL = "9223372036854775807";
 
   @Override
   protected String createCheckpointFromBatch(JavaRDD<String> batch, KinesisOffsetGen.KinesisShardRange[] shardRanges) {
