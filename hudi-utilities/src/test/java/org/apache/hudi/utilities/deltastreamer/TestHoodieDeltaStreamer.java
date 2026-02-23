@@ -3284,11 +3284,60 @@ public class TestHoodieDeltaStreamer extends HoodieDeltaStreamerTestBase {
       // "fully consumed" when parent expires. LocalStack returns Long.MAX_VALUE; we replace with lastSeq.
       assertFalse(checkpointAfterSplit.contains("9223372036854775807"),
           "Checkpoint should not contain Long.MAX_VALUE as endSeq (parent expiry would fail)");
+      // Verify closed shard checkpoint format: lastSeq|endSeq with lastSeq >= endSeq (fully consumed)
+      Map<String, String> offsets = KinesisOffsetGen.CheckpointUtils.strToOffsets(checkpointAfterSplit);
+      for (Map.Entry<String, String> e : offsets.entrySet()) {
+        String lastSeq = KinesisOffsetGen.CheckpointUtils.getLastSeqFromValue(e.getValue());
+        String endSeq = KinesisOffsetGen.CheckpointUtils.getEndSeqFromValue(e.getValue());
+        if (endSeq != null && lastSeq != null && !lastSeq.isEmpty()) {
+          assertTrue(lastSeq.compareTo(endSeq) >= 0,
+              "Closed shard " + e.getKey() + ": lastSeq should be >= endSeq (fully consumed)");
+        }
+      }
       int initialShardCount = KinesisOffsetGen.CheckpointUtils.strToOffsets(checkpointAfterBatch1).size();
-      int shardCountAfterSplit = KinesisOffsetGen.CheckpointUtils.strToOffsets(checkpointAfterSplit).size();
+      int shardCountAfterSplit = offsets.size();
       assertTrue(shardCountAfterSplit > initialShardCount,
           "Checkpoint after split should have more shards (" + shardCountAfterSplit
               + ") than initial (" + initialShardCount + ")");
+      deltaStreamer.shutdownGracefully();
+      testNum++;
+    }
+
+    /**
+     * Tests that fully-consumed closed shards are filtered (no GetRecords calls) and sync succeeds
+     * with no new data. Exercises hasUnreadRecords filtering and checkpoint preservation.
+     */
+    @Test
+    public void testJsonKinesisShardFilteringAfterSplit() throws Exception {
+      String streamName = "test-kinesis-stream-filter-" + testNum;
+      kinesisTestUtils.createStream(streamName, 2);
+      prepareJsonKinesisDFSFiles(10, false, streamName);
+      prepareJsonKinesisDFSSource(PROPS_FILENAME_TEST_JSON_KINESIS, streamName);
+      String tableBasePath = basePath + "/test_json_kinesis_filter_table" + testNum;
+      HoodieDeltaStreamer deltaStreamer = new HoodieDeltaStreamer(
+          TestHelpers.makeConfig(tableBasePath, WriteOperationType.UPSERT, JsonKinesisSource.class.getName(),
+              Collections.emptyList(), PROPS_FILENAME_TEST_JSON_KINESIS, false,
+              true, 100000, false, null, null, "timestamp", null), jsc);
+      deltaStreamer.sync();
+      assertRecordCount(10, tableBasePath, sqlContext);
+
+      kinesisTestUtils.updateShardCount(streamName, 4);
+      prepareJsonKinesisDFSFiles(5, false, streamName);
+      deltaStreamer.sync();
+      assertRecordCount(15, tableBasePath, sqlContext);
+      String checkpointAfterSplit = getCheckpointFromLatestCommit(tableBasePath);
+      assertNotNull(checkpointAfterSplit);
+
+      // Sync with no new data: closed parent shards (fully consumed) are filtered;
+      // open child shards return 0 records. Should succeed without error.
+      deltaStreamer.sync();
+      assertRecordCount(15, tableBasePath, sqlContext);
+      String checkpointAfterEmptySync = getCheckpointFromLatestCommit(tableBasePath);
+      assertNotNull(checkpointAfterEmptySync);
+      assertTrue(checkpointAfterEmptySync.startsWith(streamName + ","));
+      assertFalse(checkpointAfterEmptySync.contains("9223372036854775807"),
+          "Checkpoint should not contain LocalStack Long.MAX_VALUE sentinel");
+
       deltaStreamer.shutdownGracefully();
       testNum++;
     }
@@ -3316,8 +3365,24 @@ public class TestHoodieDeltaStreamer extends HoodieDeltaStreamerTestBase {
       String checkpointAfterMerge = getCheckpointFromLatestCommit(tableBasePath);
       assertNotNull(checkpointAfterMerge);
       assertTrue(checkpointAfterMerge.startsWith(streamName + ","));
+      assertFalse(checkpointAfterMerge.contains("9223372036854775807"),
+          "Checkpoint should not contain LocalStack Long.MAX_VALUE sentinel");
+      // Sync with no new data: exercises filtering of fully-consumed closed shards
+      deltaStreamer.sync();
+      assertRecordCount(12, tableBasePath, sqlContext);
+      String checkpointAfterEmptySync = getCheckpointFromLatestCommit(tableBasePath);
+      assertNotNull(checkpointAfterEmptySync);
+      Map<String, String> offsets = KinesisOffsetGen.CheckpointUtils.strToOffsets(checkpointAfterEmptySync);
+      for (Map.Entry<String, String> e : offsets.entrySet()) {
+        String lastSeq = KinesisOffsetGen.CheckpointUtils.getLastSeqFromValue(e.getValue());
+        String endSeq = KinesisOffsetGen.CheckpointUtils.getEndSeqFromValue(e.getValue());
+        if (endSeq != null && lastSeq != null && !lastSeq.isEmpty()) {
+          assertTrue(lastSeq.compareTo(endSeq) >= 0,
+              "Closed shard " + e.getKey() + ": lastSeq should be >= endSeq (fully consumed)");
+        }
+      }
       int initialShardCount = KinesisOffsetGen.CheckpointUtils.strToOffsets(checkpointAfterBatch1).size();
-      int shardCountAfterMerge = KinesisOffsetGen.CheckpointUtils.strToOffsets(checkpointAfterMerge).size();
+      int shardCountAfterMerge = offsets.size();
       assertTrue(shardCountAfterMerge > initialShardCount,
           "Checkpoint after merge should have more shards (" + shardCountAfterMerge
               + ") than initial (" + initialShardCount + ")");

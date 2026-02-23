@@ -227,43 +227,40 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
   }
 
   @Override
-  protected String createCheckpointFromBatch(JavaRDD<String> batch, KinesisOffsetGen.KinesisShardRange[] shardRanges) {
-    // Build checkpoint: for each shard, use lastSeq from read (or startSeq if no records) and endSeq for closed shards
+  protected String createCheckpointFromBatch(JavaRDD<String> batch,
+      KinesisOffsetGen.KinesisShardRange[] shardRangesRead,
+      KinesisOffsetGen.KinesisShardRange[] allShardRanges) {
+    // Build checkpoint from ALL shards so filtered-out (fully consumed) shards are preserved.
+    // Otherwise the next run would omit them from the checkpoint and re-read from TRIM_HORIZON.
     Map<String, String> fullCheckpoint = new HashMap<>();
-    for (KinesisOffsetGen.KinesisShardRange range : shardRanges) {
-      // CASE 1: regular cases:
-      // a. open shard: lastSeq != null, endSeq == null, or
-      // b. closed shard: lastSeq != null, endSeq != null
-      String lastSeq = lastCheckpointData != null && lastCheckpointData.containsKey(range.getShardId())
-          ? lastCheckpointData.get(range.getShardId())
-          : range.getStartingSequenceNumber().orElse("");
-      String endSeq = range.getEndingSequenceNumber().orElse(null);
+    for (KinesisOffsetGen.KinesisShardRange range : allShardRanges) {
+      String lastSeq;
+      String endSeq;
+      if (lastCheckpointData != null && lastCheckpointData.containsKey(range.getShardId())) {
+        // Shard we read from: use data from the read
+        lastSeq = lastCheckpointData.get(range.getShardId());
+        endSeq = range.getEndingSequenceNumber().orElse(null);
+      } else {
+        // Filtered shard (not read): preserve from range so next run won't re-read
+        lastSeq = range.getStartingSequenceNumber().orElse("");
+        endSeq = range.getEndingSequenceNumber().orElse(null);
+      }
       // for test only
       // LocalStack returns Long.MAX_VALUE for closed shards; use lastSeq as endSeq so we can detect
       // "fully consumed" when the parent shard expires (lastSeq >= endSeq).
       if (LOCALSTACK_END_SEQ_SENTINEL.equals(endSeq) && lastSeq != null && !lastSeq.isEmpty()) {
         endSeq = lastSeq;
       }
-      // CASE 2: corner case: open -> closed shard
-      // i.e., lastSeq != null, endSeq == null, but shardsReachedEnd = true
-      // The executor reached end-of-shard (nextShardIterator was null) but listShards had not yet
-      // reflected the shard close - a race between resharding and our listShards call. Record
-      // endSeq=lastSeq so that expiry detection works correctly when the shard later disappears.
+      // CASE 2: corner case: open -> closed shard (we read it)
       if (endSeq == null && shardsReachedEnd != null && shardsReachedEnd.contains(range.getShardId())
           && lastSeq != null && !lastSeq.isEmpty()) {
         endSeq = lastSeq;
       }
       // CASE 3: corner case: closed shard, lastSeq == '', endSeq != null
-      // i.e., no records are read for the shard.
-      // Closed shard with 0 records on first read: use endSeq as lastSeq so checkpoint
-      // "fully consumed" (lastSeq >= endSeq when shard expires).
       if (lastSeq != null && lastSeq.isEmpty() && endSeq != null && !endSeq.isEmpty()) {
         lastSeq = endSeq;
       }
-      // Build the checkpoint value.
       String value = KinesisOffsetGen.CheckpointUtils.buildCheckpointValue(lastSeq, endSeq);
-      // Only include shards we've read from or closed shards we've exhausted. Omit open shards with 0 records:
-      // we cannot use the shard's startingSequenceNumber as lastSeq (AFTER_SEQUENCE_NUMBER would skip the first record).
       if (lastSeq != null && !lastSeq.isEmpty()) {
         fullCheckpoint.put(range.getShardId(), value);
       }
