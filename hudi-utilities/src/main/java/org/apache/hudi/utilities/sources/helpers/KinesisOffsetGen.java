@@ -148,7 +148,7 @@ public class KinesisOffsetGen {
   }
 
   /** LocalStack returns Long.MAX_VALUE for closed shards' endingSequenceNumber; real AWS returns actual value. */
-  private static final String LOCALSTACK_END_SEQ_SENTINEL = "9223372036854775807";
+  public static final String LOCALSTACK_END_SEQ_SENTINEL = "9223372036854775807";
 
   /**
    * Represents a shard to read from, with optional starting sequence number.
