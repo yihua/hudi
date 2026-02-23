@@ -38,7 +38,9 @@ import software.amazon.awssdk.services.kinesis.model.Record;
 import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 import static org.apache.hudi.utilities.config.KinesisSourceConfig.KINESIS_REGION;
 import static org.apache.hudi.utilities.config.KinesisSourceConfig.KINESIS_STARTING_POSITION;
@@ -317,6 +319,60 @@ class TestJsonKinesisSource extends SparkClientFunctionalTestHarness {
   }
 
   @Test
+  void testCreateCheckpointShardsReachedEndRaceOpenToClosedShard() {
+    // Corner case: open shard that executor reached end-of (nextShardIterator=null) but listShards
+    // has not yet reflected the close. Should record endSeq=lastSeq for expiry detection.
+    Map<String, String> lastCheckpointData = new HashMap<>();
+    lastCheckpointData.put("shardId-000000000000", "49590382471490958861609854428592832524486083118");
+    Set<String> shardsReachedEnd = new HashSet<>();
+    shardsReachedEnd.add("shardId-000000000000");
+
+    KinesisOffsetGen.KinesisShardRange[] ranges = {
+        KinesisOffsetGen.KinesisShardRange.of("shardId-000000000000",
+            Option.of("49590382471490958861609854428592832524486083110"),
+            Option.empty())  // endSeq null (listShards not updated yet)
+    };
+
+    String checkpoint = source.testCreateCheckpointFromBatch(
+        emptyRdd(), ranges, lastCheckpointData, shardsReachedEnd);
+
+    assertTrue(checkpoint.contains("shardId-000000000000:49590382471490958861609854428592832524486083118|"
+        + "49590382471490958861609854428592832524486083118"),
+        "shardsReachedEnd: endSeq should be set to lastSeq for expiry detection");
+  }
+
+  @Test
+  void testCreateCheckpointWithoutShardsReachedEndOpenShardNoEndSeq() {
+    // When shardsReachedEnd is null, open shard stays open (no endSeq in checkpoint)
+    Map<String, String> lastCheckpointData = new HashMap<>();
+    lastCheckpointData.put("shardId-000000000000", "seq123");
+
+    KinesisOffsetGen.KinesisShardRange[] ranges = {
+        KinesisOffsetGen.KinesisShardRange.of("shardId-000000000000", Option.of("seq100"), Option.empty())
+    };
+
+    String checkpoint = source.testCreateCheckpointFromBatch(emptyRdd(), ranges, lastCheckpointData, null);
+
+    assertTrue(checkpoint.contains("shardId-000000000000:seq123"));
+    assertFalse(checkpoint.contains("|"), "Open shard without shardsReachedEnd should not have endSeq");
+  }
+
+  @Test
+  void testCreateCheckpointLastCheckpointDataNullUsesStartSeq() {
+    // When lastCheckpointData is null (e.g. fetch failure), falls back to range.getStartingSequenceNumber
+    Map<String, String> lastCheckpointData = null;
+
+    KinesisOffsetGen.KinesisShardRange[] ranges = {
+        KinesisOffsetGen.KinesisShardRange.of("shardId-000000000000",
+            Option.of("seqFromStart"), Option.of("seqEnd"))
+    };
+
+    String checkpoint = source.testCreateCheckpointFromBatch(emptyRdd(), ranges, lastCheckpointData, null);
+
+    assertTrue(checkpoint.contains("shardId-000000000000:seqFromStart|seqEnd"));
+  }
+
+  @Test
   void testCreateCheckpointMixedOpenClosedAndEmpty() {
     Map<String, String> lastCheckpointData = new HashMap<>();
     lastCheckpointData.put("shardId-000000000000", "seq100");
@@ -351,7 +407,14 @@ class TestJsonKinesisSource extends SparkClientFunctionalTestHarness {
 
     String testCreateCheckpointFromBatch(JavaRDD<String> batch,
         KinesisOffsetGen.KinesisShardRange[] shardRanges, Map<String, String> lastCheckpointData) {
+      return testCreateCheckpointFromBatch(batch, shardRanges, lastCheckpointData, null);
+    }
+
+    String testCreateCheckpointFromBatch(JavaRDD<String> batch,
+        KinesisOffsetGen.KinesisShardRange[] shardRanges, Map<String, String> lastCheckpointData,
+        Set<String> shardsReachedEnd) {
       this.lastCheckpointData = lastCheckpointData;
+      this.shardsReachedEnd = shardsReachedEnd;
       return createCheckpointFromBatch(batch, shardRanges);
     }
   }

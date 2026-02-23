@@ -86,7 +86,7 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
   /** Record count from fetch, avoids redundant batch.count() Spark job. */
   private long lastRecordCount;
   /** Shard IDs where the executor observed nextShardIterator==null (end-of-shard reached). */
-  private Set<String> shardsReachedEnd;
+  protected Set<String> shardsReachedEnd;
 
   public JsonKinesisSource(TypedProperties properties, JavaSparkContext sparkContext, SparkSession sparkSession,
                            SchemaProvider schemaProvider, HoodieIngestionMetrics metrics) {
