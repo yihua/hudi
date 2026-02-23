@@ -31,6 +31,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.sql.SparkSession;
 
+import java.util.Arrays;
 import java.util.Map;
 
 import static org.apache.hudi.common.util.ConfigUtils.getBooleanWithAltKeys;
@@ -64,6 +65,18 @@ public abstract class KinesisSource<T> extends Source<T> {
   protected InputBatch<T> readFromCheckpoint(Option<Checkpoint> lastCheckpoint, long sourceLimit) {
     KinesisOffsetGen.KinesisShardRange[] shardRanges = offsetGen.getNextShardRanges(
         lastCheckpoint, sourceLimit, metrics);
+
+    // Filter out shards with no unread records to avoid unnecessary GetRecords calls
+    boolean useLatestWhenNoCheckpoint =
+        offsetGen.getStartingPosition() == KinesisSourceConfig.KinesisStartingPosition.LATEST;
+    int beforeFilter = shardRanges.length;
+    shardRanges = Arrays.stream(shardRanges)
+        .filter(range -> range.hasUnreadRecords(useLatestWhenNoCheckpoint))
+        .toArray(KinesisOffsetGen.KinesisShardRange[]::new);
+    if (beforeFilter > shardRanges.length) {
+      log.info("Filtered {} shards with no unread records, {} shards remain",
+          beforeFilter - shardRanges.length, shardRanges.length);
+    }
 
     if (shardRanges.length == 0) {
       metrics.updateStreamerSourceNewMessageCount(METRIC_NAME_KINESIS_MESSAGE_IN_COUNT, 0);

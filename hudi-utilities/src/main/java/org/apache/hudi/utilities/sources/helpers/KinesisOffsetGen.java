@@ -147,6 +147,9 @@ public class KinesisOffsetGen {
     }
   }
 
+  /** LocalStack returns Long.MAX_VALUE for closed shards' endingSequenceNumber; real AWS returns actual value. */
+  private static final String LOCALSTACK_END_SEQ_SENTINEL = "9223372036854775807";
+
   /**
    * Represents a shard to read from, with optional starting sequence number.
    * For closed shards, endingSequenceNumber is set so we can store it in the checkpoint
@@ -167,6 +170,55 @@ public class KinesisOffsetGen {
 
     public static KinesisShardRange of(String shardId, Option<String> seqNum, Option<String> endSeq) {
       return new KinesisShardRange(shardId, seqNum, endSeq);
+    }
+
+    /**
+     * Returns true if this range may have unread records, false if we can definitively determine it has none.
+     * Uses conservative default (useLatestWhenNoCheckpoint=false).
+     */
+    public boolean hasUnreadRecords() {
+      return hasUnreadRecords(false);
+    }
+
+    /**
+     * Returns true if this range may have unread records, false if we can definitively determine it has none.
+     * <ul>
+     *   <li>Open shard: always true (may have new records)</li>
+     *   <li>Closed shard, lastSeq >= endSeq: false (fully consumed)</li>
+     *   <li>Closed shard, no checkpoint and useLatest: false (at LATEST tip, closed shard has no records)</li>
+     *   <li>Closed shard with LocalStack endSeq sentinel and lastSeq equals sentinel: false (fully consumed)</li>
+     *   <li>Otherwise: true (may have unread records or cannot definitively say)</li>
+     * </ul>
+     *
+     * @param useLatestWhenNoCheckpoint when startingSequenceNumber is empty, true means we use LATEST
+     *        (start at tip); for a closed shard there are no records to read
+     */
+    public boolean hasUnreadRecords(boolean useLatestWhenNoCheckpoint) {
+      String lastSeq = startingSequenceNumber.orElse(null);
+      String endSeq = endingSequenceNumber.orElse(null);
+
+      // Open shard: may have records
+      if (endSeq == null || endSeq.isEmpty()) {
+        return true;
+      }
+
+      // Closed shard with no checkpoint
+      if (lastSeq == null || lastSeq.isEmpty()) {
+        return !useLatestWhenNoCheckpoint;
+      }
+
+      // Closed shard: lastSeq >= endSeq means fully consumed
+      if (lastSeq.compareTo(endSeq) >= 0) {
+        return false;
+      }
+
+      // LocalStack sentinel: when lastSeq equals sentinel, we've fully consumed
+      if (LOCALSTACK_END_SEQ_SENTINEL.equals(endSeq) && LOCALSTACK_END_SEQ_SENTINEL.equals(lastSeq)) {
+        return false;
+      }
+
+      // lastSeq < endSeq or ambiguous (e.g. LocalStack sentinel): may have unread records
+      return true;
     }
   }
 
