@@ -48,5 +48,5 @@ public class AzureStorageLockConfig extends HoodieConfig {
       .noDefaultValue()
       .markAdvanced()
       .withDocumentation("For Azure based lock provider, optional SAS token used for "
-          + "authenticating BlobServiceClient when connection string is not provided.");
+          + "authenticating BlobServiceClient when connection string is not provided. SAS token is not recommended for production use by Azure.");
 }
