@@ -47,8 +47,8 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{ByteType, DateType, IntegerType, LongType, ShortType, StringType, StructField, StructType}
 
 import java.util.Collections
-
 import javax.annotation.concurrent.NotThreadSafe
+
 import scala.collection.JavaConverters._
 import scala.language.implicitConversions
 import scala.util.{Success, Try}
@@ -248,6 +248,7 @@ class SparkHoodieTableFileIndex(spark: SparkSession,
             val index = partitionSchema.indexWhere(a.name == _.name)
             BoundReference(index, partitionSchema(index).dataType, nullable = true)
         })
+
         val prunedPartitionPaths = partitionPaths.filter {
           partitionPath => boundPredicate.eval(InternalRow.fromSeq(partitionPath.values))
         }.toSeq
