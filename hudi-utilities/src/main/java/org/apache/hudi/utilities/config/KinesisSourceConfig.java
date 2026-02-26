@@ -25,7 +25,6 @@ import org.apache.hudi.common.config.HoodieConfig;
 
 import javax.annotation.concurrent.Immutable;
 
-import static org.apache.hudi.common.util.ConfigUtils.DELTA_STREAMER_CONFIG_PREFIX;
 import static org.apache.hudi.common.util.ConfigUtils.STREAMER_CONFIG_PREFIX;
 
 /**
@@ -38,27 +37,22 @@ import static org.apache.hudi.common.util.ConfigUtils.STREAMER_CONFIG_PREFIX;
     description = "Configurations controlling the behavior of Kinesis source in Hudi Streamer.")
 public class KinesisSourceConfig extends HoodieConfig {
 
-  public static final String KINESIS_CHECKPOINT_TYPE_STRING = "string";
-
   private static final String PREFIX = STREAMER_CONFIG_PREFIX + "source.kinesis.";
-  private static final String OLD_PREFIX = DELTA_STREAMER_CONFIG_PREFIX + "source.kinesis.";
 
   public static final ConfigProperty<String> KINESIS_STREAM_NAME = ConfigProperty
       .key(PREFIX + "stream.name")
       .noDefaultValue()
-      .withAlternatives(OLD_PREFIX + "stream.name")
       .withDocumentation("Kinesis Data Streams stream name.");
 
   public static final ConfigProperty<String> KINESIS_REGION = ConfigProperty
       .key(PREFIX + "region")
       .noDefaultValue()
-      .withAlternatives(OLD_PREFIX + "region")
+      .markAdvanced()
       .withDocumentation("AWS region for the Kinesis stream (e.g., us-east-1).");
 
   public static final ConfigProperty<String> KINESIS_ENDPOINT_URL = ConfigProperty
       .key(PREFIX + "endpoint.url")
       .noDefaultValue()
-      .withAlternatives(OLD_PREFIX + "endpoint.url")
       .markAdvanced()
       .withDocumentation("Custom endpoint URL for Kinesis (e.g., for localstack). "
           + "If not set, uses the default AWS endpoint for the region.");
@@ -66,7 +60,6 @@ public class KinesisSourceConfig extends HoodieConfig {
   public static final ConfigProperty<String> KINESIS_ACCESS_KEY = ConfigProperty
       .key(PREFIX + "access.key")
       .noDefaultValue()
-      .withAlternatives(OLD_PREFIX + "access.key")
       .markAdvanced()
       .withDocumentation("AWS access key for Kinesis. Used when connecting to custom endpoints (e.g., LocalStack). "
           + "If not set with endpoint, uses the default AWS credential chain.");
@@ -74,22 +67,19 @@ public class KinesisSourceConfig extends HoodieConfig {
   public static final ConfigProperty<String> KINESIS_SECRET_KEY = ConfigProperty
       .key(PREFIX + "secret.key")
       .noDefaultValue()
-      .withAlternatives(OLD_PREFIX + "secret.key")
       .markAdvanced()
       .withDocumentation("AWS secret key for Kinesis. Used when connecting to custom endpoints (e.g., LocalStack). "
           + "If not set with endpoint, uses the default AWS credential chain.");
 
   public static final ConfigProperty<Long> MAX_EVENTS_FROM_KINESIS_SOURCE = ConfigProperty
-      .key(STREAMER_CONFIG_PREFIX + "kinesis.source.maxEvents")
+      .key(STREAMER_CONFIG_PREFIX + "kinesis.source.max.events")
       .defaultValue(5000000L)
-      .withAlternatives(DELTA_STREAMER_CONFIG_PREFIX + "kinesis.source.maxEvents")
       .markAdvanced()
       .withDocumentation("Maximum number of records obtained in each batch from Kinesis.");
 
   public static final ConfigProperty<Long> KINESIS_SOURCE_MIN_PARTITIONS = ConfigProperty
-      .key(PREFIX + "minPartitions")
+      .key(PREFIX + "min.partitions")
       .defaultValue(0L)
-      .withAlternatives(OLD_PREFIX + "minPartitions")
       .markAdvanced()
       .withDocumentation("Desired minimum number of Spark partitions when reading from Kinesis. "
           + "By default, Hudi has a 1-1 mapping of Kinesis shards to Spark partitions. "
@@ -98,44 +88,38 @@ public class KinesisSourceConfig extends HoodieConfig {
 
   public static final ConfigProperty<Boolean> KINESIS_APPEND_OFFSETS = ConfigProperty
       .key(PREFIX + "append.offsets")
-      .defaultValue(false)
-      .withAlternatives(OLD_PREFIX + "append.offsets")
+      .defaultValue(true)
       .markAdvanced()
       .withDocumentation("When enabled, appends Kinesis metadata (sequence number, shard id, arrival timestamp, partition key) to records.");
 
   public static final ConfigProperty<Boolean> KINESIS_ENABLE_DEAGGREGATION = ConfigProperty
       .key(PREFIX + "enable.deaggregation")
       .defaultValue(true)
-      .withAlternatives(OLD_PREFIX + "enable.deaggregation")
       .markAdvanced()
       .withDocumentation("When enabled, de-aggregates records produced by Kinesis Producer Library (KPL). "
           + "Non-aggregated records pass through unchanged. Set to false if producers do not use KPL.");
 
   public static final ConfigProperty<Boolean> ENABLE_FAIL_ON_DATA_LOSS = ConfigProperty
-      .key(PREFIX + "enable.failOnDataLoss")
+      .key(PREFIX + "enable.fail.on.data.loss")
       .defaultValue(false)
-      .withAlternatives(OLD_PREFIX + "enable.failOnDataLoss")
       .markAdvanced()
       .withDocumentation("Fail when checkpoint references an expired shard instead of seeking to TRIM_HORIZON.");
 
   public static final ConfigProperty<String> KINESIS_STARTING_POSITION = ConfigProperty
       .key(PREFIX + "starting.position")
       .defaultValue("LATEST")
-      .withAlternatives(OLD_PREFIX + "starting.position")
       .markAdvanced()
       .withDocumentation("Starting position when no checkpoint exists. TRIM_HORIZON (or EARLIEST), or LATEST. Default: LATEST.");
 
   public static final ConfigProperty<Integer> KINESIS_GET_RECORDS_MAX_RECORDS = ConfigProperty
-      .key(PREFIX + "getRecords.maxRecords")
+      .key(PREFIX + "get_records.max.records")
       .defaultValue(10000)
-      .withAlternatives(OLD_PREFIX + "getRecords.maxRecords")
       .markAdvanced()
       .withDocumentation("Maximum number of records to fetch per GetRecords API call. Kinesis limit is 10000.");
 
   public static final ConfigProperty<Long> KINESIS_GET_RECORDS_INTERVAL_MS = ConfigProperty
-      .key(PREFIX + "getRecords.intervalMs")
+      .key(PREFIX + "get_records.interval.ms")
       .defaultValue(200L)
-      .withAlternatives(OLD_PREFIX + "getRecords.intervalMs")
       .markAdvanced()
       .withDocumentation("Minimum interval in ms between two GetRecords API calls per shard.");
 
@@ -144,8 +128,6 @@ public class KinesisSourceConfig extends HoodieConfig {
    */
   public enum KinesisStartingPosition {
     /** Start from the oldest record (TRIM_HORIZON). */
-    TRIM_HORIZON,
-    /** Alias for TRIM_HORIZON. */
     EARLIEST,
     /** Start from the newest record (LATEST). */
     LATEST

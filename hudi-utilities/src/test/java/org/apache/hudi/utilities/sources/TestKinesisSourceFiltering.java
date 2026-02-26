@@ -83,7 +83,7 @@ class TestKinesisSourceFiltering extends SparkClientFunctionalTestHarness {
     };
     when(mockOffsetGen.getNextShardRanges(any(), anyLong(), any())).thenReturn(allFiltered);
     when(mockOffsetGen.getStartingPosition()).thenReturn(
-        KinesisSourceConfig.KinesisStartingPosition.TRIM_HORIZON);
+        KinesisSourceConfig.KinesisStartingPosition.EARLIEST);
 
     source.setOffsetGen(mockOffsetGen);
 
@@ -113,7 +113,7 @@ class TestKinesisSourceFiltering extends SparkClientFunctionalTestHarness {
     };
     when(mockOffsetGen.getNextShardRanges(any(), anyLong(), any())).thenReturn(ranges);
     when(mockOffsetGen.getStartingPosition()).thenReturn(
-        KinesisSourceConfig.KinesisStartingPosition.TRIM_HORIZON);
+        KinesisSourceConfig.KinesisStartingPosition.EARLIEST);
 
     source.setOffsetGen(mockOffsetGen);
 
@@ -171,7 +171,7 @@ class TestKinesisSourceFiltering extends SparkClientFunctionalTestHarness {
     };
     when(mockOffsetGen.getNextShardRanges(any(), anyLong(), any())).thenReturn(ranges);
     when(mockOffsetGen.getStartingPosition()).thenReturn(
-        KinesisSourceConfig.KinesisStartingPosition.TRIM_HORIZON);
+        KinesisSourceConfig.KinesisStartingPosition.EARLIEST);
 
     source.setOffsetGen(mockOffsetGen);
 

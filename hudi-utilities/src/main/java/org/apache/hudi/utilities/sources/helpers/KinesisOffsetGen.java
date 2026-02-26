@@ -491,7 +491,7 @@ public class KinesisOffsetGen {
       builder.startingSequenceNumber(range.getStartingSequenceNumber().get());
     } else {
       // EARLIEST is normalized to TRIM_HORIZON in constructor
-      builder.shardIteratorType(defaultPosition == KinesisSourceConfig.KinesisStartingPosition.TRIM_HORIZON
+      builder.shardIteratorType(defaultPosition == KinesisSourceConfig.KinesisStartingPosition.EARLIEST
           ? ShardIteratorType.TRIM_HORIZON : ShardIteratorType.LATEST);
     }
 
