@@ -81,7 +81,7 @@ abstract class BaseSpark3Adapter extends SparkAdapter with Logging {
     try {
       Predicate.createInterpreted(e)
     } catch {
-      case _: NoSuchMethodError | _: IllegalArgumentException =>
+      case _: NoSuchMethodException | _: NoSuchMethodError | _: IllegalArgumentException =>
         // Fallback: certain Spark runtimes (e.g. Databricks) use a 2-arg constructor
         val clazz = classOf[InterpretedPredicate]
         val ctor = clazz.getConstructor(classOf[Expression], classOf[Boolean])
