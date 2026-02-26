@@ -547,13 +547,13 @@
     <dependency>
       <groupId>com.amazonaws</groupId>
       <artifactId>amazon-kinesis-deaggregator</artifactId>
-      <version>1.0.3</version>
+      <version>${aws.kinesis.aggregator.version}</version>
     </dependency>
     <!-- KPL aggregation: for creating aggregated records in tests -->
     <dependency>
       <groupId>com.amazonaws</groupId>
       <artifactId>amazon-kinesis-aggregator</artifactId>
-      <version>1.0.3</version>
+      <version>${aws.kinesis.aggregator.version}</version>
       <scope>test</scope>
     </dependency>
 
