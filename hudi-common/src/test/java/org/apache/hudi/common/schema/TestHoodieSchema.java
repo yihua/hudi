@@ -19,6 +19,7 @@
 package org.apache.hudi.common.schema;
 
 import org.apache.hudi.common.schema.HoodieSchema.VariantLogicalType;
+import org.apache.hudi.common.schema.HoodieSchema.VectorLogicalType;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.exception.HoodieAvroSchemaException;
 
@@ -874,6 +875,322 @@ public class TestHoodieSchema {
     assertEquals(10, avroLogicalTypeFixed.getPrecision());
     assertEquals(2, avroLogicalTypeFixed.getScale());
     assertEquals(5, decimalFixedSchema.getFixedSize());
+  }
+
+  @Test
+  void testCreateVectorWithDimension() {
+    // Create vector with dimension only (defaults to FLOAT)
+    HoodieSchema schema = HoodieSchema.createVector(1536);
+
+    HoodieSchema.Vector vectorSchema = assertVector(schema, 1536, HoodieSchema.Vector.VectorElementType.FLOAT);
+    assertEquals(HoodieSchemaType.VECTOR, schema.getType());
+
+    assertTrue(schema.getAvroSchema().getLogicalType() instanceof VectorLogicalType);
+
+    // Verify properties are at schema level
+    assertVectorAvroProperties(vectorSchema, 1536, HoodieSchema.Vector.VectorElementType.FLOAT);
+
+    // Verify Vector is FIXED type (not RECORD)
+    Schema avroSchema = vectorSchema.getAvroSchema();
+    assertEquals(Schema.Type.FIXED, avroSchema.getType());
+    assertFalse(vectorSchema.hasFields());
+
+    // Verify FIXED size = dimension × elementSize (1536 × 4 bytes for FLOAT)
+    assertEquals(1536 * 4, avroSchema.getFixedSize());
+  }
+
+  @Test
+  void testCreateVectorWithNameAndDimension() {
+    // Create vector with custom name and dimension
+    HoodieSchema schema = HoodieSchema.createVector("embeddings", 768);
+    HoodieSchema.Vector vectorSchema = assertVector(schema, 768, HoodieSchema.Vector.VectorElementType.FLOAT);
+    assertEquals(HoodieSchemaType.VECTOR, schema.getType());
+    assertEquals("embeddings", vectorSchema.getAvroSchema().getName());
+  }
+
+  @Test
+  void testCreateVectorWithDimensionAndElementType() {
+    // Create vector with DOUBLE element type
+    HoodieSchema schemaDouble = HoodieSchema.createVector(1536, HoodieSchema.Vector.VectorElementType.DOUBLE);
+    assertVector(schemaDouble, 1536, HoodieSchema.Vector.VectorElementType.DOUBLE);
+
+    // Create vector with FLOAT element type
+    HoodieSchema schemaFloat = HoodieSchema.createVector(512, HoodieSchema.Vector.VectorElementType.FLOAT);
+    assertVector(schemaFloat, 512, HoodieSchema.Vector.VectorElementType.FLOAT);
+
+    // Create vector with INT8 element type
+    HoodieSchema.Vector schemaInt = HoodieSchema.createVector(256, HoodieSchema.Vector.VectorElementType.INT8);
+    assertVector(schemaInt, 256, HoodieSchema.Vector.VectorElementType.INT8);
+  }
+
+  @Test
+  void testCreateVectorWithAllParameters() {
+    // Create vector with all parameters: custom name, dimension, and element type
+    HoodieSchema schema = HoodieSchema.createVector("precise_vectors", 512, HoodieSchema.Vector.VectorElementType.DOUBLE);
+    HoodieSchema.Vector vectorSchema = assertVector(schema, 512, HoodieSchema.Vector.VectorElementType.DOUBLE);
+    assertEquals("precise_vectors", vectorSchema.getAvroSchema().getName());
+    assertEquals(HoodieSchemaType.VECTOR, vectorSchema.getType());
+  }
+
+  @Test
+  void testVectorInvalidDimension() {
+    // Test zero dimension
+    IllegalArgumentException ex1 = assertThrows(
+        IllegalArgumentException.class,
+        () -> HoodieSchema.createVector(0)
+    );
+    assertTrue(ex1.getMessage().contains("must be positive"));
+
+    // Test negative dimension
+    IllegalArgumentException ex2 = assertThrows(
+        IllegalArgumentException.class,
+        () -> HoodieSchema.createVector(-1)
+    );
+    assertTrue(ex2.getMessage().contains("must be positive"));
+  }
+
+  @Test
+  void testVectorLogicalTypeDetection() {
+    // Create vector schema
+    HoodieSchema schema = HoodieSchema.createVector(1536);
+    assertTrue(schema.getAvroSchema().getLogicalType() instanceof VectorLogicalType);
+    assertEquals(HoodieSchemaType.VECTOR, schema.getType());
+  }
+
+  @Test
+  void testVectorSchemaValidation() {
+    // Create vector and verify FIXED structure
+    HoodieSchema.Vector vectorSchema = HoodieSchema.createVector(768);
+    Schema avroSchema = vectorSchema.getAvroSchema();
+
+    // Verify Vector is FIXED type
+    assertEquals(Schema.Type.FIXED, avroSchema.getType());
+    assertFalse(vectorSchema.hasFields());
+
+    // Verify dimension, elementType, storageBacking are schema properties
+    assertVectorAvroProperties(vectorSchema, 768, HoodieSchema.Vector.VectorElementType.FLOAT);
+
+    // Verify FIXED size = dimension × elementSize (768 × 4 bytes for FLOAT)
+    assertEquals(768 * 4, avroSchema.getFixedSize());
+    assertEquals(768 * 4, vectorSchema.getFixedSize());
+  }
+
+  @Test
+  void testVectorFieldAccess() {
+    // Create vector with FLOAT
+    HoodieSchema.Vector vectorFloat = HoodieSchema.createVector(1536);
+    assertVector(vectorFloat, 1536, HoodieSchema.Vector.VectorElementType.FLOAT);
+
+    HoodieSchema.Vector vectorDouble = HoodieSchema.createVector(768, HoodieSchema.Vector.VectorElementType.DOUBLE);
+    assertVector(vectorDouble, 768, HoodieSchema.Vector.VectorElementType.DOUBLE);
+
+    // Verify dimension/elementType/storageBacking are accessible via properties
+    assertVectorAvroProperties(vectorFloat, 1536, HoodieSchema.Vector.VectorElementType.FLOAT);
+
+    // Verify FIXED size access
+    assertEquals(1536 * 4, vectorFloat.getFixedSize()); // FLOAT is 4 bytes
+    assertEquals(768 * 8, vectorDouble.getFixedSize()); // DOUBLE is 8 bytes
+  }
+  
+  @Test
+  void testVectorEquality() {
+    HoodieSchema.Vector v1 = HoodieSchema.createVector(1536);
+    HoodieSchema.Vector v2 = HoodieSchema.createVector(1536);
+    HoodieSchema.Vector v3 = HoodieSchema.createVector(768);
+    HoodieSchema.Vector v4 = HoodieSchema.createVector(1536, HoodieSchema.Vector.VectorElementType.DOUBLE);
+
+    // Same dimension and element type -> equal
+    assertEquals(v1, v2);
+    assertEquals(v1.hashCode(), v2.hashCode());
+
+    // Different dimension -> not equal
+    assertNotEquals(v1, v3);
+
+    // Different element type -> not equal
+    assertNotEquals(v1, v4);
+
+    // Reflexivity
+    assertEquals(v1, v1);
+
+    // Null check
+    assertNotEquals(v1, null);
+
+    // Different class
+    assertNotEquals(v1, "string");
+  }
+  
+  @Test
+  void testVectorSerialization() throws Exception {
+    // Create vector with DOUBLE element type
+    HoodieSchema.Vector original = HoodieSchema.createVector(768, HoodieSchema.Vector.VectorElementType.DOUBLE);
+
+    // Java serialize
+    ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
+    ObjectOutputStream out = new ObjectOutputStream(byteOut);
+    out.writeObject(original);
+    out.close();
+
+    // Java deserialize
+    ByteArrayInputStream byteIn = new ByteArrayInputStream(byteOut.toByteArray());
+    ObjectInputStream in = new ObjectInputStream(byteIn);
+    HoodieSchema deserialized = (HoodieSchema) in.readObject();
+    in.close();
+
+    // Verify
+    assertVector(deserialized, 768, HoodieSchema.Vector.VectorElementType.DOUBLE);
+    assertEquals(original, deserialized);
+  }
+
+  @Test
+  void testVectorInNestedStructures() throws Exception {
+    // Create vector schema
+    HoodieSchema.Vector vectorSchema = HoodieSchema.createVector(128, HoodieSchema.Vector.VectorElementType.FLOAT);
+
+    // Test vector in record - verify it can be used as a field
+    List<HoodieSchemaField> fields = Arrays.asList(
+        HoodieSchemaField.of("id", HoodieSchema.create(HoodieSchemaType.INT)),
+        HoodieSchemaField.of("embedding", vectorSchema)
+    );
+    HoodieSchema recordSchema = HoodieSchema.createRecord("TestRecord", null, null, fields);
+    assertEquals(HoodieSchemaType.RECORD, recordSchema.getType());
+
+    // Verify vector field is preserved in the Avro schema
+    Schema.Field embeddingField = recordSchema.getAvroSchema().getField("embedding");
+    assertNotNull(embeddingField);
+    HoodieSchema embeddingSchema = HoodieSchema.fromAvroSchema(embeddingField.schema());
+    assertVector(embeddingSchema, 128, HoodieSchema.Vector.VectorElementType.FLOAT);
+
+    // Round-trip record with vector field through JSON
+    String recordJson = recordSchema.toString();
+    HoodieSchema parsedRecord = HoodieSchema.parse(recordJson);
+    assertEquals(recordSchema, parsedRecord);
+    Schema.Field parsedEmbeddingField = parsedRecord.getAvroSchema().getField("embedding");
+    assertNotNull(parsedEmbeddingField);
+    HoodieSchema parsedEmbedding = HoodieSchema.fromAvroSchema(parsedEmbeddingField.schema());
+    assertVector(parsedEmbedding, 128, HoodieSchema.Vector.VectorElementType.FLOAT);
+
+    // Test vector in array
+    HoodieSchema arraySchema = HoodieSchema.createArray(vectorSchema);
+    assertEquals(HoodieSchemaType.ARRAY, arraySchema.getType());
+    assertVector(arraySchema.getElementType(), 128, HoodieSchema.Vector.VectorElementType.FLOAT);
+
+    // Round-trip array of vectors through JSON
+    String arrayJson = arraySchema.toString();
+    HoodieSchema parsedArray = HoodieSchema.parse(arrayJson);
+    assertEquals(arraySchema, parsedArray);
+    assertVector(parsedArray.getElementType(), 128, HoodieSchema.Vector.VectorElementType.FLOAT);
+
+    // Test vector in map
+    HoodieSchema mapSchema = HoodieSchema.createMap(vectorSchema);
+    assertEquals(HoodieSchemaType.MAP, mapSchema.getType());
+    assertVector(mapSchema.getValueType(), 128, HoodieSchema.Vector.VectorElementType.FLOAT);
+
+    // Round-trip map with vector values through JSON
+    String mapJson = mapSchema.toString();
+    HoodieSchema parsedMap = HoodieSchema.parse(mapJson);
+    assertEquals(mapSchema, parsedMap);
+    assertVector(parsedMap.getValueType(), 128, HoodieSchema.Vector.VectorElementType.FLOAT);
+  }
+
+  @Test
+  void testVectorWithDefaultName() {
+    // createVector(dimension) generates a dimension-aware name to avoid Avro collisions
+    HoodieSchema.Vector v1 = HoodieSchema.createVector(1536);
+    assertEquals("vector_float_1536", v1.getAvroSchema().getName());
+
+    HoodieSchema.Vector v2 = HoodieSchema.createVector(768, HoodieSchema.Vector.VectorElementType.DOUBLE);
+    assertEquals("vector_double_768", v2.getAvroSchema().getName());
+
+    // Null or empty name is rejected
+    assertThrows(IllegalArgumentException.class, () -> HoodieSchema.createVector(null, 128));
+    assertThrows(IllegalArgumentException.class, () -> HoodieSchema.createVector("", 128));
+  }
+
+  @Test
+  void testMultipleVectorColumnsWithSameDimensionAndType() {
+    // Two vectors with identical dimension and element type share the same FIXED type name,
+    // which Avro allows since the definitions are identical.
+    HoodieSchema.Vector v1 = HoodieSchema.createVector(128);
+    HoodieSchema.Vector v2 = HoodieSchema.createVector(128);
+
+    List<HoodieSchemaField> fields = Arrays.asList(
+        HoodieSchemaField.of("id", HoodieSchema.create(HoodieSchemaType.INT)),
+        HoodieSchemaField.of("title_embedding", v1),
+        HoodieSchemaField.of("content_embedding", v2)
+    );
+
+    HoodieSchema record = HoodieSchema.createRecord("TestRecord", null, null, fields);
+    assertNotNull(record);
+
+    // Verify both fields survive a JSON round-trip
+    String json = record.toString();
+    HoodieSchema parsed = HoodieSchema.parse(json);
+    assertNotNull(parsed.getAvroSchema().getField("title_embedding"));
+    assertNotNull(parsed.getAvroSchema().getField("content_embedding"));
+    assertVector(HoodieSchema.fromAvroSchema(parsed.getAvroSchema().getField("title_embedding").schema()),
+        128, HoodieSchema.Vector.VectorElementType.FLOAT);
+    assertVector(HoodieSchema.fromAvroSchema(parsed.getAvroSchema().getField("content_embedding").schema()),
+        128, HoodieSchema.Vector.VectorElementType.FLOAT);
+  }
+
+  @Test
+  void testMultipleVectorColumnsWithDifferentDimensions() {
+    // Two vectors with different dimensions use dimension-aware names to avoid Avro collisions
+    HoodieSchema.Vector v128 = HoodieSchema.createVector(128);
+    HoodieSchema.Vector v256 = HoodieSchema.createVector(256);
+
+    List<HoodieSchemaField> fields = Arrays.asList(
+        HoodieSchemaField.of("id", HoodieSchema.create(HoodieSchemaType.INT)),
+        HoodieSchemaField.of("embedding_small", v128),
+        HoodieSchemaField.of("embedding_large", v256)
+    );
+
+    // A table with two vector columns of different dimensions is a valid use case
+    HoodieSchema record = HoodieSchema.createRecord("TestRecord", null, null, fields);
+    assertNotNull(record);
+
+    // Verify both fields survive a JSON round-trip (schema serialization/parsing)
+    String json = record.toString();
+    HoodieSchema parsed = HoodieSchema.parse(json);
+    assertNotNull(parsed.getAvroSchema().getField("embedding_small"));
+    assertNotNull(parsed.getAvroSchema().getField("embedding_large"));
+    assertVector(HoodieSchema.fromAvroSchema(parsed.getAvroSchema().getField("embedding_small").schema()),
+        128, HoodieSchema.Vector.VectorElementType.FLOAT);
+    assertVector(HoodieSchema.fromAvroSchema(parsed.getAvroSchema().getField("embedding_large").schema()),
+        256, HoodieSchema.Vector.VectorElementType.FLOAT);
+  }
+
+  @Test
+  void testVectorFromAvroSchema() {
+    // Create vector via factory
+    HoodieSchema.Vector original = HoodieSchema.createVector("embeddings", 512, HoodieSchema.Vector.VectorElementType.DOUBLE);
+
+    // Get Avro schema
+    Schema avroSchema = original.getAvroSchema();
+
+    // Re-wrap via fromAvroSchema
+    HoodieSchema rewrapped = HoodieSchema.fromAvroSchema(avroSchema);
+
+    // Verify returns Vector instance with preserved dimension and elementType
+    assertVector(rewrapped, 512, HoodieSchema.Vector.VectorElementType.DOUBLE);
+    assertEquals(original, rewrapped);
+  }
+
+  private HoodieSchema.Vector assertVector(HoodieSchema schema, int expectedDimension,
+                                           HoodieSchema.Vector.VectorElementType expectedElementType) {
+    assertTrue(schema instanceof HoodieSchema.Vector);
+    HoodieSchema.Vector vector = (HoodieSchema.Vector) schema;
+    assertEquals(expectedDimension, vector.getDimension());
+    assertEquals(expectedElementType, vector.getVectorElementType());
+    return vector;
+  }
+
+  private void assertVectorAvroProperties(HoodieSchema.Vector vector, int expectedDimension,
+                                          HoodieSchema.Vector.VectorElementType expectedElementType) {
+    Schema avroSchema = vector.getAvroSchema();
+    assertEquals(expectedDimension, ((Number) avroSchema.getObjectProp("dimension")).intValue());
+    assertEquals(expectedElementType.name(), avroSchema.getProp("elementType"));
+    assertEquals(HoodieSchema.Vector.StorageBacking.FIXED_BYTES.name(), avroSchema.getProp("storageBacking"));
   }
 
   @Test
