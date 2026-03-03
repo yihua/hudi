@@ -19,6 +19,9 @@
 
 package org.apache.hudi.common.util;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -27,9 +30,13 @@ import java.util.Map;
  * Supports multiple checkpoint formats used by different engines and sources.
  *
  * Checkpoint formats:
- * - DELTASTREAMER_KAFKA: "topic,partition:offset,partition:offset,..."
+ * - SPARK_KAFKA: "topic,partition:offset,partition:offset,..."
  *   Example: "events,0:1000,1:2000,2:1500"
- *   Used by: DeltaStreamer (Spark)
+ *   Used by: HoodieStreamer (Spark)
+ *   Note: Both offset-based and timestamp-based Kafka sources produce this same string
+ *   format (see {@code KafkaOffsetGen}). The offsets may originate from either
+ *   {@code consumer.endOffsets()} or {@code consumer.offsetsForTimes()}, but the
+ *   checkpoint string format is identical.
  *
  * - FLINK_KAFKA: Base64-encoded serialized Map (TopicPartition → Long)
  *   Example: "eyJ0b3BpY..." (base64)
@@ -38,30 +45,36 @@ import java.util.Map;
  *
  * - PULSAR: "partition:ledgerId:entryId,partition:ledgerId:entryId,..."
  *   Example: "0:123:45,1:234:56"
- *   Used by: Pulsar sources
+ *   Used by: Pulsar sources (engine-agnostic)
  *   Note: To be implemented in Phase 4
  *
  * - KINESIS: "shardId:sequenceNumber,shardId:sequenceNumber,..."
  *   Example: "shardId-000000000000:49590338271490256608559692538361571095921575989136588898"
- *   Used by: Kinesis sources
+ *   Used by: Kinesis sources (engine-agnostic)
  *   Note: To be implemented in Phase 4
  */
 public class CheckpointUtils {
 
+  private static final Logger LOG = LoggerFactory.getLogger(CheckpointUtils.class);
+
   /**
    * Supported checkpoint formats across engines and sources.
+   *
+   * <p>Engine-specific formats (Kafka) are prefixed with the engine name because different
+   * engines use different checkpoint serialization for the same source. Source-specific formats
+   * (Pulsar, Kinesis) are not engine-prefixed because they use the same format across engines.</p>
    */
   public enum CheckpointFormat {
-    /** DeltaStreamer (Spark) Kafka format: "topic,0:1000,1:2000" */
-    DELTASTREAMER_KAFKA,
+    /** HoodieStreamer (Spark) Kafka format: "topic,0:1000,1:2000" */
+    SPARK_KAFKA,
 
     /** Flink Kafka format: base64-encoded Map&lt;TopicPartition, Long&gt; */
     FLINK_KAFKA,
 
-    /** Pulsar format: "0:123:45,1:234:56" (ledgerId:entryId) */
+    /** Pulsar format: "0:123:45,1:234:56" (ledgerId:entryId). Engine-agnostic. */
     PULSAR,
 
-    /** Kinesis format: "shard-0:12345,shard-1:67890" */
+    /** Kinesis format: "shard-0:12345,shard-1:67890". Engine-agnostic. */
     KINESIS,
 
     /** Custom user-defined format */
@@ -78,8 +91,8 @@ public class CheckpointUtils {
    */
   public static Map<Integer, Long> parseCheckpoint(CheckpointFormat format, String checkpointStr) {
     switch (format) {
-      case DELTASTREAMER_KAFKA:
-        return parseDeltaStreamerKafkaCheckpoint(checkpointStr);
+      case SPARK_KAFKA:
+        return parseSparkKafkaCheckpoint(checkpointStr);
       case FLINK_KAFKA:
         throw new UnsupportedOperationException(
             "Flink Kafka checkpoint parsing not yet implemented. "
@@ -130,7 +143,8 @@ public class CheckpointUtils {
 
         // Handle offset reset (negative diff) - topic/partition recreated
         if (diff < 0) {
-          // Use current offset as diff (count from 0 to current)
+          LOG.warn("Detected offset reset for partition {}. Previous offset: {}, current offset: {}. "
+              + "Using current offset as diff (counting from 0).", partition, previousOffset, currentOffset);
           totalDiff += currentOffset;
         } else {
           totalDiff += diff;
@@ -165,14 +179,14 @@ public class CheckpointUtils {
   }
 
   /**
-   * Extract topic name from DeltaStreamer Kafka checkpoint.
+   * Extract topic name from Spark Kafka checkpoint.
    * Format: "topic,partition:offset,..."
    *
-   * @param checkpointStr DeltaStreamer Kafka checkpoint
+   * @param checkpointStr Spark Kafka checkpoint
    * @return Topic name
    * @throws IllegalArgumentException if invalid format
    */
-  public static String extractTopicName(String checkpointStr) {
+  static String extractTopicName(String checkpointStr) {
     if (checkpointStr == null || checkpointStr.trim().isEmpty()) {
       throw new IllegalArgumentException("Checkpoint string cannot be null or empty");
     }
@@ -189,20 +203,21 @@ public class CheckpointUtils {
   // ========== Format-Specific Parsers ==========
 
   /**
-   * Parse DeltaStreamer (Spark) Kafka checkpoint.
+   * Parse HoodieStreamer (Spark) Kafka checkpoint.
    * Format: "topic,partition:offset,partition:offset,..."
    * Example: "events,0:1000,1:2000,2:1500"
    *
    * <p>Note: {@code KafkaOffsetGen.CheckpointUtils#strToOffsets} in hudi-utilities
    * parses the same format but returns {@code Map<TopicPartition, Long>} (Kafka-specific).
    * This method returns {@code Map<Integer, Long>} to avoid Kafka client dependencies
-   * in hudi-common. The two should be consolidated in a future refactoring.</p>
+   * in hudi-common. TODO: consolidate with KafkaOffsetGen.CheckpointUtils once
+   * https://github.com/apache/hudi/pull/18125 lands.</p>
    *
    * @param checkpointStr Checkpoint string
    * @return Map of partition → offset
    * @throws IllegalArgumentException if format is invalid
    */
-  private static Map<Integer, Long> parseDeltaStreamerKafkaCheckpoint(String checkpointStr) {
+  private static Map<Integer, Long> parseSparkKafkaCheckpoint(String checkpointStr) {
     if (checkpointStr == null || checkpointStr.trim().isEmpty()) {
       throw new IllegalArgumentException("Checkpoint string cannot be null or empty");
     }
@@ -212,7 +227,7 @@ public class CheckpointUtils {
 
     if (splits.length < 2) {
       throw new IllegalArgumentException(
-          "Invalid DeltaStreamer Kafka checkpoint. Expected: topic,partition:offset,... Got: " + checkpointStr);
+          "Invalid Spark Kafka checkpoint. Expected: topic,partition:offset,... Got: " + checkpointStr);
     }
 
     // First element is topic name, skip it

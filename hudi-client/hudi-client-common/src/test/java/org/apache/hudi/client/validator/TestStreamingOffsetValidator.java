@@ -21,6 +21,8 @@ package org.apache.hudi.client.validator;
 
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.util.CheckpointUtils.CheckpointFormat;
+import org.apache.hudi.config.HoodiePreCommitValidatorConfig;
+import org.apache.hudi.config.HoodiePreCommitValidatorConfig.ValidationFailurePolicy;
 import org.apache.hudi.exception.HoodieValidationException;
 import org.junit.jupiter.api.Test;
 
@@ -38,7 +40,7 @@ public class TestStreamingOffsetValidator {
    */
   private static class MockOffsetValidator extends StreamingOffsetValidator {
     public MockOffsetValidator(TypedProperties config) {
-      super(config, "test.checkpoint.key", CheckpointFormat.DELTASTREAMER_KAFKA);
+      super(config, "test.checkpoint.key", CheckpointFormat.SPARK_KAFKA);
     }
 
     // Expose protected method for testing
@@ -51,8 +53,9 @@ public class TestStreamingOffsetValidator {
   @Test
   public void testExactMatchValidation() {
     TypedProperties config = new TypedProperties();
-    config.setProperty(StreamingOffsetValidator.TOLERANCE_PERCENTAGE_KEY, "0.0");
-    config.setProperty(StreamingOffsetValidator.WARN_ONLY_MODE_KEY, "false");
+    config.setProperty(HoodiePreCommitValidatorConfig.STREAMING_OFFSET_TOLERANCE_PERCENTAGE.key(), "0.0");
+    config.setProperty(HoodiePreCommitValidatorConfig.VALIDATION_FAILURE_POLICY.key(),
+        ValidationFailurePolicy.FAIL.name());
 
     MockOffsetValidator validator = new MockOffsetValidator(config);
 
@@ -64,8 +67,9 @@ public class TestStreamingOffsetValidator {
   @Test
   public void testStrictModeFailure() {
     TypedProperties config = new TypedProperties();
-    config.setProperty(StreamingOffsetValidator.TOLERANCE_PERCENTAGE_KEY, "0.0");
-    config.setProperty(StreamingOffsetValidator.WARN_ONLY_MODE_KEY, "false");
+    config.setProperty(HoodiePreCommitValidatorConfig.STREAMING_OFFSET_TOLERANCE_PERCENTAGE.key(), "0.0");
+    config.setProperty(HoodiePreCommitValidatorConfig.VALIDATION_FAILURE_POLICY.key(),
+        ValidationFailurePolicy.FAIL.name());
 
     MockOffsetValidator validator = new MockOffsetValidator(config);
 
@@ -77,8 +81,9 @@ public class TestStreamingOffsetValidator {
   @Test
   public void testValidationWithTolerance() {
     TypedProperties config = new TypedProperties();
-    config.setProperty(StreamingOffsetValidator.TOLERANCE_PERCENTAGE_KEY, "10.0");
-    config.setProperty(StreamingOffsetValidator.WARN_ONLY_MODE_KEY, "false");
+    config.setProperty(HoodiePreCommitValidatorConfig.STREAMING_OFFSET_TOLERANCE_PERCENTAGE.key(), "10.0");
+    config.setProperty(HoodiePreCommitValidatorConfig.VALIDATION_FAILURE_POLICY.key(),
+        ValidationFailurePolicy.FAIL.name());
 
     MockOffsetValidator validator = new MockOffsetValidator(config);
 
@@ -96,14 +101,15 @@ public class TestStreamingOffsetValidator {
   }
 
   @Test
-  public void testWarnOnlyMode() {
+  public void testWarnLogPolicy() {
     TypedProperties config = new TypedProperties();
-    config.setProperty(StreamingOffsetValidator.TOLERANCE_PERCENTAGE_KEY, "0.0");
-    config.setProperty(StreamingOffsetValidator.WARN_ONLY_MODE_KEY, "true");
+    config.setProperty(HoodiePreCommitValidatorConfig.STREAMING_OFFSET_TOLERANCE_PERCENTAGE.key(), "0.0");
+    config.setProperty(HoodiePreCommitValidatorConfig.VALIDATION_FAILURE_POLICY.key(),
+        ValidationFailurePolicy.WARN_LOG.name());
 
     MockOffsetValidator validator = new MockOffsetValidator(config);
 
-    // Even with large deviation, warn-only mode should not throw
+    // Even with large deviation, WARN_LOG policy should not throw
     assertDoesNotThrow(() ->
         validator.testValidateOffsetConsistency(1000, 500, "cur", "prev"));
 
@@ -114,8 +120,9 @@ public class TestStreamingOffsetValidator {
   @Test
   public void testEdgeCaseZeroBoth() {
     TypedProperties config = new TypedProperties();
-    config.setProperty(StreamingOffsetValidator.TOLERANCE_PERCENTAGE_KEY, "0.0");
-    config.setProperty(StreamingOffsetValidator.WARN_ONLY_MODE_KEY, "false");
+    config.setProperty(HoodiePreCommitValidatorConfig.STREAMING_OFFSET_TOLERANCE_PERCENTAGE.key(), "0.0");
+    config.setProperty(HoodiePreCommitValidatorConfig.VALIDATION_FAILURE_POLICY.key(),
+        ValidationFailurePolicy.FAIL.name());
 
     MockOffsetValidator validator = new MockOffsetValidator(config);
 
@@ -127,8 +134,9 @@ public class TestStreamingOffsetValidator {
   @Test
   public void testEdgeCaseOneZero() {
     TypedProperties config = new TypedProperties();
-    config.setProperty(StreamingOffsetValidator.TOLERANCE_PERCENTAGE_KEY, "0.0");
-    config.setProperty(StreamingOffsetValidator.WARN_ONLY_MODE_KEY, "false");
+    config.setProperty(HoodiePreCommitValidatorConfig.STREAMING_OFFSET_TOLERANCE_PERCENTAGE.key(), "0.0");
+    config.setProperty(HoodiePreCommitValidatorConfig.VALIDATION_FAILURE_POLICY.key(),
+        ValidationFailurePolicy.FAIL.name());
 
     MockOffsetValidator validator = new MockOffsetValidator(config);
 
@@ -144,7 +152,7 @@ public class TestStreamingOffsetValidator {
   @Test
   public void testDefaultConfiguration() {
     TypedProperties config = new TypedProperties();
-    // No explicit config - should use defaults
+    // No explicit config - should use defaults (tolerance=0.0, policy=FAIL)
 
     MockOffsetValidator validator = new MockOffsetValidator(config);
 

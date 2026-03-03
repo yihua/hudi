@@ -68,20 +68,32 @@ public class HoodiePreCommitValidatorConfig extends HoodieConfig {
       .key("hoodie.precommit.validators.streaming.offset.tolerance.percentage")
       .defaultValue("0.0")
       .markAdvanced()
-      .withDocumentation("Tolerance percentage for streaming offset validation. "
+      .withDocumentation("Tolerance percentage for streaming offset validation "
+          + "(used by org.apache.hudi.client.validator.StreamingOffsetValidator). "
           + "The validator compares the offset difference (expected records from source) "
           + "with actual records written. If the deviation exceeds this percentage, "
-          + "the commit is rejected (or warned, depending on warn-only mode). "
+          + "the commit is rejected or warned depending on the validation failure policy. "
           + "For upsert workloads with deduplication, set a higher tolerance. "
           + "Default is 0.0 (strict mode, exact match required).");
 
-  public static final ConfigProperty<String> WARN_ONLY_MODE = ConfigProperty
-      .key("hoodie.precommit.validators.warn.only")
-      .defaultValue("false")
+  /**
+   * Policy for handling pre-commit validation failures.
+   */
+  public enum ValidationFailurePolicy {
+    /** Validation failures block the commit with an exception. */
+    FAIL,
+    /** Validation failures emit a warning log but allow the commit to proceed. */
+    WARN_LOG
+  }
+
+  public static final ConfigProperty<String> VALIDATION_FAILURE_POLICY = ConfigProperty
+      .key("hoodie.precommit.validators.failure.policy")
+      .defaultValue(ValidationFailurePolicy.FAIL.name())
       .markAdvanced()
-      .withDocumentation("When enabled, validation failures emit warnings instead of "
-          + "blocking the commit. Useful for monitoring data quality without "
-          + "impacting write availability. Default is false (validation failures block commits).");
+      .withDocumentation("Policy for handling pre-commit validation failures. "
+          + "FAIL (default): validation failures block the commit with an exception. "
+          + "WARN_LOG: validation failures emit a warning log but allow the commit to proceed. "
+          + "Useful for monitoring data quality without impacting write availability.");
 
   /**
    * Spark SQL queries to run on table before committing new data to validate state before and after commit.

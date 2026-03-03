@@ -23,6 +23,8 @@ import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.util.CheckpointUtils;
 import org.apache.hudi.common.util.CheckpointUtils.CheckpointFormat;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.config.HoodiePreCommitValidatorConfig;
+import org.apache.hudi.config.HoodiePreCommitValidatorConfig.ValidationFailurePolicy;
 import org.apache.hudi.exception.HoodieValidationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,40 +39,31 @@ import org.slf4j.LoggerFactory;
  * For upsert workloads with deduplication or event-time ordering, the deviation between
  * source offsets and records written can be legitimately large (e.g., duplicate keys are
  * deduplicated, late-arriving events are dropped). In such cases, configure an appropriate
- * tolerance percentage or use warn-only mode.</p>
+ * tolerance percentage or use WARN_LOG failure policy.</p>
  *
  * Algorithm:
  * 1. Extract current and previous checkpoints from commit metadata
  * 2. Calculate offset difference using source-specific format
  * 3. Get actual record count from write statistics
  * 4. Calculate deviation percentage: |offsetDiff - recordCount| / offsetDiff * 100
- * 5. If deviation &gt; tolerance: fail (or warn if warn-only mode)
+ * 5. If deviation &gt; tolerance: fail or warn based on failure policy
  *
  * Subclasses specify:
- * - Checkpoint format (DELTASTREAMER_KAFKA, FLINK_KAFKA, etc.)
+ * - Checkpoint format (SPARK_KAFKA, FLINK_KAFKA, etc.)
  * - Checkpoint metadata key
  * - Source-specific parsing logic (if needed)
  *
  * Configuration:
  * - hoodie.precommit.validators.streaming.offset.tolerance.percentage (default: 0.0)
- * - hoodie.precommit.validators.warn.only (default: false)
+ * - hoodie.precommit.validators.failure.policy (default: FAIL)
  */
 public abstract class StreamingOffsetValidator extends BasePreCommitValidator {
 
   private static final Logger LOG = LoggerFactory.getLogger(StreamingOffsetValidator.class);
 
-  // Configuration keys - these mirror the ConfigProperty definitions in
-  // HoodiePreCommitValidatorConfig (hudi-client-common) for documentation surfacing.
-  protected static final String TOLERANCE_PERCENTAGE_KEY = "hoodie.precommit.validators.streaming.offset.tolerance.percentage";
-  protected static final String WARN_ONLY_MODE_KEY = "hoodie.precommit.validators.warn.only";
-
-  // Default values
-  protected static final double DEFAULT_TOLERANCE_PERCENTAGE = 0.0;
-  protected static final boolean DEFAULT_WARN_ONLY_MODE = false;
-
   protected final String checkpointKey;
   protected final double tolerancePercentage;
-  protected final boolean warnOnlyMode;
+  protected final ValidationFailurePolicy failurePolicy;
   protected final CheckpointFormat checkpointFormat;
 
   /**
@@ -86,8 +79,13 @@ public abstract class StreamingOffsetValidator extends BasePreCommitValidator {
     super(config);
     this.checkpointKey = checkpointKey;
     this.checkpointFormat = checkpointFormat;
-    this.tolerancePercentage = config.getDouble(TOLERANCE_PERCENTAGE_KEY, DEFAULT_TOLERANCE_PERCENTAGE);
-    this.warnOnlyMode = config.getBoolean(WARN_ONLY_MODE_KEY, DEFAULT_WARN_ONLY_MODE);
+    this.tolerancePercentage = Double.parseDouble(
+        config.getString(HoodiePreCommitValidatorConfig.STREAMING_OFFSET_TOLERANCE_PERCENTAGE.key(),
+            HoodiePreCommitValidatorConfig.STREAMING_OFFSET_TOLERANCE_PERCENTAGE.defaultValue()));
+    String policyStr = config.getString(
+        HoodiePreCommitValidatorConfig.VALIDATION_FAILURE_POLICY.key(),
+        HoodiePreCommitValidatorConfig.VALIDATION_FAILURE_POLICY.defaultValue());
+    this.failurePolicy = ValidationFailurePolicy.valueOf(policyStr);
   }
 
   @Override
@@ -128,16 +126,11 @@ public abstract class StreamingOffsetValidator extends BasePreCommitValidator {
       return;
     }
 
-    // Calculate offset difference using format-specific logic
+    // Calculate offset difference using format-specific logic.
+    // Note: calculateOffsetDifference always returns >= 0 because negative per-partition
+    // diffs (offset resets) are handled internally by using the current offset.
     long offsetDifference = CheckpointUtils.calculateOffsetDifference(
         checkpointFormat, previousCheckpoint, currentCheckpoint);
-
-    // Handle negative offset (source reset)
-    if (offsetDifference < 0) {
-      LOG.warn("Negative offset difference detected ({}). May indicate source reset. Skipping validation.",
-          offsetDifference);
-      return;
-    }
 
     // Get actual record count from write stats
     long recordsWritten = context.getTotalRecordsWritten();
@@ -154,7 +147,7 @@ public abstract class StreamingOffsetValidator extends BasePreCommitValidator {
    * @param recordsWritten Actual records written
    * @param currentCheckpoint Current checkpoint string (for error messages)
    * @param previousCheckpoint Previous checkpoint string (for error messages)
-   * @throws HoodieValidationException if validation fails (and not warn-only mode)
+   * @throws HoodieValidationException if validation fails and policy is FAIL
    */
   protected void validateOffsetConsistency(long offsetDiff, long recordsWritten,
                                             String currentCheckpoint, String previousCheckpoint)
@@ -171,8 +164,8 @@ public abstract class StreamingOffsetValidator extends BasePreCommitValidator {
           offsetDiff, recordsWritten, deviation, tolerancePercentage,
           previousCheckpoint, currentCheckpoint);
 
-      if (warnOnlyMode) {
-        LOG.warn(errorMsg + " (warn-only mode enabled, commit will proceed)");
+      if (failurePolicy == ValidationFailurePolicy.WARN_LOG) {
+        LOG.warn(errorMsg + " (failure policy is WARN_LOG, commit will proceed)");
       } else {
         throw new HoodieValidationException(errorMsg);
       }
