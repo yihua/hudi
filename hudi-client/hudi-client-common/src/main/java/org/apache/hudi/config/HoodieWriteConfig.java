@@ -2810,6 +2810,10 @@ public class HoodieWriteConfig extends HoodieConfig {
     return getString(HoodiePreCommitValidatorConfig.INEQUALITY_SQL_QUERIES);
   }
 
+  public String getPreWriteValidators() {
+    return getString(HoodiePreWriteValidatorConfig.VALIDATOR_CLASS_NAMES);
+  }
+
   public boolean allowEmptyCommit() {
     return getBooleanOrDefault(ALLOW_EMPTY_COMMIT);
   }
