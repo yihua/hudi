@@ -1033,6 +1033,20 @@ public class TestHoodieClientOnCopyOnWriteStorage extends HoodieClientTestBase {
         false, SqlQueryEqualityPreCommitValidator.class.getName(), COUNT_SQL_QUERY_FOR_VALIDATION, "");
   }
 
+  /**
+   * Tests clustering when {@code hoodie.clustering.plan.generation.use.local.engine.context} is enabled.
+   * Ensures the code path that computes clustering groups on the driver using HoodieLocalEngineContext is exercised.
+   */
+  @Test
+  public void testClusteringWithLocalEngineContextForPlanGeneration() throws Exception {
+    initMetaClient(getPropertiesForKeyGen(true));
+    HoodieClusteringConfig clusteringConfig = createClusteringBuilder(true, 1)
+        .useLocalEngineContextForPlanGeneration(true)
+        .build();
+    testInsertAndClustering(clusteringConfig, true, true,
+        false, SqlQueryEqualityPreCommitValidator.class.getName(), COUNT_SQL_QUERY_FOR_VALIDATION, "");
+  }
+
   @Test
   public void testAndValidateClusteringOutputFiles() throws IOException {
     testAndValidateClusteringOutputFiles(createBrokenClusteringClient(new HoodieException(CLUSTERING_FAILURE)), createClusteringBuilder(true, 2).build(), list2Rdd, rdd2List);
