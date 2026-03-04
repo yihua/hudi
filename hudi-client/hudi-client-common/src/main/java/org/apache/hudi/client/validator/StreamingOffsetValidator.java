@@ -132,8 +132,20 @@ public abstract class StreamingOffsetValidator extends BasePreCommitValidator {
     long offsetDifference = CheckpointUtils.calculateOffsetDifference(
         checkpointFormat, previousCheckpoint, currentCheckpoint);
 
-    // Get actual record count from write stats
-    long recordsWritten = context.getTotalRecordsWritten();
+    // Get actual new record count from write stats.
+    // Use numInserts + numUpdateWrites instead of numWrites to avoid counting records
+    // re-written due to small file handling. With INSERT operation and small file handling,
+    // numWrites includes all records in the merged file (existing + new), which would
+    // inflate the count and mask real data loss.
+    long recordsWritten = context.getTotalInsertRecordsWritten()
+        + context.getTotalUpdateRecordsWritten();
+
+    // For empty commits (e.g., no new data from source), both offsetDiff and recordsWritten
+    // can be zero. This is a valid scenario — skip validation to avoid false positives.
+    if (offsetDifference == 0 && recordsWritten == 0) {
+      LOG.info("Empty commit detected (no offset change, no records written). Skipping offset validation.");
+      return;
+    }
 
     // Validate offset vs record consistency
     validateOffsetConsistency(offsetDifference, recordsWritten,
