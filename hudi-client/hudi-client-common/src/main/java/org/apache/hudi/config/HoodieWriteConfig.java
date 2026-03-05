@@ -939,6 +939,12 @@ public class HoodieWriteConfig extends HoodieConfig {
       .withDocumentation("Flag to indicate whether to ignore any non exception error (e.g. write status error)."
           + "By default true for backward compatibility.");
 
+  public static final ConfigProperty<String> APPLICATION_ID = ConfigProperty
+      .key("hoodie.write.application.id")
+      .defaultValue("Unknown")
+      .markAdvanced()
+      .withDocumentation("Application identifier (e.g. Spark application id) used to populate lock metadata so lock holders can be identified.");
+
   /**
    * Config key with boolean value that indicates whether record being written during MERGE INTO Spark SQL
    * operation are already prepped.
@@ -2730,6 +2736,10 @@ public class HoodieWriteConfig extends HoodieConfig {
     return getString(HoodieLockConfig.HIVE_TABLE_NAME);
   }
 
+  public String getApplicationId() {
+    return getStringOrDefault(APPLICATION_ID);
+  }
+
   public ConflictResolutionStrategy getWriteConflictResolutionStrategy() {
     return ReflectionUtils.loadClass(getString(HoodieLockConfig.WRITE_CONFLICT_RESOLUTION_STRATEGY_CLASS_NAME));
   }
@@ -3467,6 +3477,11 @@ public class HoodieWriteConfig extends HoodieConfig {
 
     public Builder withReleaseResourceEnabled(boolean enabled) {
       writeConfig.setValue(RELEASE_RESOURCE_ENABLE, Boolean.toString(enabled));
+      return this;
+    }
+
+    public Builder withApplicationId(String appId) {
+      writeConfig.setValue(APPLICATION_ID, appId);
       return this;
     }
 
