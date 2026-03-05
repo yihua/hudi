@@ -53,16 +53,25 @@ The current implementation of Spark Datasource V2 integration is presented in th
 
 ## Implementation
 
-The approach is hybrid: DSv2 for reads, DSv1 fallback for writes (`V2TableWithV1Fallback`).
+The main problem is that Hudi's write path involves indexing, precombining, upsert/insert routing, file sizing, and table services (compaction/clustering/cleaning). 
+Also `HoodieSparkSqlWriter::write` handles schema evolution, partition encoding, metadata updates, and multi-writer concurrency.
+DSv2's `WriteBuilder` >> `BatchWrite` >> DataWriter API is too simplistic for this, and moving to this entirely would be high risk.
 
-Overall proposed architecture for this hybrid approach is shown in the following schema:
+The proposed approach is hybrid: DSv2 for reads, with a DSv1 fallback for writes (`V2TableWithV1Fallback`) in the current state.
+Later, if a DSv2 write path can be implemented without loss of performance or functionality, it may become possible to move to full DSv2 support.
+However, this migration should still be incremental, please check the "Future Work" chapter for details.
+
+Overall proposed architecture for the hybrid approach is shown in the following schema:
 
 ![Proposed approach with hybrid V1 write and V2 read](integration_with_DSv2_read.jpg)
 
 ### DataFrame API
 
-A new SPI short name `"hudi_v2"` activates the DSv2 path for reading using Spark DataFrame API. 
+A new SPI short name, `"hudi_v2"`, activates the DSv2 read path when using the Spark DataFrame API.
 The existing `"hudi"` path remains unchanged.
+This is done to unblock incremental development of the DSv2 path and will be removed in the long term, please check the "Future Work" chapter for details.
+It also allows switching later from the current DSv1 fallback to a DSv2 write path, if an implementation without performance degradation is found.
+The DSv2 write path is currently under research.
 
 <table>
 <tr>
@@ -270,10 +279,11 @@ They operate via the write client and are triggered independently of the read pa
 
 ### Implementation phases
 
-1. **Coexistence POC.** All new classes return empty read results, SPI registration, reuse of `HoodieV1WriteBuilder` for V1 write fallback, `hoodie.datasource.read.use.v2` config, `HoodieV1OrV2Table` extractor update in `HoodieSparkBaseAnalysis` to recognize `HoodieSparkV2Table` for DDL operations.
-2. **CoW snapshot read.** Wire `HoodieBatchScan.planInputPartitions()` to `HoodieFileIndex`, implement base file reading in `HoodiePartitionReader`. Column pruning support.
+1. **Coexistence POC.** All new classes return empty read results, SPI registration, reuse of `HoodieV1WriteBuilder` for V1 write fallback, `hoodie.datasource.read.use.v2` config, 
+`HoodieV1OrV2Table` extractor update in `HoodieSparkBaseAnalysis` to recognize `HoodieSparkV2Table` for DDL operations.
+2. **COW snapshot read.** Wire `HoodieBatchScan.planInputPartitions()` to `HoodieFileIndex`, implement base file reading in `HoodiePartitionReader`. Column pruning support.
 3. **Filter pushdown.** Implement `HoodieScanBuilder.pushFilters()` for partition pruning and data skipping via `HoodieFileIndex`.
-4. **MoR snapshot read.** Extend `HoodiePartitionReader` with base + log merge logic, reusing `HoodieFileGroupReader`.
+4. **MOR snapshot read.** Extend `HoodiePartitionReader` with base + log merge logic, reusing `HoodieFileGroupReader`.
 5. **Incremental and CDC queries.** Route based on query type option in `HoodieScanBuilder`.
 6. **Advanced pushdowns.** `SupportsPushDownAggregates`, `SupportsPushDownLimit`, `SupportsPushDownTopN`.
 
@@ -288,5 +298,15 @@ They operate via the write client and are triggered independently of the read pa
 
 - Verify that `EXPLAIN` plans show `BatchScanExec` (DSv2) instead of `FileSourceScanExec` (DSv1) when DSv2 is enabled.
 - Existing unit and functional tests must pass unchanged (no regressions in DSv1 path).
-- New tests for DSv2 read path: CoW snapshot, MoR snapshot, filter pushdown, column pruning.
+- New tests for DSv2 read path: COW snapshot, MOR snapshot, filter pushdown, column pruning.
 - TPC-H benchmark to compare DSv1 vs DSv2 read performance at each implementation phase.
+
+## Future Work
+
+1. DSv2 read support using `hudi_v2` for the DataFrame API, and `hoodie.datasource.read.use.v2` for the SQL API (`false` by default).
+   These means that all stages from "Implementation phases" chapter are completed.
+2. (Optional) DSv2 write support using `hudi_v2` for the DataFrame API, and `hoodie.datasource.write.use.v2` for the SQL API (`false` by default).
+3. `hoodie.datasource.read/write.use.v2` is `true` by default.
+4. Switch format short names: `hudi_v2` -> `hudi`, `hudi` -> `hudi_v1`.
+5. Deprecate use of `hudi_v1`, `hoodie.datasource.read/write.use.v2`.
+6. Remove `hudi_v1`, `hoodie.datasource.read/write.use.v2` from the codebase.
