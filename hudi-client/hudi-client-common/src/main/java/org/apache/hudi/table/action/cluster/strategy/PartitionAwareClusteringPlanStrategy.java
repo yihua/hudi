@@ -32,6 +32,7 @@ import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.table.action.IncrementalPartitionAwareStrategy;
+import org.apache.hudi.table.action.cluster.ClusteringFileSliceComparator;
 import org.apache.hudi.table.action.cluster.ClusteringPlanActionExecutor;
 import org.apache.hudi.table.action.cluster.ClusteringPlanPartitionFilter;
 import org.apache.hudi.util.Lazy;
@@ -40,6 +41,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -68,11 +70,9 @@ public abstract class PartitionAwareClusteringPlanStrategy<T,I,K,O> extends Clus
     List<Pair<List<FileSlice>, Integer>> fileSliceGroups = new ArrayList<>();
     List<FileSlice> currentGroup = new ArrayList<>();
 
-    // Sort fileSlices before dividing, which makes dividing more compact
+    Comparator<FileSlice> sortedFileSlicesComparator = ClusteringFileSliceComparator.buildComparator(writeConfig);
     List<FileSlice> sortedFileSlices = new ArrayList<>(fileSlices);
-    sortedFileSlices.sort((o1, o2) -> (int)
-        ((o2.getBaseFile().isPresent() ? o2.getBaseFile().get().getFileSize() : writeConfig.getParquetMaxFileSize())
-            - (o1.getBaseFile().isPresent() ? o1.getBaseFile().get().getFileSize() : writeConfig.getParquetMaxFileSize())));
+    sortedFileSlices.sort(sortedFileSlicesComparator);
 
     long totalSizeSoFar = 0;
     boolean partialScheduled = false;

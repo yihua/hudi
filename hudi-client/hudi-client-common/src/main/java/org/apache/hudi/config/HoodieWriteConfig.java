@@ -2020,6 +2020,10 @@ public class HoodieWriteConfig extends HoodieConfig {
     return getLong(HoodieClusteringConfig.PLAN_STRATEGY_TARGET_FILE_MAX_BYTES);
   }
 
+  public String getFileSlicesSortBy() {
+    return getString(HoodieClusteringConfig.PLAN_STRATEGY_FILE_SLICES_SORT_BY);
+  }
+
   public int getTargetPartitionsForClustering() {
     return getInt(HoodieClusteringConfig.DAYBASED_LOOKBACK_PARTITIONS);
   }
