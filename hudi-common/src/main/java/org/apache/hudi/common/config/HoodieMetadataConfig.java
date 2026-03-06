@@ -20,6 +20,7 @@ package org.apache.hudi.common.config;
 
 import org.apache.hudi.common.bloom.BloomFilterTypeCode;
 import org.apache.hudi.common.engine.EngineType;
+import org.apache.hudi.common.model.WriteConcurrencyMode;
 import org.apache.hudi.common.table.view.FileSystemViewStorageConfig;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.StringUtils;
@@ -80,6 +81,28 @@ public final class HoodieMetadataConfig extends HoodieConfig {
       .withDocumentation("Whether to enable streaming writes to metadata table or not. With streaming writes, we execute writes to both data table and metadata table "
           + "in streaming manner rather than two disjoint writes. By default "
           + "streaming writes to metadata table is enabled for SPARK engine for incremental operations and disabled for all other cases.");
+
+  public static final ConfigProperty<String> METADATA_WRITE_CONCURRENCY_MODE = ConfigProperty
+      .key(METADATA_PREFIX + ".write.concurrency.mode")
+      .defaultValue(WriteConcurrencyMode.SINGLE_WRITER.name())
+      .markAdvanced()
+      .withDocumentation("Change this to OPTIMISTIC_CONCURRENCY_CONTROL when MDT operations are being performed "
+          + "from an async pipeline so that appropriate locks are taken.");
+
+  public static final ConfigProperty<Boolean> TABLE_SERVICE_MANAGER_ENABLED = ConfigProperty
+      .key(METADATA_PREFIX + ".table.service.manager.enabled")
+      .defaultValue(false)
+      .markAdvanced()
+      .withDocumentation("If true, delegate specified table service actions on the metadata table to the table service manager "
+          + "instead of executing them inline. This prevents the current writer from executing compaction/logcompaction "
+          + "on the metadata table, allowing a separate async pipeline to handle them.");
+
+  public static final ConfigProperty<String> TABLE_SERVICE_MANAGER_ACTIONS = ConfigProperty
+      .key(METADATA_PREFIX + ".table.service.manager.actions")
+      .defaultValue("")
+      .markAdvanced()
+      .withDocumentation("Comma-separated list of table service actions (e.g. compaction, logcompaction) on the metadata table "
+          + "that should be delegated to the table service manager.");
 
   public static final ConfigProperty<Integer> STREAMING_WRITE_DATATABLE_WRITE_STATUSES_COALESCE_DIVISOR = ConfigProperty
       .key(METADATA_PREFIX + ".streaming.write.datatable.write.statuses.coalesce.divisor")
@@ -678,6 +701,18 @@ public final class HoodieMetadataConfig extends HoodieConfig {
     return getBoolean(STREAMING_WRITE_ENABLED);
   }
 
+  public String getWriteConcurrencyMode() {
+    return getString(METADATA_WRITE_CONCURRENCY_MODE);
+  }
+
+  public boolean isTableServiceManagerEnabled() {
+    return getBoolean(TABLE_SERVICE_MANAGER_ENABLED);
+  }
+
+  public String getTableServiceManagerActions() {
+    return getString(TABLE_SERVICE_MANAGER_ACTIONS);
+  }
+
   public int getStreamingWritesCoalesceDivisorForDataTableWrites() {
     return getInt(HoodieMetadataConfig.STREAMING_WRITE_DATATABLE_WRITE_STATUSES_COALESCE_DIVISOR);
   }
@@ -1003,6 +1038,21 @@ public final class HoodieMetadataConfig extends HoodieConfig {
 
     public Builder withStreamingWriteEnabled(boolean enabled) {
       metadataConfig.setValue(STREAMING_WRITE_ENABLED, String.valueOf(enabled));
+      return this;
+    }
+
+    public Builder withWriteConcurrencyMode(WriteConcurrencyMode mode) {
+      metadataConfig.setValue(METADATA_WRITE_CONCURRENCY_MODE, mode.name());
+      return this;
+    }
+
+    public Builder withTableServiceManagerEnabled(boolean enabled) {
+      metadataConfig.setValue(TABLE_SERVICE_MANAGER_ENABLED, String.valueOf(enabled));
+      return this;
+    }
+
+    public Builder withTableServiceManagerActions(String actions) {
+      metadataConfig.setValue(TABLE_SERVICE_MANAGER_ACTIONS, actions);
       return this;
     }
 

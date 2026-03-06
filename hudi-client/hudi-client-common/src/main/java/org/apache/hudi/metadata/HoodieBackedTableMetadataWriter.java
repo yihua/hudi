@@ -28,6 +28,8 @@ import org.apache.hudi.client.BaseHoodieWriteClient;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.common.config.HoodieConfig;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
+import org.apache.hudi.common.config.HoodieTableServiceManagerConfig;
+import org.apache.hudi.common.model.ActionType;
 import org.apache.hudi.common.data.HoodieData;
 import org.apache.hudi.common.engine.EngineType;
 import org.apache.hudi.common.engine.HoodieEngineContext;
@@ -2150,15 +2152,24 @@ public abstract class HoodieBackedTableMetadataWriter<I, O> implements HoodieTab
                                                                                   Option<HoodieMetadataMetrics> metricsOption) {
     try {
       HoodieActiveTimeline activeTimeline = initialTimelineRequiresRefresh ? metadataMetaClient.reloadActiveTimeline() : metadataMetaClient.getActiveTimeline();
+      HoodieTableServiceManagerConfig tsmConfig = writeClient.getConfig().getTableServiceManagerConfig();
       // finish off any pending log compaction or compactions operations if any from previous attempt.
       boolean ranServices = false;
       if (activeTimeline.filterPendingCompactionTimeline().countInstants() > 0) {
-        writeClient.runAnyPendingCompactions();
-        ranServices = true;
+        if (tsmConfig.isEnabledAndActionSupported(ActionType.compaction)) {
+          LOG.info("Skipping pending compactions on MDT as they are delegated to table service manager.");
+        } else {
+          writeClient.runAnyPendingCompactions();
+          ranServices = true;
+        }
       }
       if (activeTimeline.filterPendingLogCompactionTimeline().countInstants() > 0) {
-        writeClient.runAnyPendingLogCompactions();
-        ranServices = true;
+        if (tsmConfig.isEnabledAndActionSupported(ActionType.logcompaction)) {
+          LOG.info("Skipping pending log compactions on MDT as they are delegated to table service manager.");
+        } else {
+          writeClient.runAnyPendingLogCompactions();
+          ranServices = true;
+        }
       }
       return ranServices ? metadataMetaClient.reloadActiveTimeline() : activeTimeline;
     } catch (Exception e) {
@@ -2179,51 +2190,59 @@ public abstract class HoodieBackedTableMetadataWriter<I, O> implements HoodieTab
    * deltacommit.
    */
   void compactIfNecessary(BaseHoodieWriteClient<?,I,?,O> writeClient, Option<String> latestDeltaCommitTimeOpt) {
-    // IMPORTANT: Trigger compaction with max instant time that is smaller than(or equals) the earliest pending instant from DT.
-    // The compaction planner will manage to filter out the log files that finished with greater completion time.
-    // see BaseHoodieCompactionPlanGenerator.generateCompactionPlan for more details.
-    HoodieTimeline metadataCompletedTimeline = metadataMetaClient.getActiveTimeline().filterCompletedInstants();
-    final String compactionInstantTime = dataMetaClient.reloadActiveTimeline()
-        // The filtering strategy is kept in line with the rollback premise, if an instant is pending on DT but completed on MDT,
-        // generates a compaction time smaller than it so that the instant could then been rolled back.
-        .filterInflightsAndRequested().filter(instant -> metadataCompletedTimeline.containsInstant(instant.requestedTime())).firstInstant()
-        // minus the pending instant time by 1 millisecond to avoid conflicts on the MDT.
-        .map(instant -> HoodieInstantTimeGenerator.instantTimeMinusMillis(instant.requestedTime(), 1L))
-        .orElse(writeClient.createNewInstantTime(false));
+    HoodieTableServiceManagerConfig tsmConfig = metadataWriteConfig.getTableServiceManagerConfig();
 
-    // we need to avoid checking compaction w/ same instant again.
-    // let's say we trigger compaction after C5 in MDT and so compaction completes with C4001. but C5 crashed before completing in MDT.
-    // and again w/ C6, we will re-attempt compaction at which point latest delta commit is C4 in MDT.
-    // and so we try compaction w/ instant C4001. So, we can avoid compaction if we already have compaction w/ same instant time.
-    boolean skipCompactions = metadataMetaClient.getActiveTimeline().filterCompletedInstants().containsInstant(compactionInstantTime);
-    try {
-      if (skipCompactions) {
-        LOG.info("Compaction with same {} time is already present in the timeline.", compactionInstantTime);
-      } else if (writeClient.scheduleCompactionAtInstant(compactionInstantTime, Option.empty())) {
-        LOG.info("Compaction is scheduled for timestamp {}", compactionInstantTime);
-        writeClient.compact(compactionInstantTime, true);
+    if (tsmConfig.isEnabledAndActionSupported(ActionType.compaction)) {
+      LOG.info("Skipping compaction on MDT as it is delegated to table service manager.");
+    } else {
+      // IMPORTANT: Trigger compaction with max instant time that is smaller than(or equals) the earliest pending instant from DT.
+      // The compaction planner will manage to filter out the log files that finished with greater completion time.
+      // see BaseHoodieCompactionPlanGenerator.generateCompactionPlan for more details.
+      HoodieTimeline metadataCompletedTimeline = metadataMetaClient.getActiveTimeline().filterCompletedInstants();
+      final String compactionInstantTime = dataMetaClient.reloadActiveTimeline()
+          // The filtering strategy is kept in line with the rollback premise, if an instant is pending on DT but completed on MDT,
+          // generates a compaction time smaller than it so that the instant could then been rolled back.
+          .filterInflightsAndRequested().filter(instant -> metadataCompletedTimeline.containsInstant(instant.requestedTime())).firstInstant()
+          // minus the pending instant time by 1 millisecond to avoid conflicts on the MDT.
+          .map(instant -> HoodieInstantTimeGenerator.instantTimeMinusMillis(instant.requestedTime(), 1L))
+          .orElse(writeClient.createNewInstantTime(false));
+
+      // we need to avoid checking compaction w/ same instant again.
+      // let's say we trigger compaction after C5 in MDT and so compaction completes with C4001. but C5 crashed before completing in MDT.
+      // and again w/ C6, we will re-attempt compaction at which point latest delta commit is C4 in MDT.
+      // and so we try compaction w/ instant C4001. So, we can avoid compaction if we already have compaction w/ same instant time.
+      boolean skipCompactions = metadataMetaClient.getActiveTimeline().filterCompletedInstants().containsInstant(compactionInstantTime);
+      try {
+        if (skipCompactions) {
+          LOG.info("Compaction with same {} time is already present in the timeline.", compactionInstantTime);
+        } else if (writeClient.scheduleCompactionAtInstant(compactionInstantTime, Option.empty())) {
+          LOG.info("Compaction is scheduled for timestamp {}", compactionInstantTime);
+          writeClient.compact(compactionInstantTime, true);
+        }
+      } catch (Exception e) {
+        metrics.ifPresent(m -> m.incrementMetric(HoodieMetadataMetrics.COMPACTION_FAILURES, 1));
+        LOG.error("Error in scheduling and executing compaction in metadata table", e);
+        throw e;
       }
-    } catch (Exception e) {
-      metrics.ifPresent(m -> m.incrementMetric(HoodieMetadataMetrics.COMPACTION_FAILURES, 1));
-      LOG.error("Error in scheduling and executing compaction in metadata table", e);
-      throw e;
     }
 
-    try {
-      if (skipCompactions) {
-        LOG.info("Compaction with same {} time is already present in the timeline.", compactionInstantTime);
-      } else if (metadataWriteConfig.isLogCompactionEnabled()) {
-        // Schedule and execute log compaction with new instant time.
-        Option<String> scheduledLogCompaction = writeClient.scheduleLogCompaction(Option.empty());
-        if (scheduledLogCompaction.isPresent()) {
-          LOG.info("Log compaction is scheduled for timestamp {}", scheduledLogCompaction.get());
-          writeClient.logCompact(scheduledLogCompaction.get(), true);
+    if (tsmConfig.isEnabledAndActionSupported(ActionType.logcompaction)) {
+      LOG.info("Skipping log compaction on MDT as it is delegated to table service manager.");
+    } else {
+      try {
+        if (metadataWriteConfig.isLogCompactionEnabled()) {
+          // Schedule and execute log compaction with new instant time.
+          Option<String> scheduledLogCompaction = writeClient.scheduleLogCompaction(Option.empty());
+          if (scheduledLogCompaction.isPresent()) {
+            LOG.info("Log compaction is scheduled for timestamp {}", scheduledLogCompaction.get());
+            writeClient.logCompact(scheduledLogCompaction.get(), true);
+          }
         }
+      } catch (Exception e) {
+        metrics.ifPresent(m -> m.incrementMetric(HoodieMetadataMetrics.LOG_COMPACTION_FAILURES, 1));
+        LOG.error("Error in scheduling and executing logcompaction in metadata table", e);
+        throw e;
       }
-    } catch (Exception e) {
-      metrics.ifPresent(m -> m.incrementMetric(HoodieMetadataMetrics.LOG_COMPACTION_FAILURES, 1));
-      LOG.error("Error in scheduling and executing logcompaction in metadata table", e);
-      throw e;
     }
   }
 

@@ -21,7 +21,10 @@ package org.apache.hudi.metadata;
 import org.apache.hudi.avro.model.HoodieMetadataRecord;
 import org.apache.hudi.client.FailOnFirstErrorWriteStatus;
 import org.apache.hudi.client.transaction.lock.InProcessLockProvider;
+import org.apache.hudi.client.transaction.lock.ZookeeperBasedLockProvider;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
+import org.apache.hudi.common.config.HoodieTableServiceManagerConfig;
+import org.apache.hudi.common.lock.LockProvider;
 import org.apache.hudi.common.config.HoodieReaderConfig;
 import org.apache.hudi.common.config.HoodieStorageConfig;
 import org.apache.hudi.common.config.RecordMergeMode;
@@ -147,14 +150,22 @@ public class HoodieMetadataWriteUtils {
       HoodieTableVersion datatableVersion) {
     String tableName = writeConfig.getTableName() + METADATA_TABLE_NAME_SUFFIX;
     boolean isStreamingWritesToMetadataEnabled = writeConfig.isMetadataStreamingWritesEnabled(datatableVersion);
-    WriteConcurrencyMode concurrencyMode = isStreamingWritesToMetadataEnabled
-        ? WriteConcurrencyMode.NON_BLOCKING_CONCURRENCY_CONTROL : WriteConcurrencyMode.SINGLE_WRITER;
-    HoodieLockConfig lockConfig = isStreamingWritesToMetadataEnabled
-        ? HoodieLockConfig.newBuilder().withLockProvider(InProcessLockProvider.class).build() : HoodieLockConfig.newBuilder().build();
-    // HUDI-9407 tracks adding support for separate lock configuration for MDT. Until then, all writes to MDT will happen within data table lock.
+    WriteConcurrencyMode metadataWriteConcurrencyMode =
+        WriteConcurrencyMode.valueOf(writeConfig.getMetadataConfig().getWriteConcurrencyMode());
+
+    WriteConcurrencyMode concurrencyMode;
+    HoodieLockConfig lockConfig;
 
     if (isStreamingWritesToMetadataEnabled) {
+      concurrencyMode = WriteConcurrencyMode.NON_BLOCKING_CONCURRENCY_CONTROL;
+      lockConfig = HoodieLockConfig.newBuilder().withLockProvider(InProcessLockProvider.class).build();
       failedWritesCleaningPolicy = HoodieFailedWritesCleaningPolicy.LAZY;
+    } else if (metadataWriteConcurrencyMode.supportsMultiWriter()) {
+      concurrencyMode = metadataWriteConcurrencyMode;
+      lockConfig = buildMetadataLockConfig(writeConfig, metadataWriteConcurrencyMode);
+    } else {
+      concurrencyMode = WriteConcurrencyMode.SINGLE_WRITER;
+      lockConfig = HoodieLockConfig.newBuilder().build();
     }
 
     final long maxLogFileSizeBytes = writeConfig.getMetadataConfig().getMaxLogFileSize();
@@ -261,6 +272,11 @@ public class HoodieMetadataWriteUtils {
     properties.put(HoodieTableConfig.TYPE.key(), HoodieTableType.MERGE_ON_READ.name());
     properties.put(HoodieTableConfig.RECORDKEY_FIELDS.key(), RECORD_KEY_FIELD_NAME);
     properties.put("hoodie.datasource.write.recordkey.field", RECORD_KEY_FIELD_NAME);
+    // Pass table service manager config for MDT
+    properties.put(HoodieTableServiceManagerConfig.TABLE_SERVICE_MANAGER_ENABLED.key(),
+        String.valueOf(writeConfig.getMetadataConfig().isTableServiceManagerEnabled()));
+    properties.put(HoodieTableServiceManagerConfig.TABLE_SERVICE_MANAGER_ACTIONS.key(),
+        writeConfig.getMetadataConfig().getTableServiceManagerActions());
     if (nonEmpty(writeConfig.getMetricReporterMetricsNamePrefix())) {
       properties.put(HoodieMetricsConfig.METRICS_REPORTER_PREFIX.key(),
           writeConfig.getMetricReporterMetricsNamePrefix() + METADATA_TABLE_NAME_SUFFIX);
@@ -360,6 +376,36 @@ public class HoodieMetadataWriteUtils {
     ValidationUtils.checkArgument(!metadataWriteConfig.isMetadataTableEnabled(), "File listing cannot be used for Metadata Table");
 
     return metadataWriteConfig;
+  }
+
+  @SuppressWarnings("unchecked")
+  private static HoodieLockConfig buildMetadataLockConfig(HoodieWriteConfig writeConfig,
+                                                          WriteConcurrencyMode metadataWriteConcurrencyMode) {
+    if (!metadataWriteConcurrencyMode.supportsMultiWriter()) {
+      return HoodieLockConfig.newBuilder().build();
+    }
+    HoodieLockConfig.Builder lockConfigBuilder = HoodieLockConfig.newBuilder()
+        .withClientNumRetries(writeConfig.getProps().getInteger(HoodieLockConfig.LOCK_ACQUIRE_CLIENT_NUM_RETRIES.key()))
+        .withClientRetryWaitTimeInMillis(writeConfig.getProps().getLong(HoodieLockConfig.LOCK_ACQUIRE_CLIENT_RETRY_WAIT_TIME_IN_MILLIS.key()))
+        .withLockWaitTimeInMillis(writeConfig.getProps().getLong(HoodieLockConfig.LOCK_ACQUIRE_WAIT_TIMEOUT_MS.key()));
+
+    try {
+      Class<? extends LockProvider> lockProviderClass =
+          (Class<? extends LockProvider>) Class.forName(writeConfig.getLockProviderClass());
+      lockConfigBuilder.withLockProvider(lockProviderClass);
+      if (lockProviderClass.equals(ZookeeperBasedLockProvider.class)) {
+        lockConfigBuilder.withZkLockKey(writeConfig.getProps().getString(HoodieLockConfig.ZK_LOCK_KEY.key()));
+        if (writeConfig.getProps().containsKey(HoodieLockConfig.ZK_BASE_PATH.key())) {
+          lockConfigBuilder.withZkBasePath(writeConfig.getProps().getString(HoodieLockConfig.ZK_BASE_PATH.key()));
+        }
+        if (writeConfig.getProps().containsKey(HoodieLockConfig.ZK_CONNECT_URL.key())) {
+          lockConfigBuilder.withZkQuorum(writeConfig.getProps().getString(HoodieLockConfig.ZK_CONNECT_URL.key()));
+        }
+      }
+    } catch (ClassNotFoundException e) {
+      throw new HoodieException("Could not find class for " + writeConfig.getLockProviderClass(), e);
+    }
+    return lockConfigBuilder.build();
   }
 
   /**
