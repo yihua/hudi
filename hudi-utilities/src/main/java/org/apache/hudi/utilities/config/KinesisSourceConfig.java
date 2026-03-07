@@ -77,11 +77,11 @@ public class KinesisSourceConfig extends HoodieConfig {
       .markAdvanced()
       .withDocumentation("Maximum number of records obtained in each batch from Kinesis.");
 
-  public static final ConfigProperty<Long> KINESIS_SOURCE_MIN_PARTITIONS = ConfigProperty
-      .key(PREFIX + "min.partitions")
+  public static final ConfigProperty<Long> KINESIS_SOURCE_MANUAL_PARTITIONS = ConfigProperty
+      .key(PREFIX + "manual.partitions")
       .defaultValue(0L)
       .markAdvanced()
-      .withDocumentation("Desired minimum number of Spark partitions when reading from Kinesis. "
+      .withDocumentation("Desired number of Spark partitions when reading from Kinesis. "
           + "By default, Hudi has a 1-1 mapping of Kinesis shards to Spark partitions. "
           + "If set to a value greater than the number of shards, the result RDD will be repartitioned "
           + "to increase downstream parallelism. Use 0 for 1-1 mapping.");
@@ -103,16 +103,16 @@ public class KinesisSourceConfig extends HoodieConfig {
       .key(PREFIX + "enable.fail.on.data.loss")
       .defaultValue(false)
       .markAdvanced()
-      .withDocumentation("Fail when checkpoint references an expired shard instead of seeking to TRIM_HORIZON.");
+      .withDocumentation("Fail when checkpoint references an expired shard which has not been fully consumed.");
 
   public static final ConfigProperty<String> KINESIS_STARTING_POSITION = ConfigProperty
       .key(PREFIX + "starting.position")
       .defaultValue("LATEST")
       .markAdvanced()
-      .withDocumentation("Starting position when no checkpoint exists. TRIM_HORIZON (or EARLIEST), or LATEST. Default: LATEST.");
+      .withDocumentation("Starting position when no checkpoint exists. EARLIEST or LATEST. Default: LATEST.");
 
-  public static final ConfigProperty<Integer> KINESIS_GET_RECORDS_MAX_RECORDS = ConfigProperty
-      .key(PREFIX + "get_records.max.records")
+  public static final ConfigProperty<Integer> KINESIS_MAX_RECORDS_PER_REQUEST = ConfigProperty
+      .key(PREFIX + "max.records.per.request")
       .defaultValue(10000)
       .markAdvanced()
       .withDocumentation("Maximum number of records to fetch per GetRecords API call. Kinesis limit is 10000.");
@@ -122,6 +122,15 @@ public class KinesisSourceConfig extends HoodieConfig {
       .defaultValue(200L)
       .markAdvanced()
       .withDocumentation("Minimum interval in ms between two GetRecords API calls per shard.");
+
+  public static final ConfigProperty<Boolean> KINESIS_PERSIST_FETCH_RDD = ConfigProperty
+      .key(PREFIX + "persist.fetch.rdd")
+      .defaultValue(false)
+      .markAdvanced()
+      .withDocumentation("When enabled, the fetch RDD is persisted (MEMORY_AND_DISK) so it can be used "
+          + "both for record RDD and checkpoint summaries without recomputation. When false, the fetch "
+          + "is computed twice (once for checkpoint, once when the record RDD is consumed), which can "
+          + "cause duplicate records to be written. Set to true for correct, duplicate-free ingestion.");
 
   /**
    * Kinesis starting position strategies.

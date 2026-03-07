@@ -61,16 +61,6 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
 
   private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-  /** Result from reading a single shard in a partition. */
-  @AllArgsConstructor
-  @Getter
-  private static class ShardFetchResult implements Serializable {
-    private final List<String> records;
-    private final String shardId;
-    private final Option<String> lastSequenceNumber;
-    private final boolean reachedEndOfShard;
-  }
-
   /** Metadata-only summary for checkpoint; avoids bringing records to driver. */
   @AllArgsConstructor
   @Getter
@@ -79,6 +69,18 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
     private final Option<String> lastSequenceNumber;
     private final int recordCount;
     private final boolean reachedEndOfShard;
+  }
+
+  /**
+   * Per-shard fetch result stored in the persisted RDD.
+   * Records are eagerly materialized as List&lt;String&gt; so that both fields survive RDD spill
+   * to disk: List and ShardFetchSummary are fully serializable, unlike a transient Iterable.
+   */
+  @AllArgsConstructor
+  @Getter
+  private static class ShardFetchResult implements Serializable {
+    private final List<String> records;
+    private final ShardFetchSummary summary;
   }
 
   /** Persisted fetch RDD - must be unpersisted in releaseResources to avoid memory leak. */
@@ -102,7 +104,7 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
   }
 
   @Override
-  protected JavaRDD<String> toBatch(KinesisOffsetGen.KinesisShardRange[] shardRanges) {
+  protected JavaRDD<String> toBatch(KinesisOffsetGen.KinesisShardRange[] shardRanges, long sourceLimit) {
     KinesisReadConfig readConfig = new KinesisReadConfig(
         offsetGen.getStreamName(),
         offsetGen.getRegion(),
@@ -110,18 +112,23 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
         getStringWithAltKeys(props, KinesisSourceConfig.KINESIS_ACCESS_KEY, null),
         getStringWithAltKeys(props, KinesisSourceConfig.KINESIS_SECRET_KEY, null),
         offsetGen.getStartingPosition(),
-        shouldAddOffsets,
+        shouldAddMetaFields,
         getBooleanWithAltKeys(props, KinesisSourceConfig.KINESIS_ENABLE_DEAGGREGATION),
-        getIntWithAltKeys(props, KinesisSourceConfig.KINESIS_GET_RECORDS_MAX_RECORDS),
+        getIntWithAltKeys(props, KinesisSourceConfig.KINESIS_MAX_RECORDS_PER_REQUEST),
         getLongWithAltKeys(props, KinesisSourceConfig.KINESIS_GET_RECORDS_INTERVAL_MS),
         // Evenly set the max events per shard.
-        shardRanges.length > 0 ? Math.max(1, getLongWithAltKeys(props, KinesisSourceConfig.MAX_EVENTS_FROM_KINESIS_SOURCE) / shardRanges.length) : Long.MAX_VALUE);
+        shardRanges.length > 0
+            ? Math.max(1, getLongWithAltKeys(props, KinesisSourceConfig.MAX_EVENTS_FROM_KINESIS_SOURCE) / shardRanges.length)
+            : sourceLimit);
 
     JavaRDD<ShardFetchResult> fetchRdd = sparkContext.parallelize(
         java.util.Arrays.asList(shardRanges), shardRanges.length)
         .mapPartitions(shardRangeIt -> {
           List<ShardFetchResult> results = new ArrayList<>();
-          try (KinesisClient client = createKinesisClientFromConfig(readConfig)) {
+          long numNull = 0;
+          try (KinesisClient client = KinesisOffsetGen.createKinesisClient(
+              readConfig.getRegion(), readConfig.getEndpointUrl(),
+              readConfig.getAccessKey(), readConfig.getSecretKey())) {
             while (shardRangeIt.hasNext()) {
               KinesisOffsetGen.KinesisShardRange range = shardRangeIt.next();
               KinesisOffsetGen.ShardReadResult readResult = KinesisOffsetGen.readShardRecords(
@@ -129,76 +136,76 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
                   readConfig.getMaxRecordsPerRequest(), readConfig.getIntervalMs(), readConfig.getMaxRecordsPerShard(),
                   readConfig.isEnableDeaggregation());
 
-              List<String> recordStrings = new ArrayList<>();
-              for (Record r : readResult.getRecords()) {
-                String json = recordToJsonStatic(r, range.getShardId(), readConfig.isShouldAddOffsets());
-                if (json != null) {
-                  recordStrings.add(json);
+              List<Record> rawRecords = readResult.getRecords();
+              String shardId = range.getShardId();
+              boolean shouldAddMetaFields = readConfig.isShouldAddMetaFields();
+              // Eagerly convert while the KinesisClient is still open and rawRecords are live.
+              // Storing List<String> (not a transient Iterable) ensures records survive RDD spill to disk.
+              List<String> jsonRecords = new ArrayList<>(rawRecords.size());
+              for (Record r : rawRecords) {
+                String s = recordToJsonStatic(r, shardId, shouldAddMetaFields);
+                if (s != null) {
+                  jsonRecords.add(s);
+                } else {
+                  numNull++;
                 }
               }
-              results.add(new ShardFetchResult(recordStrings, range.getShardId(),
-                  readResult.getLastSequenceNumber(), readResult.isReachedEndOfShard()));
+              if (numNull > 0) {
+                log.warn("There are {} null strings for shard id {}", numNull, shardId);
+              }
+              // recordCount reflects actual output records (null-filtered), not raw Kinesis count.
+              ShardFetchSummary summary = new ShardFetchSummary(shardId,
+                  readResult.getLastSequenceNumber(), jsonRecords.size(), readResult.isReachedEndOfShard());
+              results.add(new ShardFetchResult(jsonRecords, summary));
             }
           }
           return results.iterator();
         });
 
-    // Cache so we can both get records and checkpoint from the same RDD
-    fetchRdd.persist(org.apache.spark.storage.StorageLevel.MEMORY_AND_DISK());
-    persistedFetchRdd = fetchRdd;
-
-    // RDD for the shard data.
-    JavaRDD<String> recordRdd = fetchRdd.flatMap(r -> r.getRecords().iterator());
-    // Apply minimum partitions for downstream parallelism (similar to Kafka source)
-    long minPartitions = getLongWithAltKeys(props, KinesisSourceConfig.KINESIS_SOURCE_MIN_PARTITIONS);
-    if (minPartitions > 0 && minPartitions > shardRanges.length) {
-      int targetPartitions = (int) minPartitions;
-      log.info("Repartitioning from {} shards to {} partitions (minPartitions={})",
-          shardRanges.length, targetPartitions, minPartitions);
-      recordRdd = recordRdd.repartition(targetPartitions);
+    if (persistedFetchRdd != null) {
+      persistedFetchRdd.unpersist();
+      persistedFetchRdd = null;
     }
-
-    // Information for checkpoint generation.
-    List<ShardFetchSummary> summaries = fetchRdd
-        .map(r -> new ShardFetchSummary(r.getShardId(), r.getLastSequenceNumber(), r.getRecords().size(),
-            r.isReachedEndOfShard()))
-        .collect();
-    lastCheckpointData = buildCheckpointFromSummaries(summaries);
-    Set<String> reached = new HashSet<>();
-    for (ShardFetchSummary s : summaries) {
-      if (s.isReachedEndOfShard()) {
-        reached.add(s.getShardId());
+    boolean persistFetchRdd = getBooleanWithAltKeys(props, KinesisSourceConfig.KINESIS_PERSIST_FETCH_RDD);
+    if (persistFetchRdd) {
+      fetchRdd.persist(org.apache.spark.storage.StorageLevel.MEMORY_AND_DISK());
+      persistedFetchRdd = fetchRdd;
+    } else {
+      log.warn("{} is false: fetch RDD is not persisted. The same Kinesis fetch may run twice (checkpoint + "
+          + "record write), which can cause duplicate records to be written. Set to true for correct behavior.",
+          KinesisSourceConfig.KINESIS_PERSIST_FETCH_RDD.key());
+    }
+    // Guard: if anything below throws, unpersist immediately so the cached RDD doesn't leak.
+    boolean succeeded = false;
+    try {
+      // Collect basic information that will be used to construct the final checkpoint.
+      collectCheckpointInfo(fetchRdd);
+      // RDD for the shard data.
+      JavaRDD<String> recordRdd = fetchRdd.flatMap(r -> r.getRecords().iterator());
+      // Apply minimum partitions for downstream parallelism (similar to Kafka source)
+      long manualPartitions = getLongWithAltKeys(props, KinesisSourceConfig.KINESIS_SOURCE_MANUAL_PARTITIONS);
+      if (manualPartitions > 0) {
+        int targetPartitions = (int) manualPartitions;
+        log.info("Repartitioning from {} shards to {} partitions (manualPartitions={})",
+            shardRanges.length, targetPartitions, manualPartitions);
+        recordRdd = recordRdd.repartition(targetPartitions);
+      }
+      succeeded = true;
+      return recordRdd;
+    } finally {
+      if (!succeeded) {
+        releaseResources();
       }
     }
-    shardsReachedEnd = reached;
-    lastRecordCount = summaries.stream().mapToLong(ShardFetchSummary::getRecordCount).sum();
-
-    return recordRdd;
   }
 
-  private static KinesisClient createKinesisClientFromConfig(KinesisReadConfig config) {
-    software.amazon.awssdk.services.kinesis.KinesisClientBuilder builder =
-        KinesisClient.builder().region(software.amazon.awssdk.regions.Region.of(config.getRegion()));
-    if (config.getEndpointUrl() != null && !config.getEndpointUrl().isEmpty()) {
-      builder = builder.endpointOverride(java.net.URI.create(config.getEndpointUrl()));
-    }
-    if (config.getAccessKey() != null && !config.getAccessKey().isEmpty()
-        && config.getSecretKey() != null && !config.getSecretKey().isEmpty()) {
-      builder = builder.credentialsProvider(
-          software.amazon.awssdk.auth.credentials.StaticCredentialsProvider.create(
-              software.amazon.awssdk.auth.credentials.AwsBasicCredentials.create(
-                  config.getAccessKey(), config.getSecretKey())));
-    }
-    return builder.build();
-  }
-
-  private static String recordToJsonStatic(Record record, String shardId, boolean shouldAddOffsets) {
+  private static String recordToJsonStatic(Record record, String shardId, boolean shouldAddMetaFields) {
     String dataStr = record.data().asUtf8String();
     // Pure empty or null records in Kinesis is not meaningful.
     if (dataStr == null || dataStr.trim().isEmpty()) {
       return null;
     }
-    if (shouldAddOffsets) {
+    if (shouldAddMetaFields) {
       try {
         ObjectNode node = (ObjectNode) OBJECT_MAPPER.readTree(dataStr);
         node.put("_hoodie_kinesis_source_sequence_number", record.sequenceNumber());
@@ -210,7 +217,8 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
         }
         return OBJECT_MAPPER.writeValueAsString(node);
       } catch (Exception e) {
-        return dataStr;
+        // We can disable the flag for mitigation.
+        throw new RuntimeException("Failed to add metadata fields", e);
       }
     }
     return dataStr;
@@ -230,18 +238,21 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
   protected String createCheckpointFromBatch(JavaRDD<String> batch,
       KinesisOffsetGen.KinesisShardRange[] shardRangesRead,
       KinesisOffsetGen.KinesisShardRange[] allShardRanges) {
-    // Build checkpoint from ALL shards so filtered-out (fully consumed) shards are preserved.
-    // Otherwise the next run would omit them from the checkpoint and re-read from TRIM_HORIZON.
+    // STEP 1: Basic information has been collected through function: collectCheckpointInfo.
+    // STEP 2: Build checkpoint for each shard.
+    // We need to preserve the fully consumed shards since otherwise
+    // the next run would omit them from the checkpoint and re-read from TRIM_HORIZON.
     Map<String, String> fullCheckpoint = new HashMap<>();
     for (KinesisOffsetGen.KinesisShardRange range : allShardRanges) {
       String lastSeq;
       String endSeq;
+      // CASE 1: basic case
+      // Shards that we read
       if (lastCheckpointData != null && lastCheckpointData.containsKey(range.getShardId())) {
-        // Shard we read from: use data from the read
         lastSeq = lastCheckpointData.get(range.getShardId());
         endSeq = range.getEndingSequenceNumber().orElse(null);
       } else {
-        // Filtered shard (not read): preserve from range so next run won't re-read
+        // Shards that we did not read
         lastSeq = range.getStartingSequenceNumber().orElse("");
         endSeq = range.getEndingSequenceNumber().orElse(null);
       }
@@ -251,12 +262,13 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
       if (LOCALSTACK_END_SEQ_SENTINEL.equals(endSeq) && lastSeq != null && !lastSeq.isEmpty()) {
         endSeq = lastSeq;
       }
-      // CASE 2: corner case: open -> closed shard (we read it)
+      // CASE 2: corner case: an open shard becomes a closed shard after the read.
       if (endSeq == null && shardsReachedEnd != null && shardsReachedEnd.contains(range.getShardId())
           && lastSeq != null && !lastSeq.isEmpty()) {
         endSeq = lastSeq;
       }
-      // CASE 3: corner case: closed shard, lastSeq == '', endSeq != null
+      // CASE 3: corner case: a closed shard is found, lastSeq == '', endSeq != null
+      // This can happen: the shard type is latest for a closed shard.
       if (lastSeq != null && lastSeq.isEmpty() && endSeq != null && !endSeq.isEmpty()) {
         lastSeq = endSeq;
       }
@@ -265,6 +277,7 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
         fullCheckpoint.put(range.getShardId(), value);
       }
     }
+    // Step 3: generate the final checkpoint.
     return KinesisOffsetGen.CheckpointUtils.offsetsToStr(offsetGen.getStreamName(), fullCheckpoint);
   }
 
@@ -280,5 +293,18 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
       persistedFetchRdd.unpersist();
       persistedFetchRdd = null;
     }
+  }
+
+  private void collectCheckpointInfo(JavaRDD<ShardFetchResult> fetchRdd) {
+    List<ShardFetchSummary> summaries = fetchRdd.map(ShardFetchResult::getSummary).collect();
+    lastCheckpointData = buildCheckpointFromSummaries(summaries);
+    Set<String> reached = new HashSet<>();
+    for (ShardFetchSummary s : summaries) {
+      if (s.isReachedEndOfShard()) {
+        reached.add(s.getShardId());
+      }
+    }
+    shardsReachedEnd = reached;
+    lastRecordCount = summaries.stream().mapToLong(ShardFetchSummary::getRecordCount).sum();
   }
 }

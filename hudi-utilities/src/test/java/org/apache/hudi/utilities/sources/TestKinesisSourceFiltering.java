@@ -232,7 +232,7 @@ class TestKinesisSourceFiltering extends SparkClientFunctionalTestHarness {
     }
 
     @Override
-    protected JavaRDD<String> toBatch(KinesisOffsetGen.KinesisShardRange[] shardRanges) {
+    protected JavaRDD<String> toBatch(KinesisOffsetGen.KinesisShardRange[] shardRanges, long sourceLimit) {
       List<String> ids = new ArrayList<>();
       for (KinesisOffsetGen.KinesisShardRange r : shardRanges) {
         ids.add(r.getShardId());

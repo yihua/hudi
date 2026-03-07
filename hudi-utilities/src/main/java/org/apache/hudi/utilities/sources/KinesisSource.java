@@ -44,7 +44,7 @@ public abstract class KinesisSource<T> extends Source<T> {
   protected final HoodieIngestionMetrics metrics;
   protected final SchemaProvider schemaProvider;
   protected KinesisOffsetGen offsetGen;
-  protected final boolean shouldAddOffsets;
+  protected final boolean shouldAddMetaFields;
   /** Checkpoint data (shardId -> sequenceNumber) collected during toBatch execution. Set by subclasses. */
   protected Map<String, String> lastCheckpointData;
 
@@ -53,7 +53,7 @@ public abstract class KinesisSource<T> extends Source<T> {
     super(props, sparkContext, sparkSession, sourceType, streamContext);
     this.schemaProvider = streamContext.getSchemaProvider();
     this.metrics = metrics;
-    this.shouldAddOffsets = getBooleanWithAltKeys(props, KinesisSourceConfig.KINESIS_APPEND_OFFSETS);
+    this.shouldAddMetaFields = getBooleanWithAltKeys(props, KinesisSourceConfig.KINESIS_APPEND_OFFSETS);
   }
 
   @Override
@@ -63,10 +63,10 @@ public abstract class KinesisSource<T> extends Source<T> {
 
   @Override
   protected InputBatch<T> readFromCheckpoint(Option<Checkpoint> lastCheckpoint, long sourceLimit) {
+    // STEP 1: Collect all available shards for the stream: open/closed shards.
     KinesisOffsetGen.KinesisShardRange[] shardRanges = offsetGen.getNextShardRanges(
         lastCheckpoint, sourceLimit, metrics);
-
-    // Filter out shards with no unread records to avoid unnecessary GetRecords calls
+    // STEP 2: Filter out shards with no unread records to avoid unnecessary GetRecords calls.
     boolean useLatestWhenNoCheckpoint =
         offsetGen.getStartingPosition() == KinesisSourceConfig.KinesisStartingPosition.LATEST;
     KinesisOffsetGen.KinesisShardRange[] allShardRanges = shardRanges;
@@ -78,27 +78,28 @@ public abstract class KinesisSource<T> extends Source<T> {
       log.info("Filtered {} shards with no unread records, {} shards remain",
           beforeFilter - shardRanges.length, shardRanges.length);
     }
-
+    // Nothing to read.
     if (shardRanges.length == 0) {
       metrics.updateStreamerSourceNewMessageCount(METRIC_NAME_KINESIS_MESSAGE_IN_COUNT, 0);
       String checkpointStr = lastCheckpoint.isPresent() ? lastCheckpoint.get().getCheckpointKey() : "";
       return new InputBatch<>(Option.empty(), checkpointStr);
     }
-
-    T batch = toBatch(shardRanges);
+    // STEP 3: Do the read.
+    T batch = toBatch(shardRanges, sourceLimit);
+    // STEP 4: Generate checkpoint.
     // Pass allShardRanges so filtered-out shards are preserved in the checkpoint; otherwise
     // next run would re-read them from TRIM_HORIZON and cause duplicates
     String checkpointStr = createCheckpointFromBatch(batch, shardRanges, allShardRanges);
+    // STEP 5: Emit metrics.
     long totalMsgs = getRecordCount(batch);
     metrics.updateStreamerSourceNewMessageCount(METRIC_NAME_KINESIS_MESSAGE_IN_COUNT, totalMsgs);
-
     log.info("Read {} records from Kinesis stream {} with {} shards, checkpoint: {}",
         totalMsgs, offsetGen.getStreamName(), shardRanges.length, checkpointStr);
 
     return new InputBatch<>(Option.of(batch), checkpointStr);
   }
 
-  protected abstract T toBatch(KinesisOffsetGen.KinesisShardRange[] shardRanges);
+  protected abstract T toBatch(KinesisOffsetGen.KinesisShardRange[] shardRanges, long sourceLimit);
 
   /**
    * Create checkpoint string from the batch and shard ranges.
