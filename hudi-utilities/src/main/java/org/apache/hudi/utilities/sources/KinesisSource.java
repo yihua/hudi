@@ -64,8 +64,7 @@ public abstract class KinesisSource<T> extends Source<T> {
   @Override
   protected InputBatch<T> readFromCheckpoint(Option<Checkpoint> lastCheckpoint, long sourceLimit) {
     // STEP 1: Collect all available shards for the stream: open/closed shards.
-    KinesisOffsetGen.KinesisShardRange[] shardRanges = offsetGen.getNextShardRanges(
-        lastCheckpoint, sourceLimit, metrics);
+    KinesisOffsetGen.KinesisShardRange[] shardRanges = offsetGen.getNextShardRanges(lastCheckpoint, sourceLimit);
     // STEP 2: Filter out shards with no unread records to avoid unnecessary GetRecords calls.
     boolean useLatestWhenNoCheckpoint =
         offsetGen.getStartingPosition() == KinesisSourceConfig.KinesisStartingPosition.LATEST;
