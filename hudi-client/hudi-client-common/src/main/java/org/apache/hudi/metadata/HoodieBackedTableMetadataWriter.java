@@ -2227,7 +2227,9 @@ public abstract class HoodieBackedTableMetadataWriter<I, O> implements HoodieTab
     }
 
     try {
-      if (metadataWriteConfig.isLogCompactionEnabled()) {
+      if (skipCompactions) {
+        LOG.info("Compaction with same {} time is already present in the timeline.", compactionInstantTime);
+      } else if (metadataWriteConfig.isLogCompactionEnabled()) {
         // Schedule and execute log compaction with new instant time.
         Option<String> scheduledLogCompaction = writeClient.scheduleLogCompaction(Option.empty());
         if (scheduledLogCompaction.isPresent()) {
