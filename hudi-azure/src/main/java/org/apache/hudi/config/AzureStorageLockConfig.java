@@ -49,4 +49,38 @@ public class AzureStorageLockConfig extends HoodieConfig {
       .markAdvanced()
       .withDocumentation("For Azure based lock provider, optional SAS token used for "
           + "authenticating BlobServiceClient when connection string is not provided. SAS token is not recommended for production use by Azure.");
+
+  public static final ConfigProperty<String> AZURE_MANAGED_IDENTITY_CLIENT_ID = ConfigProperty
+      .key(AZURE_BASED_LOCK_PROPERTY_PREFIX + "managed.identity.client.id")
+      .noDefaultValue()
+      .markAdvanced()
+      .withDocumentation("For Azure based lock provider, client ID of a user-assigned managed identity to authenticate "
+          + "BlobServiceClient with ManagedIdentityCredential.");
+
+  public static final ConfigProperty<String> AZURE_CLIENT_TENANT_ID = ConfigProperty
+      .key(AZURE_BASED_LOCK_PROPERTY_PREFIX + "client.tenant.id")
+      .noDefaultValue()
+      .markAdvanced()
+      .withDocumentation("For Azure based lock provider, Azure AD tenant ID used together with "
+          + "'" + AZURE_BASED_LOCK_PROPERTY_PREFIX + "client.id' and "
+          + "'" + AZURE_BASED_LOCK_PROPERTY_PREFIX + "client.secret' to authenticate via service principal "
+          + "(ClientSecretCredential). All three must be set for this auth mode to activate.");
+
+  public static final ConfigProperty<String> AZURE_CLIENT_ID = ConfigProperty
+      .key(AZURE_BASED_LOCK_PROPERTY_PREFIX + "client.id")
+      .noDefaultValue()
+      .markAdvanced()
+      .withDocumentation("For Azure based lock provider, Azure AD application (client) ID used together with "
+          + "'" + AZURE_BASED_LOCK_PROPERTY_PREFIX + "client.tenant.id' and "
+          + "'" + AZURE_BASED_LOCK_PROPERTY_PREFIX + "client.secret' to authenticate via service principal "
+          + "(ClientSecretCredential). All three must be set for this auth mode to activate.");
+
+  public static final ConfigProperty<String> AZURE_CLIENT_SECRET = ConfigProperty
+      .key(AZURE_BASED_LOCK_PROPERTY_PREFIX + "client.secret")
+      .noDefaultValue()
+      .markAdvanced()
+      .withDocumentation("For Azure based lock provider, Azure AD client secret used together with "
+          + "'" + AZURE_BASED_LOCK_PROPERTY_PREFIX + "client.tenant.id' and "
+          + "'" + AZURE_BASED_LOCK_PROPERTY_PREFIX + "client.id' to authenticate via service principal "
+          + "(ClientSecretCredential). All three must be set for this auth mode to activate.");
 }

@@ -32,6 +32,8 @@ import org.apache.hudi.config.AzureStorageLockConfig;
 import org.apache.hudi.config.StorageBasedLockConfig;
 import org.apache.hudi.common.config.TypedProperties;
 
+import org.apache.hudi.azure.credentials.AzureCredentialFactory;
+
 import com.azure.core.credential.AzureSasCredential;
 import com.azure.core.exception.HttpResponseException;
 import com.azure.core.http.policy.ExponentialBackoffOptions;
@@ -40,7 +42,6 @@ import com.azure.core.http.rest.Response;
 import com.azure.core.util.BinaryData;
 import com.azure.core.util.Context;
 import com.azure.core.util.HttpClientOptions;
-import com.azure.identity.DefaultAzureCredentialBuilder;
 import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobServiceClient;
@@ -91,11 +92,17 @@ import static org.apache.hudi.common.util.ConfigUtils.getLongWithAltKeys;
  * </ul>
  *
  * <p>Authentication precedence (via {@link Properties}):
- * <ul>
- *   <li>{@link AzureStorageLockConfig#AZURE_CONNECTION_STRING}</li>
- *   <li>{@link AzureStorageLockConfig#AZURE_SAS_TOKEN}</li>
- *   <li>DefaultAzureCredential</li>
- * </ul>
+ * <ol>
+ *   <li>{@link AzureStorageLockConfig#AZURE_CONNECTION_STRING} — connection string (includes shared key)</li>
+ *   <li>{@link AzureStorageLockConfig#AZURE_SAS_TOKEN} — shared access signature</li>
+ *   <li>{@link AzureStorageLockConfig#AZURE_MANAGED_IDENTITY_CLIENT_ID} — user-assigned managed identity
+ *       via {@code ManagedIdentityCredential}</li>
+ *   <li>{@link AzureStorageLockConfig#AZURE_CLIENT_TENANT_ID} +
+ *       {@link AzureStorageLockConfig#AZURE_CLIENT_ID} +
+ *       {@link AzureStorageLockConfig#AZURE_CLIENT_SECRET} — service principal
+ *       via {@code ClientSecretCredential}</li>
+ *   <li>{@code DefaultAzureCredential} — probing chain; see {@link org.apache.hudi.azure.credentials.AzureCredentialFactory}</li>
+ * </ol>
  */
 @ThreadSafe
 public class AzureStorageLockClient implements StorageLockClient {
@@ -157,19 +164,23 @@ public class AzureStorageLockClient implements StorageLockClient {
       BlobServiceClientBuilder builder = new BlobServiceClientBuilder();
       configureAzureClientOptions(builder, props);
 
+      // 1. Connection string (includes shared-key auth).
       String connectionString = props == null ? null : props.getProperty(AZURE_CONNECTION_STRING);
       if (connectionString != null && !connectionString.trim().isEmpty()) {
         return builder.connectionString(connectionString).buildClient();
       }
 
       builder.endpoint(location.blobEndpoint);
+
+      // 2. SAS token.
       String sasToken = props == null ? null : props.getProperty(AZURE_SAS_TOKEN);
       if (sasToken != null && !sasToken.trim().isEmpty()) {
         String cleaned = sasToken.startsWith("?") ? sasToken.substring(1) : sasToken;
         return builder.credential(new AzureSasCredential(cleaned)).buildClient();
       }
 
-      return builder.credential(new DefaultAzureCredentialBuilder().build()).buildClient();
+      // 3. TokenCredential — MI, service principal, or DefaultAzureCredential fallback.
+      return builder.credential(AzureCredentialFactory.getAzureCredential(props)).buildClient();
     };
   }
 
