@@ -87,7 +87,7 @@ public final class HoodieMetadataConfig extends HoodieConfig {
       .defaultValue(WriteConcurrencyMode.SINGLE_WRITER.name())
       .markAdvanced()
       .withDocumentation("Change this to OPTIMISTIC_CONCURRENCY_CONTROL when MDT operations are being performed "
-          + "from an async pipeline so that appropriate locks are taken.");
+          + "from an external concurrent writer (such as a table service platform) so that appropriate locks are taken.");
 
   public static final ConfigProperty<Boolean> TABLE_SERVICE_MANAGER_ENABLED = ConfigProperty
       .key(METADATA_PREFIX + ".table.service.manager.enabled")

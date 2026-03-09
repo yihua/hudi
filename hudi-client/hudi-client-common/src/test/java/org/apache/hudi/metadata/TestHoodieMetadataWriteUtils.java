@@ -37,6 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class TestHoodieMetadataWriteUtils {
@@ -134,7 +135,7 @@ public class TestHoodieMetadataWriteUtils {
   }
 
   @Test
-  public void testCreateMetadataWriteConfigNBCCTakesPrecedenceOverOCC() {
+  public void testCreateMetadataWriteConfigRejectsStreamingWritesWithMultiWriter() {
     HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
         .withPath("/tmp/base_path/")
         .withCleanConfig(HoodieCleanConfig.newBuilder()
@@ -147,11 +148,10 @@ public class TestHoodieMetadataWriteUtils {
             .withLockProvider(InProcessLockProvider.class).build())
         .build();
 
-    // Even with metadata OCC configured, streaming writes (NBCC) takes precedence
-    HoodieWriteConfig metadataWriteConfig = HoodieMetadataWriteUtils.createMetadataWriteConfig(
-        writeConfig, HoodieFailedWritesCleaningPolicy.EAGER, HoodieTableVersion.EIGHT);
-    validateMetadataWriteConfig(metadataWriteConfig, HoodieFailedWritesCleaningPolicy.LAZY,
-        WriteConcurrencyMode.NON_BLOCKING_CONCURRENCY_CONTROL, InProcessLockProvider.class.getCanonicalName());
+    IllegalStateException ex = assertThrows(IllegalStateException.class, () ->
+        HoodieMetadataWriteUtils.createMetadataWriteConfig(
+            writeConfig, HoodieFailedWritesCleaningPolicy.EAGER, HoodieTableVersion.EIGHT));
+    assertTrue(ex.getMessage().contains("Streaming writes to metadata table must be disabled"));
   }
 
   @Test

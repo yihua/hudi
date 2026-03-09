@@ -156,6 +156,12 @@ public class HoodieMetadataWriteUtils {
     WriteConcurrencyMode concurrencyMode;
     HoodieLockConfig lockConfig;
 
+    if (metadataWriteConcurrencyMode.supportsMultiWriter()) {
+      checkState(!isStreamingWritesToMetadataEnabled,
+          "Streaming writes to metadata table must be disabled when using multi-writer concurrency mode "
+              + metadataWriteConcurrencyMode + ". Disable " + HoodieMetadataConfig.STREAMING_WRITE_ENABLED.key());
+    }
+
     if (isStreamingWritesToMetadataEnabled) {
       concurrencyMode = WriteConcurrencyMode.NON_BLOCKING_CONCURRENCY_CONTROL;
       lockConfig = HoodieLockConfig.newBuilder().withLockProvider(InProcessLockProvider.class).build();
