@@ -23,7 +23,6 @@ import org.apache.hudi.common.table.checkpoint.Checkpoint;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.utilities.exception.HoodieReadFromSourceException;
 import org.apache.hudi.utilities.config.KinesisSourceConfig;
-import org.apache.hudi.utilities.ingestion.HoodieIngestionMetrics;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -237,9 +236,8 @@ public class KinesisOffsetGen {
     this.streamName = getStringWithAltKeys(props, KinesisSourceConfig.KINESIS_STREAM_NAME);
     this.region = getStringWithAltKeys(props, KinesisSourceConfig.KINESIS_REGION);
     this.endpointUrl = Option.ofNullable(getStringWithAltKeys(props, KinesisSourceConfig.KINESIS_ENDPOINT_URL, null));
-    String posStr = getStringWithAltKeys(props, KinesisSourceConfig.KINESIS_STARTING_POSITION, true);
-    String normalized = posStr.toUpperCase().replace("TRIM_HORIZON", "EARLIEST");
-    this.startingPosition = KinesisSourceConfig.KinesisStartingPosition.valueOf(normalized);
+    this.startingPosition = KinesisSourceConfig.KinesisStartingPosition.fromString(
+        getStringWithAltKeys(props, KinesisSourceConfig.KINESIS_STARTING_POSITION, true));
   }
 
   /**
@@ -299,17 +297,34 @@ public class KinesisOffsetGen {
         .count();
     log.info("Found {} shards for stream {} ({} open, {} closed)",
         allShards.size(), streamName, openCount, allShards.size() - openCount);
+    logShardSequenceRanges(allShards);
     return allShards;
+  }
+
+  /**
+   * Logs each shard's start/end sequence number so they can be used when resetting the checkpoint.
+   */
+  private void logShardSequenceRanges(List<Shard> shards) {
+    for (Shard shard : shards) {
+      String startSeq = (shard.sequenceNumberRange() != null && shard.sequenceNumberRange().startingSequenceNumber() != null)
+          ? shard.sequenceNumberRange().startingSequenceNumber() : "n/a";
+      String endSeq = (shard.sequenceNumberRange() != null && shard.sequenceNumberRange().endingSequenceNumber() != null)
+          ? shard.sequenceNumberRange().endingSequenceNumber() : null;
+      if (endSeq != null) {
+        log.info("Shard {}: startSeq={}, endSeq={} (for checkpoint reset: {}:{}|{})",
+            shard.shardId(), startSeq, endSeq, shard.shardId(), startSeq, endSeq);
+      } else {
+        log.info("Shard {}: startSeq={}, endSeq=open (for checkpoint reset from start: {}:{})",
+            shard.shardId(), startSeq, shard.shardId(), startSeq);
+      }
+    }
   }
 
   /**
    * Get shard ranges to read, based on checkpoint and limits.
    */
-  public KinesisShardRange[] getNextShardRanges(Option<Checkpoint> lastCheckpoint,
-                                                long sourceLimit,
-                                                HoodieIngestionMetrics metrics) {
-    long maxEvents = getLongWithAltKeys(props, KinesisSourceConfig.MAX_EVENTS_FROM_KINESIS_SOURCE);
-    long numEvents = sourceLimit == Long.MAX_VALUE ? maxEvents : Math.min(sourceLimit, maxEvents);
+  public KinesisShardRange[] getNextShardRanges(Option<Checkpoint> lastCheckpoint, long sourceLimit) {
+    long numEvents = calculateNumEvents(sourceLimit, props);
 
     try (KinesisClient client = createKinesisClient()) {
       // STEP 1: List all open and closed shards from the server.
@@ -403,6 +418,11 @@ public class KinesisOffsetGen {
     }
   }
 
+  public static long calculateNumEvents(long sourceLimit, TypedProperties props) {
+    long maxEvents = getLongWithAltKeys(props, KinesisSourceConfig.MAX_EVENTS_FROM_KINESIS_SOURCE);
+    return sourceLimit == Long.MAX_VALUE ? maxEvents : Math.min(sourceLimit, maxEvents);
+  }
+
   /**
    * Result of reading from a shard: records and the last sequence number for checkpoint.
    */
@@ -460,14 +480,9 @@ public class KinesisOffsetGen {
       // Update shardIterator before the empty check so its null-ness correctly reflects end-of-shard
       // even when the final response carries 0 records (closed shard fully exhausted).
       shardIterator = response.nextShardIterator();
-      // CASE 1: No records returned: stop polling. nextShardIterator can be non-null when at LATEST with no new
-      // data; continuing would cause an infinite loop of empty GetRecords calls.
-      if (response.millisBehindLatest() == 0) {
-        break;
-      }
-      // GetRecords api may return empty records even when there are some data in the shard.
+      // Process records from this response first, regardless of millisBehindLatest.
       if (!records.isEmpty()) {
-        // CASE 2: records returned.
+        // CASE 1: records returned.
         List<Record> toAdd = enableDeaggregation ? KinesisDeaggregator.deaggregate(records) : records;
         for (Record r : toAdd) {
           allRecords.add(r);
@@ -479,6 +494,13 @@ public class KinesisOffsetGen {
         if (emptyRecordRequestCount++ > MAX_EMPTY_RESPONSES_FROM_GET_RECORDS) {
           break;
         }
+      }
+      // CASE 2: Caught up to the tip of the shard — no more records to fetch.
+      // Check after processing so we don't discard records already in this response.
+      // Note: millisBehindLatest can be 0 in LocalStack even when the response contained records,
+      // so we must process first and stop second.
+      if (response.millisBehindLatest() == 0) {
+        break;
       }
 
       requestCount++;

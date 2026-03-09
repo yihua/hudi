@@ -52,6 +52,7 @@ import static org.apache.hudi.common.util.ConfigUtils.getIntWithAltKeys;
 import static org.apache.hudi.common.util.ConfigUtils.getLongWithAltKeys;
 import static org.apache.hudi.common.util.ConfigUtils.getStringWithAltKeys;
 import static org.apache.hudi.utilities.sources.helpers.KinesisOffsetGen.LOCALSTACK_END_SEQ_SENTINEL;
+import static org.apache.hudi.utilities.sources.helpers.KinesisOffsetGen.calculateNumEvents;
 
 /**
  * Source to read JSON data from AWS Kinesis Data Streams using Spark.
@@ -105,6 +106,7 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
 
   @Override
   protected JavaRDD<String> toBatch(KinesisOffsetGen.KinesisShardRange[] shardRanges, long sourceLimit) {
+    long numEvents = calculateNumEvents(sourceLimit, props);
     KinesisReadConfig readConfig = new KinesisReadConfig(
         offsetGen.getStreamName(),
         offsetGen.getRegion(),
@@ -116,10 +118,8 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
         getBooleanWithAltKeys(props, KinesisSourceConfig.KINESIS_ENABLE_DEAGGREGATION),
         getIntWithAltKeys(props, KinesisSourceConfig.KINESIS_MAX_RECORDS_PER_REQUEST),
         getLongWithAltKeys(props, KinesisSourceConfig.KINESIS_GET_RECORDS_INTERVAL_MS),
-        // Evenly set the max events per shard.
-        shardRanges.length > 0
-            ? Math.max(1, getLongWithAltKeys(props, KinesisSourceConfig.MAX_EVENTS_FROM_KINESIS_SOURCE) / shardRanges.length)
-            : sourceLimit);
+        // NOTE that: Evenly set the max events per shard.
+        shardRanges.length > 0 ? Math.max(1, numEvents / shardRanges.length) : numEvents);
 
     JavaRDD<ShardFetchResult> fetchRdd = sparkContext.parallelize(
         java.util.Arrays.asList(shardRanges), shardRanges.length)
@@ -171,7 +171,7 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
       fetchRdd.persist(org.apache.spark.storage.StorageLevel.MEMORY_AND_DISK());
       persistedFetchRdd = fetchRdd;
     } else {
-      log.warn("{} is false: fetch RDD is not persisted. The same Kinesis fetch may run twice (checkpoint + "
+      log.debug("{} is false: fetch RDD is not persisted. The same Kinesis fetch may run twice (checkpoint + "
           + "record write), which can cause duplicate records to be written. Set to true for correct behavior.",
           KinesisSourceConfig.KINESIS_PERSIST_FETCH_RDD.key());
     }

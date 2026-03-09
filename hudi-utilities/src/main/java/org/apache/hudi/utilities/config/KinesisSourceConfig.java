@@ -72,7 +72,7 @@ public class KinesisSourceConfig extends HoodieConfig {
           + "If not set with endpoint, uses the default AWS credential chain.");
 
   public static final ConfigProperty<Long> MAX_EVENTS_FROM_KINESIS_SOURCE = ConfigProperty
-      .key(STREAMER_CONFIG_PREFIX + "kinesis.source.max.events")
+      .key(PREFIX + "max.events")
       .defaultValue(5000000L)
       .markAdvanced()
       .withDocumentation("Maximum number of records obtained in each batch from Kinesis.");
@@ -83,8 +83,8 @@ public class KinesisSourceConfig extends HoodieConfig {
       .markAdvanced()
       .withDocumentation("Desired number of Spark partitions when reading from Kinesis. "
           + "By default, Hudi has a 1-1 mapping of Kinesis shards to Spark partitions. "
-          + "If set to a value greater than the number of shards, the result RDD will be repartitioned "
-          + "to increase downstream parallelism. Use 0 for 1-1 mapping.");
+          + "If set to a value greater than 0, the result RDD will be repartitioned "
+          + "to increase/decrease downstream parallelism. Use 0 for 1-1 mapping.");
 
   public static final ConfigProperty<Boolean> KINESIS_APPEND_OFFSETS = ConfigProperty
       .key(PREFIX + "append.offsets")
@@ -139,6 +139,12 @@ public class KinesisSourceConfig extends HoodieConfig {
     /** Start from the oldest record (TRIM_HORIZON). */
     EARLIEST,
     /** Start from the newest record (LATEST). */
-    LATEST
+    LATEST;
+
+    /** Parses user-supplied string, accepting "TRIM_HORIZON" as an alias for EARLIEST. */
+    public static KinesisStartingPosition fromString(String value) {
+      String normalized = value.toUpperCase().replace("TRIM_HORIZON", "EARLIEST");
+      return valueOf(normalized);
+    }
   }
 }
