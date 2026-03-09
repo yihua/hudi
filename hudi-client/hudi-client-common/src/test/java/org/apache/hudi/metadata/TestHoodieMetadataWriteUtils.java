@@ -18,7 +18,9 @@
 
 package org.apache.hudi.metadata;
 
+import org.apache.hudi.client.transaction.lock.FileSystemBasedLockProvider;
 import org.apache.hudi.client.transaction.lock.InProcessLockProvider;
+import org.apache.hudi.client.transaction.lock.ZookeeperBasedLockProvider;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.model.ActionType;
 import org.apache.hudi.common.model.HoodieCleaningPolicy;
@@ -182,6 +184,121 @@ public class TestHoodieMetadataWriteUtils {
         writeConfig, HoodieFailedWritesCleaningPolicy.EAGER, HoodieTableVersion.EIGHT);
     assertFalse(metadataWriteConfig.getTableServiceManagerConfig().isTableServiceManagerEnabled());
     assertFalse(metadataWriteConfig.getTableServiceManagerConfig().isEnabledAndActionSupported(ActionType.compaction));
+  }
+
+  @Test
+  public void testCreateMetadataWriteConfigForOCCWithZookeeperLockProvider() {
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath("/tmp/base_path/")
+        .withCleanConfig(HoodieCleanConfig.newBuilder()
+            .withCleanerPolicy(HoodieCleaningPolicy.KEEP_LATEST_COMMITS)
+            .retainCommits(5).build())
+        .withMetadataConfig(HoodieMetadataConfig.newBuilder()
+            .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL).build())
+        .withLockConfig(HoodieLockConfig.newBuilder()
+            .withLockProvider(ZookeeperBasedLockProvider.class)
+            .withZkQuorum("zk-host:2181")
+            .withZkBasePath("/hudi/locks")
+            .withZkLockKey("test_table")
+            .withZkPort("2181")
+            .withZkSessionTimeoutInMs(30000L)
+            .withZkConnectionTimeoutInMs(15000L)
+            .build())
+        .build();
+
+    HoodieWriteConfig metadataWriteConfig = HoodieMetadataWriteUtils.createMetadataWriteConfig(
+        writeConfig, HoodieFailedWritesCleaningPolicy.EAGER, HoodieTableVersion.EIGHT);
+    validateMetadataWriteConfig(metadataWriteConfig, HoodieFailedWritesCleaningPolicy.EAGER,
+        WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL, ZookeeperBasedLockProvider.class.getCanonicalName());
+    assertEquals("zk-host:2181", metadataWriteConfig.getProps().getString(HoodieLockConfig.ZK_CONNECT_URL.key()));
+    assertEquals("/hudi/locks", metadataWriteConfig.getProps().getString(HoodieLockConfig.ZK_BASE_PATH.key()));
+    assertEquals("test_table", metadataWriteConfig.getProps().getString(HoodieLockConfig.ZK_LOCK_KEY.key()));
+    assertEquals("2181", metadataWriteConfig.getProps().getString(HoodieLockConfig.ZK_PORT.key()));
+    assertEquals(30000, metadataWriteConfig.getProps().getInteger(HoodieLockConfig.ZK_SESSION_TIMEOUT_MS.key()));
+    assertEquals(15000, metadataWriteConfig.getProps().getInteger(HoodieLockConfig.ZK_CONNECTION_TIMEOUT_MS.key()));
+  }
+
+  @Test
+  public void testCreateMetadataWriteConfigForOCCWithHiveMetastoreLockProvider() {
+    String hmsLockProviderClass = "org.apache.hudi.hive.transaction.lock.HiveMetastoreBasedLockProvider";
+    Properties lockProps = new Properties();
+    lockProps.put(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME.key(), hmsLockProviderClass);
+    lockProps.put(HoodieLockConfig.HIVE_DATABASE_NAME.key(), "my_database");
+    lockProps.put(HoodieLockConfig.HIVE_TABLE_NAME.key(), "my_table");
+    lockProps.put(HoodieLockConfig.HIVE_METASTORE_URI.key(), "thrift://hms-host:9083");
+
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath("/tmp/base_path/")
+        .withCleanConfig(HoodieCleanConfig.newBuilder()
+            .withCleanerPolicy(HoodieCleaningPolicy.KEEP_LATEST_COMMITS)
+            .retainCommits(5).build())
+        .withMetadataConfig(HoodieMetadataConfig.newBuilder()
+            .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL).build())
+        .withLockConfig(HoodieLockConfig.newBuilder()
+            .fromProperties(lockProps)
+            .build())
+        .build();
+
+    HoodieWriteConfig metadataWriteConfig = HoodieMetadataWriteUtils.createMetadataWriteConfig(
+        writeConfig, HoodieFailedWritesCleaningPolicy.EAGER, HoodieTableVersion.EIGHT);
+    validateMetadataWriteConfig(metadataWriteConfig, HoodieFailedWritesCleaningPolicy.EAGER,
+        WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL, hmsLockProviderClass);
+    assertEquals("my_database", metadataWriteConfig.getProps().getString(HoodieLockConfig.HIVE_DATABASE_NAME.key()));
+    assertEquals("my_table", metadataWriteConfig.getProps().getString(HoodieLockConfig.HIVE_TABLE_NAME.key()));
+    assertEquals("thrift://hms-host:9083", metadataWriteConfig.getProps().getString(HoodieLockConfig.HIVE_METASTORE_URI.key()));
+  }
+
+  @Test
+  public void testCreateMetadataWriteConfigForOCCWithFileSystemLockProvider() {
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath("/tmp/base_path/")
+        .withCleanConfig(HoodieCleanConfig.newBuilder()
+            .withCleanerPolicy(HoodieCleaningPolicy.KEEP_LATEST_COMMITS)
+            .retainCommits(5).build())
+        .withMetadataConfig(HoodieMetadataConfig.newBuilder()
+            .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL).build())
+        .withLockConfig(HoodieLockConfig.newBuilder()
+            .withLockProvider(FileSystemBasedLockProvider.class)
+            .withFileSystemLockPath("/tmp/lock_dir")
+            .withFileSystemLockExpire(10)
+            .build())
+        .build();
+
+    HoodieWriteConfig metadataWriteConfig = HoodieMetadataWriteUtils.createMetadataWriteConfig(
+        writeConfig, HoodieFailedWritesCleaningPolicy.EAGER, HoodieTableVersion.EIGHT);
+    validateMetadataWriteConfig(metadataWriteConfig, HoodieFailedWritesCleaningPolicy.EAGER,
+        WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL, FileSystemBasedLockProvider.class.getCanonicalName());
+    assertEquals("/tmp/lock_dir", metadataWriteConfig.getProps().getString(HoodieLockConfig.FILESYSTEM_LOCK_PATH.key()));
+    assertEquals(10, metadataWriteConfig.getProps().getInteger(HoodieLockConfig.FILESYSTEM_LOCK_EXPIRE.key()));
+  }
+
+  @Test
+  public void testCreateMetadataWriteConfigForOCCWithCustomLockProvider() {
+    String customLockProviderClass = "com.example.custom.MyCustomLockProvider";
+    String customConfigKey = "hoodie.write.lock.custom.endpoint";
+    String customConfigValue = "https://lock-service.example.com";
+
+    Properties lockProps = new Properties();
+    lockProps.put(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME.key(), customLockProviderClass);
+    lockProps.put(customConfigKey, customConfigValue);
+
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath("/tmp/base_path/")
+        .withCleanConfig(HoodieCleanConfig.newBuilder()
+            .withCleanerPolicy(HoodieCleaningPolicy.KEEP_LATEST_COMMITS)
+            .retainCommits(5).build())
+        .withMetadataConfig(HoodieMetadataConfig.newBuilder()
+            .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL).build())
+        .withLockConfig(HoodieLockConfig.newBuilder()
+            .fromProperties(lockProps)
+            .build())
+        .build();
+
+    HoodieWriteConfig metadataWriteConfig = HoodieMetadataWriteUtils.createMetadataWriteConfig(
+        writeConfig, HoodieFailedWritesCleaningPolicy.EAGER, HoodieTableVersion.EIGHT);
+    validateMetadataWriteConfig(metadataWriteConfig, HoodieFailedWritesCleaningPolicy.EAGER,
+        WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL, customLockProviderClass);
+    assertEquals(customConfigValue, metadataWriteConfig.getProps().getString(customConfigKey));
   }
 
   private void validateMetadataWriteConfig(HoodieWriteConfig metadataWriteConfig, HoodieFailedWritesCleaningPolicy expectedPolicy,
