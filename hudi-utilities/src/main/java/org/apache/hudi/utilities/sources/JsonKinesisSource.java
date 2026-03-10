@@ -124,25 +124,25 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
         java.util.Arrays.asList(shardRanges), shardRanges.length)
         .mapPartitions(shardRangeIt -> {
           List<ShardFetchResult> results = new ArrayList<>();
-          long numNull = 0;
           try (KinesisClient client = KinesisOffsetGen.createKinesisClient(
               readConfig.getRegion(), readConfig.getEndpointUrl(),
               readConfig.getAccessKey(), readConfig.getSecretKey())) {
             while (shardRangeIt.hasNext()) {
               KinesisOffsetGen.KinesisShardRange range = shardRangeIt.next();
-              KinesisOffsetGen.ShardReadResult readResult = KinesisOffsetGen.readShardRecords(
+              // Lazy iterator: fetches one GetRecords page at a time, keeping only one page in
+              // executor memory instead of the full shard batch. Records are GC-eligible as soon
+              // as they are converted to JSON strings below.
+              KinesisOffsetGen.ShardRecordIterator recordIt = KinesisOffsetGen.readShardRecords(
                   client, readConfig.getStreamName(), range, readConfig.getStartingPosition(),
-                  readConfig.getMaxRecordsPerRequest(), readConfig.getIntervalMilliSeconds(), readConfig.getMaxRecordsPerShard(),
-                  readConfig.isEnableDeaggregation());
+                  readConfig.getMaxRecordsPerRequest(), readConfig.getIntervalMilliSeconds(),
+                  readConfig.getMaxRecordsPerShard(), readConfig.isEnableDeaggregation());
 
-              List<Record> rawRecords = readResult.getRecords();
               String shardId = range.getShardId();
-              boolean shouldAddMetaFields = readConfig.isShouldAddMetaFields();
-              // Eagerly convert while the KinesisClient is still open and rawRecords are live.
-              // Storing List<String> (not a transient Iterable) ensures records survive RDD spill to disk.
-              List<String> jsonRecords = new ArrayList<>(rawRecords.size());
-              for (Record r : rawRecords) {
-                String s = recordToJsonStatic(r, shardId, shouldAddMetaFields);
+              boolean addMetaFields = readConfig.isShouldAddMetaFields();
+              List<String> jsonRecords = new ArrayList<>();
+              long numNull = 0;
+              while (recordIt.hasNext()) {
+                String s = recordToJsonStatic(recordIt.next(), shardId, addMetaFields);
                 if (s != null) {
                   jsonRecords.add(s);
                 } else {
@@ -153,8 +153,10 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
                 log.warn("There are {} null strings for shard id {}", numNull, shardId);
               }
               // recordCount reflects actual output records (null-filtered), not raw Kinesis count.
+              // NOTE: Functions recordIt.getLastSequenceNumber, recordIt.isReachedEndOfShard
+              //       must be called after read since their return values are final ONLY when recordIt.hasNext() == false.
               ShardFetchSummary summary = new ShardFetchSummary(shardId,
-                  readResult.getLastSequenceNumber(), jsonRecords.size(), readResult.isReachedEndOfShard());
+                  recordIt.getLastSequenceNumber(), jsonRecords.size(), recordIt.isReachedEndOfShard());
               results.add(new ShardFetchResult(jsonRecords, summary));
             }
           }
