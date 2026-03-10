@@ -50,9 +50,12 @@ import software.amazon.awssdk.services.kinesis.model.ShardIteratorType;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -422,28 +425,169 @@ public class KinesisOffsetGen {
   }
 
   /**
-   * Result of reading from a shard: records and the last sequence number for checkpoint.
+   * Lazy iterator over records from a single Kinesis shard.
+   *
+   * <p>Records are fetched one GetRecords page at a time; the next page is only requested once all
+   * records from the current page have been consumed. This avoids holding the full shard batch in
+   * executor memory simultaneously with the caller's output collection.
+   *
+   * <p>After {@link #hasNext()} returns {@code false} callers must read
+   * {@link #getLastSequenceNumber()} and {@link #isReachedEndOfShard()} to obtain checkpoint state.
+   *
+   * <p><b>lastSequenceNumber correctness invariant:</b> the sequence number is taken from the last
+   * <em>raw</em> Kinesis record (pre-deaggregation) of a page and is only committed once all
+   * deaggregated records from that page have been yielded. This guarantees the checkpoint never
+   * advances past records that have not yet been returned to the caller.
    */
-  @AllArgsConstructor
-  @Getter
-  public static class ShardReadResult implements java.io.Serializable {
-    private final List<Record> records;
-    private final Option<String> lastSequenceNumber;
-    /** True when nextShardIterator was null, meaning the shard has no more records to return. */
-    private final boolean reachedEndOfShard;
+  public static class ShardRecordIterator implements Iterator<Record> {
+    private final KinesisClient client;
+    private final String shardId;
+    private final int maxRecordsPerRequest;
+    private final long intervalMs;
+    private final long maxTotalRecords;
+    private final boolean enableDeaggregation;
+
+    /** Current position in the Kinesis shard; null means the shard is exhausted. */
+    private String shardIteratorStr;
+    /** Records from the most recently fetched page, ready to be yielded. */
+    private Iterator<Record> currentPage = Collections.emptyIterator();
+    /**
+     * Raw lastSeq of the page currently being consumed. Moved to {@link #lastSequenceNumber} only
+     * when the page iterator is fully exhausted, ensuring the checkpoint never skips records.
+     */
+    private String pendingPageLastSeq = null;
+    /** Checkpoint-safe lastSeq: reflects only fully-consumed pages. */
+    private String lastSequenceNumber = null;
+    private boolean reachedEndOfShard = false;
+    /** True once no further GetRecords calls should be made. */
+    private boolean fetchingDone = false;
+    private long totalConsumed = 0;
+    private int emptyPageCount = 0;
+
+    private ShardRecordIterator(String initialShardIterator, KinesisClient client, String shardId,
+        int maxRecordsPerRequest, long intervalMs, long maxTotalRecords, boolean enableDeaggregation) {
+      this.shardIteratorStr = initialShardIterator;
+      this.client = client;
+      this.shardId = shardId;
+      this.maxRecordsPerRequest = maxRecordsPerRequest;
+      this.intervalMs = intervalMs;
+      this.maxTotalRecords = maxTotalRecords;
+      this.enableDeaggregation = enableDeaggregation;
+    }
+
+    @Override
+    public boolean hasNext() {
+      while (true) {
+        if (currentPage.hasNext()) {
+          return true;
+        }
+        // Current page fully consumed: commit its lastSeq before moving on.
+        commitPendingPageLastSeq();
+        if (fetchingDone) {
+          return false;
+        }
+        fetchNextPage();
+        // Loop: if the page was empty, try fetching again (up to MAX_EMPTY_RESPONSES limit).
+      }
+    }
+
+    @Override
+    public Record next() {
+      if (!hasNext()) {
+        throw new NoSuchElementException("No more records for shard " + shardId);
+      }
+      totalConsumed++;
+      return currentPage.next();
+    }
+
+    public Option<String> getLastSequenceNumber() {
+      return Option.ofNullable(lastSequenceNumber);
+    }
+
+    public boolean isReachedEndOfShard() {
+      return reachedEndOfShard;
+    }
+
+    private void commitPendingPageLastSeq() {
+      if (pendingPageLastSeq != null) {
+        lastSequenceNumber = pendingPageLastSeq;
+        pendingPageLastSeq = null;
+      }
+    }
+
+    private void fetchNextPage() {
+      if (shardIteratorStr == null || totalConsumed >= maxTotalRecords) {
+        fetchingDone = true;
+        return;
+      }
+      GetRecordsResponse response;
+      try {
+        response = client.getRecords(
+            GetRecordsRequest.builder()
+                .shardIterator(shardIteratorStr)
+                .limit(Math.min(maxRecordsPerRequest, (int) (maxTotalRecords - totalConsumed)))
+                .build());
+      } catch (ExpiredIteratorException e) {
+        log.warn("Shard iterator expired for {} during GetRecords, stopping read", shardId);
+        fetchingDone = true;
+        return;
+      } catch (ProvisionedThroughputExceededException e) {
+        throw new HoodieReadFromSourceException("Kinesis throughput exceeded reading shard " + shardId, e);
+      }
+
+      List<Record> rawRecords = response.records();
+      // Update before empty check: null nextShardIterator signals end-of-shard even on a 0-record response.
+      shardIteratorStr = response.nextShardIterator();
+
+      if (!rawRecords.isEmpty()) {
+        // pendingPageLastSeq is from raw records (pre-deaggregation) per the checkpoint invariant.
+        pendingPageLastSeq = rawRecords.get(rawRecords.size() - 1).sequenceNumber();
+        List<Record> toYield = enableDeaggregation ? KinesisDeaggregator.deaggregate(rawRecords) : rawRecords;
+        currentPage = toYield.iterator();
+        emptyPageCount = 0;
+      } else {
+        if (emptyPageCount++ > MAX_EMPTY_RESPONSES_FROM_GET_RECORDS) {
+          fetchingDone = true;
+          return;
+        }
+      }
+
+      // Process records first (done above), then decide whether to stop.
+      // millisBehindLatest can be 0 in LocalStack even when the response contained records.
+      if (response.millisBehindLatest() == 0) {
+        fetchingDone = true;
+      }
+      if (shardIteratorStr == null) {
+        reachedEndOfShard = true;
+        fetchingDone = true;
+      }
+
+      // Rate-limit only when we will fetch another page.
+      if (!fetchingDone && intervalMs > 0) {
+        try {
+          Thread.sleep(intervalMs);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          fetchingDone = true;
+        }
+      }
+    }
   }
 
   /**
-   * Read records from a single shard.
+   * Opens a lazy iterator over records from a single shard.
+   * The iterator fetches one GetRecords page at a time as records are consumed, keeping only one
+   * page in memory at a time instead of the entire shard batch.
+   *
    * @param enableDeaggregation when true, de-aggregates KPL records into individual user records
    */
-  public static ShardReadResult readShardRecords(KinesisClient client, String streamName,
+  public static ShardRecordIterator readShardRecords(KinesisClient client, String streamName,
       KinesisShardRange range, KinesisSourceConfig.KinesisStartingPositionStrategy defaultPosition,
       int maxRecordsPerRequest, long intervalMs, long maxTotalRecords,
-      boolean enableDeaggregation) throws InterruptedException {
-    String shardIterator;
+      boolean enableDeaggregation) {
+    String initialShardIterator;
     try {
-      shardIterator = getShardIterator(client, streamName, range, defaultPosition);
+      initialShardIterator = getShardIterator(client, streamName, range, defaultPosition);
     } catch (InvalidArgumentException e) {
       // GetShardIterator throws InvalidArgumentException (not ExpiredIteratorException) when the
       // requested sequence number is past the stream's retention window.
@@ -454,74 +598,8 @@ public class KinesisOffsetGen {
     } catch (ProvisionedThroughputExceededException e) {
       throw new HoodieReadFromSourceException("Kinesis throughput exceeded reading shard " + range.getShardId(), e);
     }
-    List<Record> allRecords = new ArrayList<>();
-    String lastSequenceNumber = null;
-    int requestCount = 0;
-    int emptyRecordRequestCount = 0;
-
-    while (allRecords.size() < maxTotalRecords && shardIterator != null) {
-      GetRecordsResponse response;
-      try {
-        response = client.getRecords(
-            GetRecordsRequest.builder()
-                .shardIterator(shardIterator)
-                .limit(Math.min(maxRecordsPerRequest, (int) (maxTotalRecords - allRecords.size())))
-                .build());
-      } catch (ExpiredIteratorException e) {
-        log.warn("Shard iterator expired for {} during GetRecords, stopping read", range.getShardId());
-        break;
-      } catch (ProvisionedThroughputExceededException e) {
-        throw new HoodieReadFromSourceException("Kinesis throughput exceeded reading shard " + range.getShardId(), e);
-      }
-
-      List<Record> records = response.records();
-      // Update shardIterator before the empty check so its null-ness correctly reflects end-of-shard
-      // even when the final response carries 0 records (closed shard fully exhausted).
-      shardIterator = response.nextShardIterator();
-      // Process records from this response first, regardless of millisBehindLatest.
-      if (!records.isEmpty()) {
-        // CASE 1: records returned.
-        List<Record> toAdd = enableDeaggregation ? KinesisDeaggregator.deaggregate(records) : records;
-        for (Record r : toAdd) {
-          allRecords.add(r);
-        }
-        // Checkpoint uses the last Kinesis record's sequence number (from raw records, not deaggregated)
-        lastSequenceNumber = records.get(records.size() - 1).sequenceNumber();
-      } else {
-        // We break the loop to avoid infinite waiting when GetRecords always returns empty response.
-        if (emptyRecordRequestCount++ > MAX_EMPTY_RESPONSES_FROM_GET_RECORDS) {
-          break;
-        }
-      }
-      // CASE 2: Caught up to the tip of the shard — no more records to fetch.
-      // Check after processing so we don't discard records already in this response.
-      // Note: millisBehindLatest can be 0 in LocalStack even when the response contained records,
-      // so we must process first and stop second.
-      if (response.millisBehindLatest() == 0) {
-        break;
-      }
-
-      requestCount++;
-      // This is for rate limiting
-      if (shardIterator != null && intervalMs > 0) {
-        try {
-          Thread.sleep(intervalMs);
-        } catch (InterruptedException e) {
-          // Restore the interrupt flag before rethrowing: Thread.sleep clears it when it throws,
-          // so any caller checking isInterrupted() (rather than catching IE) would miss the signal.
-          Thread.currentThread().interrupt();
-          throw e;
-        }
-      }
-    }
-
-    // Get here when
-    // 1. reach the max total record limit
-    // 2. or reach the end of the closed shard
-    // NOTE that: There is a risk that getRecords keeps giving empty response, which could make us wait forever.
-
-    log.debug("Read {} records from shard {} in {} requests", allRecords.size(), range.getShardId(), requestCount);
-    return new ShardReadResult(allRecords, Option.ofNullable(lastSequenceNumber), shardIterator == null);
+    return new ShardRecordIterator(initialShardIterator, client, range.getShardId(),
+        maxRecordsPerRequest, intervalMs, maxTotalRecords, enableDeaggregation);
   }
 
   private static String getShardIterator(KinesisClient client, String streamName,

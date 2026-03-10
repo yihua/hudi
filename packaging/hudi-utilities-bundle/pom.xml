@@ -154,6 +154,8 @@
 
                   <!-- AWS Kinesis SDK for JsonKinesisSource -->
                   <include>software.amazon.awssdk:kinesis</include>
+                  <include>com.amazonaws:amazon-kinesis-deaggregator</include>
+                  <include>com.amazonaws:amazon-kinesis-client</include>
 
                   <include>org.apache.hive:hive-common</include>
                   <include>org.apache.hive:hive-service</include>
