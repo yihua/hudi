@@ -21,9 +21,10 @@ package org.apache.hudi.utilities.sources.helpers;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.table.checkpoint.Checkpoint;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.VisibleForTesting;
 import org.apache.hudi.common.util.collection.Pair;
-import org.apache.hudi.utilities.exception.HoodieReadFromSourceException;
 import org.apache.hudi.utilities.config.KinesisSourceConfig;
+import org.apache.hudi.utilities.exception.HoodieReadFromSourceException;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -345,28 +346,7 @@ public class KinesisOffsetGen {
           // Handle expired shards that exist in the last checkpoint.
           // This is important to detect data loss.
           if (!expiredShardIds.isEmpty()) {
-            for (String shardId : expiredShardIds) {
-              Pair<Option<String>, Option<String>> seqs = CheckpointUtils.parseCheckpointValue(checkpointOffsets.get(shardId));
-              Option<String> lastSeqOpt = seqs.getLeft();
-              Option<String> endSeqOpt = seqs.getRight();
-              // endSeq absent = was open shard; conservatively assume not fully consumed (CASE 3).
-              // endSeq present: fully consumed iff lastSeq >= endSeq (CASE 1/2).
-              boolean fullyConsumed = endSeqOpt.isPresent()
-                  && lastSeqOpt.map(last -> last.compareTo(endSeqOpt.get()) >= 0).orElse(false);
-              if (fullyConsumed) {
-                log.info("Expired shard {} was fully consumed (lastSeq >= endSeq); pruning from checkpoint",
-                    shardId);
-              } else {
-                boolean failOnDataLoss = getBooleanWithAltKeys(props, KinesisSourceConfig.ENABLE_FAIL_ON_DATA_LOSS);
-                String errorMessage = "Checkpoint references expired shard " + shardId
-                    + " with unread data (lastSeq < endSeq or no endSeq stored). Data loss MAY have occurred. "
-                    + "Set " + KinesisSourceConfig.ENABLE_FAIL_ON_DATA_LOSS.key() + "=false to continue.";
-                if (failOnDataLoss) {
-                  throw new HoodieReadFromSourceException(errorMessage);
-                }
-                log.warn(errorMessage);
-              }
-            }
+            checkDataLossOnExpiredShards(expiredShardIds, checkpointOffsets);
           }
           // Handle regular case.
           // Parse lastSeq for open and closed shards.
@@ -379,6 +359,9 @@ public class KinesisOffsetGen {
               lastSeqOpt.ifPresent(seq -> fromSequenceNumbers.put(shardId, seq));
             }
           }
+          // Check if any available shard's checkpoint lastSeq has fallen behind the shard's
+          // trim horizon, i.e., records between lastSeq and the earliest available seq were trimmed.
+          checkDataLossOnAvailableShards(shards, fromSequenceNumbers);
         }
       }
       // STEP 3: Create ranges.
@@ -405,6 +388,76 @@ public class KinesisOffsetGen {
     } catch (LimitExceededException e) {
       throw new HoodieReadFromSourceException("Kinesis limit exceeded: " + e.getMessage(), e);
     }
+  }
+
+  /**
+   * For each expired shard (present in checkpoint but no longer returned by ListShards),
+   * determines whether it was fully consumed. Logs and optionally throws on potential data loss.
+   *
+   * <p>Expired shards fall outside the Kinesis retention window, so their data can no longer be
+   * fetched. If the checkpoint shows the shard was not fully consumed, records may be permanently
+   * lost.
+   */
+  @VisibleForTesting
+  void checkDataLossOnExpiredShards(List<String> expiredShardIds, Map<String, String> checkpointOffsets) {
+    for (String shardId : expiredShardIds) {
+      Pair<Option<String>, Option<String>> seqs = CheckpointUtils.parseCheckpointValue(checkpointOffsets.get(shardId));
+      Option<String> lastSeqOpt = seqs.getLeft();
+      Option<String> endSeqOpt = seqs.getRight();
+      // endSeq absent = was open shard; conservatively assume not fully consumed.
+      // endSeq present: fully consumed iff lastSeq >= endSeq.
+      boolean fullyConsumed = endSeqOpt.isPresent()
+          && lastSeqOpt.map(last -> last.compareTo(endSeqOpt.get()) >= 0).orElse(false);
+      if (fullyConsumed) {
+        log.info("Expired shard {} was fully consumed (lastSeq >= endSeq); pruning from checkpoint", shardId);
+      } else {
+        reportDataLoss("Checkpoint references expired shard " + shardId
+            + " with unread data (lastSeq < endSeq or no endSeq stored). Data loss MAY have occurred.");
+      }
+    }
+  }
+
+  /**
+   * For each available shard that has a checkpoint, checks whether the checkpoint's lastSeq has
+   * fallen before the shard's earliest available sequence number (the trim horizon). This happens
+   * when the Kinesis retention window advances past the last-read position, trimming unread records.
+   *
+   * <p>Applies to both open and closed shards. When triggered, Kinesis will silently return an
+   * iterator at the trim horizon, skipping the trimmed records without error.
+   */
+  @VisibleForTesting
+  void checkDataLossOnAvailableShards(List<Shard> shards, Map<String, String> fromSequenceNumbers) {
+    for (Shard shard : shards) {
+      String shardId = shard.shardId();
+      String lastSeq = fromSequenceNumbers.get(shardId);
+      if (lastSeq == null || lastSeq.isEmpty()) {
+        continue;
+      }
+      if (shard.sequenceNumberRange() == null) {
+        continue;
+      }
+      String shardStartSeq = shard.sequenceNumberRange().startingSequenceNumber();
+      if (shardStartSeq == null || shardStartSeq.isEmpty()) {
+        continue;
+      }
+      // lastSeq < shardStartSeq: records between the checkpoint and the trim horizon were dropped.
+      if (lastSeq.compareTo(shardStartSeq) < 0) {
+        reportDataLoss("Shard " + shardId + " checkpoint lastSeq=" + lastSeq
+            + " is before the shard's earliest available sequence number " + shardStartSeq
+            + ". Records may have been trimmed due to retention expiry (data loss).");
+      }
+    }
+  }
+
+  /**
+   * Emits a data-loss warning or throws, depending on {@link KinesisSourceConfig#ENABLE_FAIL_ON_DATA_LOSS}.
+   */
+  private void reportDataLoss(String message) {
+    String fullMessage = message + " Set " + KinesisSourceConfig.ENABLE_FAIL_ON_DATA_LOSS.key() + "=false to continue.";
+    if (getBooleanWithAltKeys(props, KinesisSourceConfig.ENABLE_FAIL_ON_DATA_LOSS)) {
+      throw new HoodieReadFromSourceException(fullMessage);
+    }
+    log.warn(fullMessage);
   }
 
   public static long calculateNumEvents(long sourceLimit, TypedProperties props) {
