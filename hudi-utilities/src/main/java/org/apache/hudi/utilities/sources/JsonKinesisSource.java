@@ -132,7 +132,7 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
               // Lazy iterator: fetches one GetRecords page at a time, keeping only one page in
               // executor memory instead of the full shard batch. Records are GC-eligible as soon
               // as they are converted to JSON strings below.
-              KinesisOffsetGen.ShardRecordIterator recordIt = KinesisOffsetGen.readShardRecords(
+              KinesisSource.ShardRecordIterator recordIt = KinesisSource.readShardRecords(
                   client, readConfig.getStreamName(), range, readConfig.getStartingPosition(),
                   readConfig.getMaxRecordsPerRequest(), readConfig.getIntervalMilliSeconds(),
                   readConfig.getMaxRecordsPerShard(), readConfig.isEnableDeaggregation());
