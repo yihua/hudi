@@ -91,13 +91,16 @@ class TestKinesisCheckpointUtils {
   }
 
   @Test
-  void testCheckStreamCheckpoint() {
-    assertTrue(CheckpointUtils.checkStreamCheckpoint(
-        org.apache.hudi.common.util.Option.of(STREAM_NAME + ",shard-1:seq123")));
-    assertFalse(CheckpointUtils.checkStreamCheckpoint(
-        org.apache.hudi.common.util.Option.of("invalid")));
-    assertFalse(CheckpointUtils.checkStreamCheckpoint(
-        org.apache.hudi.common.util.Option.empty()));
+  void testIsValidStreamCheckpoint() {
+    assertTrue(CheckpointUtils.isValidStreamCheckpoint(
+        org.apache.hudi.common.util.Option.of(STREAM_NAME + ",shard-1:seq123"), STREAM_NAME));
+    assertFalse(CheckpointUtils.isValidStreamCheckpoint(
+        org.apache.hudi.common.util.Option.of("invalid"), STREAM_NAME));
+    assertFalse(CheckpointUtils.isValidStreamCheckpoint(
+        org.apache.hudi.common.util.Option.empty(), STREAM_NAME));
+    // Checkpoint for a different stream is not valid
+    assertFalse(CheckpointUtils.isValidStreamCheckpoint(
+        org.apache.hudi.common.util.Option.of("other-stream,shard-1:seq123"), STREAM_NAME));
   }
 
   /**

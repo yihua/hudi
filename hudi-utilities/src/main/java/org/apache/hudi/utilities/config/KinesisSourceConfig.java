@@ -135,14 +135,13 @@ public class KinesisSourceConfig extends HoodieConfig {
   /**
    * Kinesis starting position strategies.
    */
-  public enum KinesisStartingPosition {
+  public enum KinesisStartingPositionStrategy {
     /** Start from the oldest record (TRIM_HORIZON). */
     EARLIEST,
     /** Start from the newest record (LATEST). */
     LATEST;
 
-    /** Parses user-supplied string, accepting "TRIM_HORIZON" as an alias for EARLIEST. */
-    public static KinesisStartingPosition fromString(String value) {
+    public static KinesisStartingPositionStrategy fromString(String value) {
       String normalized = value.toUpperCase().replace("TRIM_HORIZON", "EARLIEST");
       return valueOf(normalized);
     }

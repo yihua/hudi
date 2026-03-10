@@ -82,8 +82,8 @@ class TestKinesisSourceFiltering extends SparkClientFunctionalTestHarness {
         KinesisOffsetGen.KinesisShardRange.of("shard-1", Option.of("300"), Option.of("300"))
     };
     when(mockOffsetGen.getNextShardRanges(any(), anyLong())).thenReturn(allFiltered);
-    when(mockOffsetGen.getStartingPosition()).thenReturn(
-        KinesisSourceConfig.KinesisStartingPosition.EARLIEST);
+    when(mockOffsetGen.getStartingPositionStrategy()).thenReturn(
+        KinesisSourceConfig.KinesisStartingPositionStrategy.EARLIEST);
 
     source.setOffsetGen(mockOffsetGen);
 
@@ -112,8 +112,8 @@ class TestKinesisSourceFiltering extends SparkClientFunctionalTestHarness {
         KinesisOffsetGen.KinesisShardRange.of("shard-2", Option.empty(), Option.empty())
     };
     when(mockOffsetGen.getNextShardRanges(any(), anyLong())).thenReturn(ranges);
-    when(mockOffsetGen.getStartingPosition()).thenReturn(
-        KinesisSourceConfig.KinesisStartingPosition.EARLIEST);
+    when(mockOffsetGen.getStartingPositionStrategy()).thenReturn(
+        KinesisSourceConfig.KinesisStartingPositionStrategy.EARLIEST);
 
     source.setOffsetGen(mockOffsetGen);
 
@@ -145,8 +145,8 @@ class TestKinesisSourceFiltering extends SparkClientFunctionalTestHarness {
         KinesisOffsetGen.KinesisShardRange.of("shard-0", Option.empty(), Option.of("300"))
     };
     when(mockOffsetGen.getNextShardRanges(any(), anyLong())).thenReturn(ranges);
-    when(mockOffsetGen.getStartingPosition()).thenReturn(
-        KinesisSourceConfig.KinesisStartingPosition.LATEST);
+    when(mockOffsetGen.getStartingPositionStrategy()).thenReturn(
+        KinesisSourceConfig.KinesisStartingPositionStrategy.LATEST);
 
     source.setOffsetGen(mockOffsetGen);
 
@@ -170,8 +170,8 @@ class TestKinesisSourceFiltering extends SparkClientFunctionalTestHarness {
         KinesisOffsetGen.KinesisShardRange.of("shard-0", Option.empty(), Option.of("300"))
     };
     when(mockOffsetGen.getNextShardRanges(any(), anyLong())).thenReturn(ranges);
-    when(mockOffsetGen.getStartingPosition()).thenReturn(
-        KinesisSourceConfig.KinesisStartingPosition.EARLIEST);
+    when(mockOffsetGen.getStartingPositionStrategy()).thenReturn(
+        KinesisSourceConfig.KinesisStartingPositionStrategy.EARLIEST);
 
     source.setOffsetGen(mockOffsetGen);
 
@@ -195,8 +195,8 @@ class TestKinesisSourceFiltering extends SparkClientFunctionalTestHarness {
         KinesisOffsetGen.KinesisShardRange.of("shard-1", Option.empty(), Option.empty())
     };
     when(mockOffsetGen.getNextShardRanges(any(), anyLong())).thenReturn(ranges);
-    when(mockOffsetGen.getStartingPosition()).thenReturn(
-        KinesisSourceConfig.KinesisStartingPosition.LATEST);
+    when(mockOffsetGen.getStartingPositionStrategy()).thenReturn(
+        KinesisSourceConfig.KinesisStartingPositionStrategy.LATEST);
 
     source.setOffsetGen(mockOffsetGen);
 
@@ -243,15 +243,15 @@ class TestKinesisSourceFiltering extends SparkClientFunctionalTestHarness {
 
     @Override
     protected String createCheckpointFromBatch(JavaRDD<String> batch,
-        KinesisOffsetGen.KinesisShardRange[] shardRangesRead,
-        KinesisOffsetGen.KinesisShardRange[] allShardRanges) {
+        KinesisOffsetGen.KinesisShardRange[] shardRangesWithUnreadRecords,
+        KinesisOffsetGen.KinesisShardRange[] allOpenClosedShardRanges) {
       lastCheckpointData = new java.util.HashMap<>();
-      for (KinesisOffsetGen.KinesisShardRange r : shardRangesRead) {
+      for (KinesisOffsetGen.KinesisShardRange r : shardRangesWithUnreadRecords) {
         lastCheckpointData.put(r.getShardId(), r.getStartingSequenceNumber().orElse(""));
       }
       // Include filtered shards from allShardRanges so checkpoint is complete
       java.util.Map<String, String> full = new java.util.HashMap<>();
-      for (KinesisOffsetGen.KinesisShardRange r : allShardRanges) {
+      for (KinesisOffsetGen.KinesisShardRange r : allOpenClosedShardRanges) {
         String lastSeq = lastCheckpointData.containsKey(r.getShardId())
             ? lastCheckpointData.get(r.getShardId())
             : r.getStartingSequenceNumber().orElse("");
