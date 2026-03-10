@@ -211,4 +211,19 @@ public class TestCheckpointUtils {
     assertThrows(UnsupportedOperationException.class, () ->
         CheckpointUtils.parseCheckpoint(CheckpointFormat.KINESIS, "anystring"));
   }
+
+  @Test
+  public void testCustomFormatThrows() {
+    assertThrows(IllegalArgumentException.class, () ->
+        CheckpointUtils.parseCheckpoint(CheckpointFormat.CUSTOM, "anystring"));
+  }
+
+  @Test
+  public void testIsValidCheckpointFormatUnsupported() {
+    // Unsupported formats should return false (caught internally)
+    assertFalse(CheckpointUtils.isValidCheckpointFormat(
+        CheckpointFormat.FLINK_KAFKA, "anystring"));
+    assertFalse(CheckpointUtils.isValidCheckpointFormat(
+        CheckpointFormat.CUSTOM, "anystring"));
+  }
 }

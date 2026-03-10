@@ -508,4 +508,42 @@ public class TestStreamingOffsetValidator {
     assertNotNull(validator.getConfig());
     assertEquals("test.value", validator.getConfig().getString("test.key"));
   }
+
+  @Test
+  public void testBasePreCommitValidatorDefaultNoOp() {
+    TypedProperties config = new TypedProperties();
+    BasePreCommitValidator validator = new BasePreCommitValidator(config) {};
+
+    TestValidationContext context = new TestValidationContext(
+        "20260309120000", Option.empty(), Option.empty(),
+        true, Option.empty());
+
+    // Default implementation is no-op and should not throw
+    assertDoesNotThrow(() -> validator.validateWithMetadata(context));
+  }
+
+  @Test
+  public void testValidateWithMetadataOffsetDiffZeroRecordsNonZero() {
+    // Covers the branch where offsetDiff == 0 but recordsWritten > 0
+    MockOffsetValidator validator = createValidator(0.0, ValidationFailurePolicy.FAIL);
+
+    HoodieCommitMetadata currentMetadata = new HoodieCommitMetadata();
+    currentMetadata.addMetadata(CHECKPOINT_KEY, "topic,0:100,1:200");
+
+    HoodieCommitMetadata prevMetadata = new HoodieCommitMetadata();
+    prevMetadata.addMetadata(CHECKPOINT_KEY, "topic,0:100,1:200");
+
+    // Same offsets (diff=0) but records were written — should fail
+    HoodieWriteStat stat = createWriteStat(100, 0);
+
+    TestValidationContext context = new TestValidationContext(
+        "20260309120000",
+        Option.of(currentMetadata),
+        Option.of(Collections.singletonList(stat)),
+        false,
+        Option.of(prevMetadata));
+
+    assertThrows(HoodieValidationException.class,
+        () -> validator.testValidateWithMetadata(context));
+  }
 }
