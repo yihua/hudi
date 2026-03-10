@@ -20,9 +20,13 @@ package org.apache.hudi.metadata;
 
 import org.apache.hudi.avro.model.HoodieMetadataRecord;
 import org.apache.hudi.client.FailOnFirstErrorWriteStatus;
+import org.apache.hudi.client.transaction.lock.FileSystemBasedLockProvider;
 import org.apache.hudi.client.transaction.lock.InProcessLockProvider;
+import org.apache.hudi.client.transaction.lock.ZookeeperBasedLockProvider;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.config.HoodieTableServiceManagerConfig;
+import org.apache.hudi.common.config.LockConfiguration;
+import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.config.HoodieReaderConfig;
 import org.apache.hudi.common.config.HoodieStorageConfig;
 import org.apache.hudi.common.config.RecordMergeMode;
@@ -167,7 +171,7 @@ public class HoodieMetadataWriteUtils {
       failedWritesCleaningPolicy = HoodieFailedWritesCleaningPolicy.LAZY;
     } else if (metadataWriteConcurrencyMode.supportsMultiWriter()) {
       concurrencyMode = metadataWriteConcurrencyMode;
-      lockConfig = HoodieLockConfig.newBuilder().fromProperties(writeConfig.getProps()).build();
+      lockConfig = buildMetadataLockConfig(writeConfig);
     } else {
       concurrencyMode = WriteConcurrencyMode.SINGLE_WRITER;
       lockConfig = HoodieLockConfig.newBuilder().build();
@@ -381,6 +385,99 @@ public class HoodieMetadataWriteUtils {
     ValidationUtils.checkArgument(!metadataWriteConfig.isMetadataTableEnabled(), "File listing cannot be used for Metadata Table");
 
     return metadataWriteConfig;
+  }
+
+  /**
+   * Build the lock config for the metadata table by extracting lock-specific properties from the
+   * data table's write config. This avoids copying all properties (which would overwrite MDT-specific
+   * settings like base path and auto-clean).
+   */
+  private static HoodieLockConfig buildMetadataLockConfig(HoodieWriteConfig writeConfig) {
+    TypedProperties props = writeConfig.getProps();
+    HoodieLockConfig.Builder lockConfigBuilder = HoodieLockConfig.newBuilder()
+        .withClientNumRetries(Integer.parseInt(props.getString(
+            HoodieLockConfig.LOCK_ACQUIRE_CLIENT_NUM_RETRIES.key(),
+            HoodieLockConfig.LOCK_ACQUIRE_CLIENT_NUM_RETRIES.defaultValue())))
+        .withClientRetryWaitTimeInMillis(Long.parseLong(props.getString(
+            HoodieLockConfig.LOCK_ACQUIRE_CLIENT_RETRY_WAIT_TIME_IN_MILLIS.key(),
+            HoodieLockConfig.LOCK_ACQUIRE_CLIENT_RETRY_WAIT_TIME_IN_MILLIS.defaultValue())))
+        .withLockWaitTimeInMillis(Long.valueOf(props.getString(
+            HoodieLockConfig.LOCK_ACQUIRE_WAIT_TIMEOUT_MS.key(),
+            String.valueOf(HoodieLockConfig.LOCK_ACQUIRE_WAIT_TIMEOUT_MS.defaultValue()))))
+        .withNumRetries(Integer.parseInt(props.getString(
+            HoodieLockConfig.LOCK_ACQUIRE_NUM_RETRIES.key(),
+            HoodieLockConfig.LOCK_ACQUIRE_NUM_RETRIES.defaultValue())))
+        .withRetryWaitTimeInMillis(Long.parseLong(props.getString(
+            HoodieLockConfig.LOCK_ACQUIRE_RETRY_WAIT_TIME_IN_MILLIS.key(),
+            HoodieLockConfig.LOCK_ACQUIRE_RETRY_WAIT_TIME_IN_MILLIS.defaultValue())))
+        .withRetryMaxWaitTimeInMillis(Long.parseLong(props.getString(
+            HoodieLockConfig.LOCK_ACQUIRE_RETRY_MAX_WAIT_TIME_IN_MILLIS.key(),
+            HoodieLockConfig.LOCK_ACQUIRE_RETRY_MAX_WAIT_TIME_IN_MILLIS.defaultValue())))
+        .withHeartbeatIntervalInMillis(Long.valueOf(props.getString(
+            HoodieLockConfig.LOCK_HEARTBEAT_INTERVAL_MS.key(),
+            String.valueOf(HoodieLockConfig.LOCK_HEARTBEAT_INTERVAL_MS.defaultValue()))));
+
+    String lockProviderClass = writeConfig.getLockProviderClass();
+    if (lockProviderClass == null) {
+      return lockConfigBuilder.build();
+    }
+
+    Properties providerProp = new Properties();
+    providerProp.setProperty(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME.key(), lockProviderClass);
+    lockConfigBuilder.fromProperties(providerProp);
+
+    if (ZookeeperBasedLockProvider.class.getName().equals(lockProviderClass)) {
+      if (props.containsKey(HoodieLockConfig.ZK_CONNECT_URL.key())) {
+        lockConfigBuilder.withZkQuorum(props.getString(HoodieLockConfig.ZK_CONNECT_URL.key()));
+      }
+      if (props.containsKey(HoodieLockConfig.ZK_BASE_PATH.key())) {
+        lockConfigBuilder.withZkBasePath(props.getString(HoodieLockConfig.ZK_BASE_PATH.key()));
+      }
+      if (props.containsKey(HoodieLockConfig.ZK_LOCK_KEY.key())) {
+        lockConfigBuilder.withZkLockKey(props.getString(HoodieLockConfig.ZK_LOCK_KEY.key()));
+      }
+      if (props.containsKey(HoodieLockConfig.ZK_PORT.key())) {
+        lockConfigBuilder.withZkPort(props.getString(HoodieLockConfig.ZK_PORT.key()));
+      }
+      if (props.containsKey(HoodieLockConfig.ZK_SESSION_TIMEOUT_MS.key())) {
+        lockConfigBuilder.withZkSessionTimeoutInMs(
+            Long.valueOf(props.getString(HoodieLockConfig.ZK_SESSION_TIMEOUT_MS.key())));
+      }
+      if (props.containsKey(HoodieLockConfig.ZK_CONNECTION_TIMEOUT_MS.key())) {
+        lockConfigBuilder.withZkConnectionTimeoutInMs(
+            Long.valueOf(props.getString(HoodieLockConfig.ZK_CONNECTION_TIMEOUT_MS.key())));
+      }
+    } else if (FileSystemBasedLockProvider.class.getName().equals(lockProviderClass)) {
+      if (props.containsKey(HoodieLockConfig.FILESYSTEM_LOCK_PATH.key())) {
+        lockConfigBuilder.withFileSystemLockPath(props.getString(HoodieLockConfig.FILESYSTEM_LOCK_PATH.key()));
+      }
+      if (props.containsKey(HoodieLockConfig.FILESYSTEM_LOCK_EXPIRE.key())) {
+        lockConfigBuilder.withFileSystemLockExpire(
+            Integer.parseInt(props.getString(HoodieLockConfig.FILESYSTEM_LOCK_EXPIRE.key())));
+      }
+    } else if (lockProviderClass.contains("HiveMetastoreBasedLockProvider")) {
+      if (props.containsKey(HoodieLockConfig.HIVE_DATABASE_NAME.key())) {
+        lockConfigBuilder.withHiveDatabaseName(props.getString(HoodieLockConfig.HIVE_DATABASE_NAME.key()));
+      }
+      if (props.containsKey(HoodieLockConfig.HIVE_TABLE_NAME.key())) {
+        lockConfigBuilder.withHiveTableName(props.getString(HoodieLockConfig.HIVE_TABLE_NAME.key()));
+      }
+      if (props.containsKey(HoodieLockConfig.HIVE_METASTORE_URI.key())) {
+        lockConfigBuilder.withHiveMetastoreURIs(props.getString(HoodieLockConfig.HIVE_METASTORE_URI.key()));
+      }
+    } else {
+      // For any custom lock provider, pass through all lock-prefixed properties
+      // so provider-specific configs are preserved.
+      Properties lockProps = new Properties();
+      props.forEach((k, v) -> {
+        if (k.toString().startsWith(LockConfiguration.LOCK_PREFIX)) {
+          lockProps.put(k, v);
+        }
+      });
+      lockConfigBuilder.fromProperties(lockProps);
+    }
+
+    return lockConfigBuilder.build();
   }
 
   /**
