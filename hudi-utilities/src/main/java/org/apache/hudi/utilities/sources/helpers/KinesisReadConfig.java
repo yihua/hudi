@@ -40,10 +40,10 @@ public class KinesisReadConfig implements Serializable {
   private final String endpointUrl; // null if not set
   private final String accessKey; // null if not set
   private final String secretKey; // null if not set
-  private final KinesisSourceConfig.KinesisStartingPosition startingPosition;
+  private final KinesisSourceConfig.KinesisStartingPositionStrategy startingPosition;
   private final boolean shouldAddMetaFields;
   private final boolean enableDeaggregation;
   private final int maxRecordsPerRequest;
-  private final long intervalMs;
+  private final long intervalMilliSeconds;
   private final long maxRecordsPerShard;
 }

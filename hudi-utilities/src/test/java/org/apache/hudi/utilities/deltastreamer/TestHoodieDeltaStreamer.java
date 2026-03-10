@@ -67,6 +67,7 @@ import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
 import org.apache.hudi.common.testutils.HoodieTestUtils;
 import org.apache.hudi.common.testutils.JavaTestUtils;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.config.HoodieArchivalConfig;
@@ -110,7 +111,6 @@ import org.apache.hudi.utilities.sources.CsvDFSSource;
 import org.apache.hudi.utilities.sources.InputBatch;
 import org.apache.hudi.utilities.sources.JdbcSource;
 import org.apache.hudi.utilities.sources.JsonKafkaSource;
-import org.apache.hudi.utilities.sources.JsonKinesisSource;
 import org.apache.hudi.utilities.sources.ORCDFSSource;
 import org.apache.hudi.utilities.sources.ParquetDFSSource;
 import org.apache.hudi.utilities.sources.SqlSource;
@@ -128,6 +128,7 @@ import org.apache.hudi.utilities.testutils.KinesisTestUtils;
 import org.apache.hudi.utilities.testutils.UtilitiesTestBase;
 import org.apache.hudi.utilities.testutils.sources.AbstractBaseTestSource;
 import org.apache.hudi.utilities.testutils.sources.DistributedTestDataSource;
+import org.apache.hudi.utilities.testutils.sources.LocalStackJsonKinesisSource;
 import org.apache.hudi.utilities.transform.SqlQueryBasedTransformer;
 import org.apache.hudi.utilities.transform.Transformer;
 
@@ -3148,7 +3149,7 @@ public class TestHoodieDeltaStreamer extends HoodieDeltaStreamerTestBase {
       prepareJsonKinesisDFSSource(PROPS_FILENAME_TEST_JSON_KINESIS, streamName);
       String tableBasePath = basePath + "/test_json_kinesis_table" + testNum;
       HoodieDeltaStreamer deltaStreamer = new HoodieDeltaStreamer(
-          TestHelpers.makeConfig(tableBasePath, WriteOperationType.UPSERT, JsonKinesisSource.class.getName(),
+          TestHelpers.makeConfig(tableBasePath, WriteOperationType.UPSERT, LocalStackJsonKinesisSource.class.getName(),
               Collections.emptyList(), PROPS_FILENAME_TEST_JSON_KINESIS, false,
               true, 100000, false, null, null, "timestamp", null), jsc);
 
@@ -3246,7 +3247,7 @@ public class TestHoodieDeltaStreamer extends HoodieDeltaStreamerTestBase {
       prepareJsonKinesisDFSSource(PROPS_FILENAME_TEST_JSON_KINESIS, streamName);
       String tableBasePath = basePath + "/test_json_kinesis_agg_table" + testNum;
       HoodieDeltaStreamer deltaStreamer = new HoodieDeltaStreamer(
-          TestHelpers.makeConfig(tableBasePath, WriteOperationType.UPSERT, JsonKinesisSource.class.getName(),
+          TestHelpers.makeConfig(tableBasePath, WriteOperationType.UPSERT, LocalStackJsonKinesisSource.class.getName(),
               Collections.emptyList(), PROPS_FILENAME_TEST_JSON_KINESIS, false,
               true, 100000, false, null, null, "timestamp", null), jsc);
       deltaStreamer.sync();
@@ -3263,7 +3264,7 @@ public class TestHoodieDeltaStreamer extends HoodieDeltaStreamerTestBase {
       prepareJsonKinesisDFSSource(PROPS_FILENAME_TEST_JSON_KINESIS, streamName);
       String tableBasePath = basePath + "/test_json_kinesis_split_table" + testNum;
       HoodieDeltaStreamer deltaStreamer = new HoodieDeltaStreamer(
-          TestHelpers.makeConfig(tableBasePath, WriteOperationType.UPSERT, JsonKinesisSource.class.getName(),
+          TestHelpers.makeConfig(tableBasePath, WriteOperationType.UPSERT, LocalStackJsonKinesisSource.class.getName(),
               Collections.emptyList(), PROPS_FILENAME_TEST_JSON_KINESIS, false,
               true, 100000, false, null, null, "timestamp", null), jsc);
       deltaStreamer.sync();
@@ -3287,8 +3288,9 @@ public class TestHoodieDeltaStreamer extends HoodieDeltaStreamerTestBase {
       // Verify closed shard checkpoint format: lastSeq|endSeq with lastSeq >= endSeq (fully consumed)
       Map<String, String> offsets = KinesisOffsetGen.CheckpointUtils.strToOffsets(checkpointAfterSplit);
       for (Map.Entry<String, String> e : offsets.entrySet()) {
-        String lastSeq = KinesisOffsetGen.CheckpointUtils.getLastSeqFromValue(e.getValue());
-        String endSeq = KinesisOffsetGen.CheckpointUtils.getEndSeqFromValue(e.getValue());
+        Pair<Option<String>, Option<String>> seqs = KinesisOffsetGen.CheckpointUtils.parseCheckpointValue(e.getValue());
+        String lastSeq = seqs.getLeft().orElse(null);
+        String endSeq = seqs.getRight().orElse(null);
         if (endSeq != null && lastSeq != null && !lastSeq.isEmpty()) {
           assertTrue(lastSeq.compareTo(endSeq) >= 0,
               "Closed shard " + e.getKey() + ": lastSeq should be >= endSeq (fully consumed)");
@@ -3315,7 +3317,7 @@ public class TestHoodieDeltaStreamer extends HoodieDeltaStreamerTestBase {
       prepareJsonKinesisDFSSource(PROPS_FILENAME_TEST_JSON_KINESIS, streamName);
       String tableBasePath = basePath + "/test_json_kinesis_filter_table" + testNum;
       HoodieDeltaStreamer deltaStreamer = new HoodieDeltaStreamer(
-          TestHelpers.makeConfig(tableBasePath, WriteOperationType.UPSERT, JsonKinesisSource.class.getName(),
+          TestHelpers.makeConfig(tableBasePath, WriteOperationType.UPSERT, LocalStackJsonKinesisSource.class.getName(),
               Collections.emptyList(), PROPS_FILENAME_TEST_JSON_KINESIS, false,
               true, 100000, false, null, null, "timestamp", null), jsc);
       deltaStreamer.sync();
@@ -3350,7 +3352,7 @@ public class TestHoodieDeltaStreamer extends HoodieDeltaStreamerTestBase {
       prepareJsonKinesisDFSSource(PROPS_FILENAME_TEST_JSON_KINESIS, streamName);
       String tableBasePath = basePath + "/test_json_kinesis_merge_table" + testNum;
       HoodieDeltaStreamer deltaStreamer = new HoodieDeltaStreamer(
-          TestHelpers.makeConfig(tableBasePath, WriteOperationType.UPSERT, JsonKinesisSource.class.getName(),
+          TestHelpers.makeConfig(tableBasePath, WriteOperationType.UPSERT, LocalStackJsonKinesisSource.class.getName(),
               Collections.emptyList(), PROPS_FILENAME_TEST_JSON_KINESIS, false,
               true, 100000, false, null, null, "timestamp", null), jsc);
       deltaStreamer.sync();
@@ -3374,8 +3376,9 @@ public class TestHoodieDeltaStreamer extends HoodieDeltaStreamerTestBase {
       assertNotNull(checkpointAfterEmptySync);
       Map<String, String> offsets = KinesisOffsetGen.CheckpointUtils.strToOffsets(checkpointAfterEmptySync);
       for (Map.Entry<String, String> e : offsets.entrySet()) {
-        String lastSeq = KinesisOffsetGen.CheckpointUtils.getLastSeqFromValue(e.getValue());
-        String endSeq = KinesisOffsetGen.CheckpointUtils.getEndSeqFromValue(e.getValue());
+        Pair<Option<String>, Option<String>> seqs = KinesisOffsetGen.CheckpointUtils.parseCheckpointValue(e.getValue());
+        String lastSeq = seqs.getLeft().orElse(null);
+        String endSeq = seqs.getRight().orElse(null);
         if (endSeq != null && lastSeq != null && !lastSeq.isEmpty()) {
           assertTrue(lastSeq.compareTo(endSeq) >= 0,
               "Closed shard " + e.getKey() + ": lastSeq should be >= endSeq (fully consumed)");

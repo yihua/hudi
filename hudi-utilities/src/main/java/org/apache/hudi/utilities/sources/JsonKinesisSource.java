@@ -51,7 +51,6 @@ import static org.apache.hudi.common.util.ConfigUtils.getBooleanWithAltKeys;
 import static org.apache.hudi.common.util.ConfigUtils.getIntWithAltKeys;
 import static org.apache.hudi.common.util.ConfigUtils.getLongWithAltKeys;
 import static org.apache.hudi.common.util.ConfigUtils.getStringWithAltKeys;
-import static org.apache.hudi.utilities.sources.helpers.KinesisOffsetGen.LOCALSTACK_END_SEQ_SENTINEL;
 import static org.apache.hudi.utilities.sources.helpers.KinesisOffsetGen.calculateNumEvents;
 
 /**
@@ -113,7 +112,7 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
         offsetGen.getEndpointUrl().orElse(null),
         getStringWithAltKeys(props, KinesisSourceConfig.KINESIS_ACCESS_KEY, null),
         getStringWithAltKeys(props, KinesisSourceConfig.KINESIS_SECRET_KEY, null),
-        offsetGen.getStartingPosition(),
+        offsetGen.getStartingPositionStrategy(),
         shouldAddMetaFields,
         getBooleanWithAltKeys(props, KinesisSourceConfig.KINESIS_ENABLE_DEAGGREGATION),
         getIntWithAltKeys(props, KinesisSourceConfig.KINESIS_MAX_RECORDS_PER_REQUEST),
@@ -133,7 +132,7 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
               KinesisOffsetGen.KinesisShardRange range = shardRangeIt.next();
               KinesisOffsetGen.ShardReadResult readResult = KinesisOffsetGen.readShardRecords(
                   client, readConfig.getStreamName(), range, readConfig.getStartingPosition(),
-                  readConfig.getMaxRecordsPerRequest(), readConfig.getIntervalMs(), readConfig.getMaxRecordsPerShard(),
+                  readConfig.getMaxRecordsPerRequest(), readConfig.getIntervalMilliSeconds(), readConfig.getMaxRecordsPerShard(),
                   readConfig.isEnableDeaggregation());
 
               List<Record> rawRecords = readResult.getRecords();
@@ -236,14 +235,14 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
 
   @Override
   protected String createCheckpointFromBatch(JavaRDD<String> batch,
-      KinesisOffsetGen.KinesisShardRange[] shardRangesRead,
-      KinesisOffsetGen.KinesisShardRange[] allShardRanges) {
+      KinesisOffsetGen.KinesisShardRange[] shardRangesWithUnreadRecords,
+      KinesisOffsetGen.KinesisShardRange[] allOpenClosedShardRanges) {
     // STEP 1: Basic information has been collected through function: collectCheckpointInfo.
     // STEP 2: Build checkpoint for each shard.
     // We need to preserve the fully consumed shards since otherwise
     // the next run would omit them from the checkpoint and re-read from TRIM_HORIZON.
     Map<String, String> fullCheckpoint = new HashMap<>();
-    for (KinesisOffsetGen.KinesisShardRange range : allShardRanges) {
+    for (KinesisOffsetGen.KinesisShardRange range : allOpenClosedShardRanges) {
       String lastSeq;
       String endSeq;
       // CASE 1: basic case
@@ -256,12 +255,7 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
         lastSeq = range.getStartingSequenceNumber().orElse("");
         endSeq = range.getEndingSequenceNumber().orElse(null);
       }
-      // for test only
-      // LocalStack returns Long.MAX_VALUE for closed shards; use lastSeq as endSeq so we can detect
-      // "fully consumed" when the parent shard expires (lastSeq >= endSeq).
-      if (LOCALSTACK_END_SEQ_SENTINEL.equals(endSeq) && lastSeq != null && !lastSeq.isEmpty()) {
-        endSeq = lastSeq;
-      }
+      endSeq = normalizeEndSeq(lastSeq, endSeq);
       // CASE 2: corner case: an open shard becomes a closed shard after the read.
       if (endSeq == null && shardsReachedEnd != null && shardsReachedEnd.contains(range.getShardId())
           && lastSeq != null && !lastSeq.isEmpty()) {
@@ -279,6 +273,14 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
     }
     // Step 3: generate the final checkpoint.
     return KinesisOffsetGen.CheckpointUtils.offsetsToStr(offsetGen.getStreamName(), fullCheckpoint);
+  }
+
+  /**
+   * Hook for subclasses to adjust the endSeq stored in the checkpoint.
+   * The default (production) implementation is a no-op.
+   */
+  protected String normalizeEndSeq(String lastSeq, String endSeq) {
+    return endSeq;
   }
 
   @Override
