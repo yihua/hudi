@@ -30,7 +30,9 @@ import org.apache.flink.core.memory.MemorySegmentFactory;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.planner.codegen.sort.SortCodeGenerator;
 import org.apache.flink.table.runtime.generated.GeneratedNormalizedKeyComputer;
+import org.apache.flink.table.runtime.generated.GeneratedRecordComparator;
 import org.apache.flink.table.runtime.generated.NormalizedKeyComputer;
+import org.apache.flink.table.runtime.generated.RecordComparator;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.util.Collector;
 
@@ -78,6 +80,7 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
 
   // Sort key computation
   private transient NormalizedKeyComputer normalizedKeyComputer;
+  private transient RecordComparator recordComparator;
   private transient byte[] reusableKeyBuffer;
   private transient MemorySegment reusableKeySegment;
   private transient int normalizedKeySize;
@@ -100,9 +103,7 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
 
   @Override
   public void open(Configuration parameters) throws Exception {
-    super.open(parameters);
-
-    // Validate configuration
+    // Validate configuration before calling super.open() which requires Flink runtime context
     if (maxCapacity <= 0) {
       throw new IllegalArgumentException(
           String.format("Buffer capacity must be positive, got: %d", maxCapacity));
@@ -129,21 +130,25 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
           String.format("Sort keys list is empty after parsing: '%s'", sortKeys));
     }
 
+    super.open(parameters);
+
     LOG.info("Initializing continuous sort with keys: {}", sortKeyList);
 
-    // Create sort code generator for normalized key computation
+    // Create sort code generator for normalized key computation and record comparison
     SortOperatorGen sortOperatorGen = new SortOperatorGen(rowType, sortKeyList.toArray(new String[0]));
     SortCodeGenerator codeGenerator = sortOperatorGen.createSortCodeGenerator();
     GeneratedNormalizedKeyComputer generatedKeyComputer = codeGenerator.generateNormalizedKeyComputer("ContinuousSortKeyComputer");
+    GeneratedRecordComparator generatedComparator = codeGenerator.generateRecordComparator("ContinuousSortComparator");
 
-    // Instantiate code-generated normalizedKeyComputer
-    this.normalizedKeyComputer = generatedKeyComputer.newInstance(Thread.currentThread().getContextClassLoader());
+    // Instantiate code-generated components
+    ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+    this.normalizedKeyComputer = generatedKeyComputer.newInstance(classLoader);
+    this.recordComparator = generatedComparator.newInstance(classLoader);
     this.normalizedKeySize = normalizedKeyComputer.getNumKeyBytes();
 
-    // Initialize TreeMap with comparator that has access to normalizedKeyComputer
-    // Note: We wrap byte arrays in MemorySegments for comparison
+    // Initialize TreeMap with comparator that uses normalized keys for fast comparison
+    // and falls back to RecordComparator for full comparison when normalized keys are equal
     this.sortedRecords = new TreeMap<>((k1, k2) -> {
-      // Wrap byte arrays in MemorySegments for comparison
       MemorySegment seg1 = MemorySegmentFactory.wrap(k1.keyBytes);
       MemorySegment seg2 = MemorySegmentFactory.wrap(k2.keyBytes);
 
@@ -151,12 +156,17 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
       if (cmp != 0) {
         return cmp;
       }
+      // Normalized keys are equal - use full record comparison for correct ordering
+      cmp = recordComparator.compare(k1.record, k2.record);
+      if (cmp != 0) {
+        return cmp;
+      }
+      // Records are equal by sort keys - use insertion order for stability
       return Long.compare(k1.insertionOrder, k2.insertionOrder);
     });
     this.insertionSequence = 0L;
 
     // Allocate reusable on-heap buffer for computing keys
-    // Using heap memory to avoid off-heap memory leak
     this.reusableKeyBuffer = new byte[normalizedKeySize];
     this.reusableKeySegment = MemorySegmentFactory.wrap(reusableKeyBuffer);
 
@@ -190,7 +200,7 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
     normalizedKeyComputer.putKey(data, reusableKeySegment, 0);
 
     // Create sort key (copies the normalized key from reusable segment)
-    SortKey key = new SortKey(reusableKeySegment, normalizedKeySize, insertionSequence++);
+    SortKey key = new SortKey(reusableKeySegment, normalizedKeySize, data, insertionSequence++);
 
     // Store the original RowData
     sortedRecords.put(key, data);
@@ -288,13 +298,16 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
 
   /**
    * Sort key with normalized key stored in byte array (on-heap).
+   * Holds a reference to the original record for full comparison fallback.
    * Comparison is done via TreeMap comparator.
    */
   private static class SortKey {
     final byte[] keyBytes;
+    final RowData record;
     final long insertionOrder;
 
-    SortKey(MemorySegment sourceSegment, int keySize, long insertionOrder) {
+    SortKey(MemorySegment sourceSegment, int keySize, RowData record, long insertionOrder) {
+      this.record = record;
       this.insertionOrder = insertionOrder;
 
       // Copy normalized key from MemorySegment to on-heap byte array
