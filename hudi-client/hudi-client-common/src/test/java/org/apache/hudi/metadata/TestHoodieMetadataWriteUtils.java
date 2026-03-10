@@ -130,7 +130,8 @@ public class TestHoodieMetadataWriteUtils {
 
     HoodieWriteConfig metadataWriteConfig = HoodieMetadataWriteUtils.createMetadataWriteConfig(
         writeConfig, HoodieFailedWritesCleaningPolicy.EAGER, HoodieTableVersion.EIGHT);
-    validateMetadataWriteConfig(metadataWriteConfig, HoodieFailedWritesCleaningPolicy.EAGER,
+    // HoodieWriteConfig builder auto-adjusts failed writes policy to LAZY for multi-writer modes
+    validateMetadataWriteConfig(metadataWriteConfig, HoodieFailedWritesCleaningPolicy.LAZY,
         WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL, InProcessLockProvider.class.getCanonicalName());
     // MDT base path should NOT be overwritten to data table's base path
     String expectedMdtBasePath = HoodieTableMetadata.getMetadataTableBasePath(dataTableBasePath);
@@ -210,7 +211,7 @@ public class TestHoodieMetadataWriteUtils {
 
     HoodieWriteConfig metadataWriteConfig = HoodieMetadataWriteUtils.createMetadataWriteConfig(
         writeConfig, HoodieFailedWritesCleaningPolicy.EAGER, HoodieTableVersion.EIGHT);
-    validateMetadataWriteConfig(metadataWriteConfig, HoodieFailedWritesCleaningPolicy.EAGER,
+    validateMetadataWriteConfig(metadataWriteConfig, HoodieFailedWritesCleaningPolicy.LAZY,
         WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL, ZookeeperBasedLockProvider.class.getCanonicalName());
     assertEquals("zk-host:2181", metadataWriteConfig.getProps().getString(HoodieLockConfig.ZK_CONNECT_URL.key()));
     assertEquals("/hudi/locks", metadataWriteConfig.getProps().getString(HoodieLockConfig.ZK_BASE_PATH.key()));
@@ -244,7 +245,7 @@ public class TestHoodieMetadataWriteUtils {
 
     HoodieWriteConfig metadataWriteConfig = HoodieMetadataWriteUtils.createMetadataWriteConfig(
         writeConfig, HoodieFailedWritesCleaningPolicy.EAGER, HoodieTableVersion.EIGHT);
-    validateMetadataWriteConfig(metadataWriteConfig, HoodieFailedWritesCleaningPolicy.EAGER,
+    validateMetadataWriteConfig(metadataWriteConfig, HoodieFailedWritesCleaningPolicy.LAZY,
         WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL, hmsLockProviderClass);
     assertEquals("my_database", metadataWriteConfig.getProps().getString(HoodieLockConfig.HIVE_DATABASE_NAME.key()));
     assertEquals("my_table", metadataWriteConfig.getProps().getString(HoodieLockConfig.HIVE_TABLE_NAME.key()));
@@ -270,7 +271,7 @@ public class TestHoodieMetadataWriteUtils {
 
     HoodieWriteConfig metadataWriteConfig = HoodieMetadataWriteUtils.createMetadataWriteConfig(
         writeConfig, HoodieFailedWritesCleaningPolicy.EAGER, HoodieTableVersion.EIGHT);
-    validateMetadataWriteConfig(metadataWriteConfig, HoodieFailedWritesCleaningPolicy.EAGER,
+    validateMetadataWriteConfig(metadataWriteConfig, HoodieFailedWritesCleaningPolicy.LAZY,
         WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL, FileSystemBasedLockProvider.class.getCanonicalName());
     assertEquals("/tmp/lock_dir", metadataWriteConfig.getProps().getString(HoodieLockConfig.FILESYSTEM_LOCK_PATH.key()));
     assertEquals(10, metadataWriteConfig.getProps().getInteger(HoodieLockConfig.FILESYSTEM_LOCK_EXPIRE.key()));
@@ -301,7 +302,7 @@ public class TestHoodieMetadataWriteUtils {
 
     HoodieWriteConfig metadataWriteConfig = HoodieMetadataWriteUtils.createMetadataWriteConfig(
         writeConfig, HoodieFailedWritesCleaningPolicy.EAGER, HoodieTableVersion.EIGHT);
-    validateMetadataWriteConfig(metadataWriteConfig, HoodieFailedWritesCleaningPolicy.EAGER,
+    validateMetadataWriteConfig(metadataWriteConfig, HoodieFailedWritesCleaningPolicy.LAZY,
         WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL, customLockProviderClass);
     assertEquals(customConfigValue, metadataWriteConfig.getProps().getString(customConfigKey));
   }
