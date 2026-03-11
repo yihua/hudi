@@ -24,6 +24,7 @@ import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.table.HoodieTableVersion;
+import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.TimelineUtils;
@@ -138,7 +139,7 @@ public class ScheduleCompactionActionExecutor<T, I, K, O> extends BaseTableServi
     return new HoodieCompactionPlan();
   }
 
-  private Option<Pair<Integer, String>> getLatestDeltaCommitInfo() {
+  private Option<Pair<Integer, String>> getLatestDeltaCommitInfoSinceCompaction() {
     Option<Pair<HoodieTimeline, HoodieInstant>> deltaCommitsInfo =
         CompactionUtils.getCompletedDeltaCommitsSinceLatestCompaction(table.getActiveTimeline());
     if (deltaCommitsInfo.isPresent()) {
@@ -160,55 +161,88 @@ public class ScheduleCompactionActionExecutor<T, I, K, O> extends BaseTableServi
     return Option.empty();
   }
 
+  private Option<Pair<Integer, String>> getDeltaCommitInfoSinceLogCompaction() {
+    HoodieActiveTimeline rawActiveTimeline = table.getMetaClient().getTableFormat()
+        .getTimelineFactory().createActiveTimeline(table.getMetaClient(), false);
+    Option<Pair<HoodieTimeline, HoodieInstant>> deltaCommitsInfo =
+        CompactionUtils.getDeltaCommitsSinceLatestLogCompaction(
+            table.getActiveTimeline().getDeltaCommitTimeline(), rawActiveTimeline);
+    if (deltaCommitsInfo.isPresent()) {
+      return Option.of(Pair.of(
+          deltaCommitsInfo.get().getLeft().countInstants(),
+          deltaCommitsInfo.get().getRight().requestedTime()));
+    }
+    return Option.empty();
+  }
+
   private boolean needCompact(CompactionTriggerStrategy compactionTriggerStrategy) {
     boolean compactable;
     // get deltaCommitsSinceLastCompaction and lastCompactionTs
-    Option<Pair<Integer, String>> latestDeltaCommitInfoOption = getLatestDeltaCommitInfo();
-    if (!latestDeltaCommitInfoOption.isPresent()) {
+    Option<Pair<Integer, String>> latestDeltaCommitInfoSinceCompactOption = getLatestDeltaCommitInfoSinceCompaction();
+    if (!latestDeltaCommitInfoSinceCompactOption.isPresent()) {
       return false;
     }
-    Pair<Integer, String> latestDeltaCommitInfo = latestDeltaCommitInfoOption.get();
+    Pair<Integer, String> latestDeltaCommitInfoSinceCompact = latestDeltaCommitInfoSinceCompactOption.get();
     if (WriteOperationType.LOG_COMPACT.equals(operationType)) {
-      return true;
+      // Log compaction schedule is triggered based on getLogCompactionBlocksThreshold value.
+      // One deltacommit can create either one or more than one block depending on the size of the write batch.
+      // In the worst case it would require approximately equal no. of deltacommits to reach the LogCompactionBlocksThreshold value.
+      // Each logcompaction create one or more blocks, and transient failures and retries can cause the number of blocks to
+      // exceed the LogCompactionBlocksThreshold value before the next time log compaction scheduling is attempted.
+      // As a result, LogCompactionBlocksThreshold is treated as a threshold, where if the approximate number of deltacommits
+      // since the last compaction and log compaction meets this threshold, then log compaction should be scheduled.
+      // Although for some write-workloads this may cause file groups to have delayed logcompaction (due to enough suficient
+      // log files already being build up), this is an acceptable trade-off since log compaction scheduling will still be
+      // attempted once enough deltacommits have been built up, and since logcompaction is an optional opimtization
+      // we should avoid always spending time to attempt scheduling log compaction during each write
+      Option<Pair<Integer, String>> latestDeltaCommitInfoSinceLogCompactOption = getDeltaCommitInfoSinceLogCompaction();
+      int numDeltaCommitsSinceLatestCompaction = latestDeltaCommitInfoSinceCompact.getLeft();
+      int numDeltaCommitsSinceLatestLogCompaction = latestDeltaCommitInfoSinceLogCompactOption.isPresent()
+          ? latestDeltaCommitInfoSinceLogCompactOption.get().getLeft()
+          : 0;
+
+      int numDeltaCommitsSinceLatestCompactionOrLogCompaction = Math.min(numDeltaCommitsSinceLatestCompaction, numDeltaCommitsSinceLatestLogCompaction);
+      log.info("There have been {} delta commits since last compaction or log compaction.", numDeltaCommitsSinceLatestCompactionOrLogCompaction);
+      return numDeltaCommitsSinceLatestCompactionOrLogCompaction >= config.getLogCompactionBlocksThreshold();
     }
     int inlineCompactDeltaCommitMax = config.getInlineCompactDeltaCommitMax();
     int inlineCompactDeltaSecondsMax = config.getInlineCompactDeltaSecondsMax();
     switch (compactionTriggerStrategy) {
       case NUM_COMMITS:
-        compactable = inlineCompactDeltaCommitMax <= latestDeltaCommitInfo.getLeft();
+        compactable = inlineCompactDeltaCommitMax <= latestDeltaCommitInfoSinceCompact.getLeft();
         if (compactable) {
           log.info("The delta commits >= {}, trigger compaction scheduler.", inlineCompactDeltaCommitMax);
         }
         break;
       case NUM_COMMITS_AFTER_LAST_REQUEST:
-        latestDeltaCommitInfoOption = getLatestDeltaCommitInfoSinceLastCompactionRequest();
+        latestDeltaCommitInfoSinceCompactOption = getLatestDeltaCommitInfoSinceLastCompactionRequest();
 
-        if (!latestDeltaCommitInfoOption.isPresent()) {
+        if (!latestDeltaCommitInfoSinceCompactOption.isPresent()) {
           return false;
         }
-        latestDeltaCommitInfo = latestDeltaCommitInfoOption.get();
-        compactable = inlineCompactDeltaCommitMax <= latestDeltaCommitInfo.getLeft();
+        latestDeltaCommitInfoSinceCompact = latestDeltaCommitInfoSinceCompactOption.get();
+        compactable = inlineCompactDeltaCommitMax <= latestDeltaCommitInfoSinceCompact.getLeft();
         if (compactable) {
           log.info("The delta commits >= {} since the last compaction request, trigger compaction scheduler.", inlineCompactDeltaCommitMax);
         }
         break;
       case TIME_ELAPSED:
-        compactable = inlineCompactDeltaSecondsMax <= parsedToSeconds(instantTime) - parsedToSeconds(latestDeltaCommitInfo.getRight());
+        compactable = inlineCompactDeltaSecondsMax <= parsedToSeconds(instantTime) - parsedToSeconds(latestDeltaCommitInfoSinceCompact.getRight());
         if (compactable) {
           log.info("The elapsed time >={}s, trigger compaction scheduler.", inlineCompactDeltaSecondsMax);
         }
         break;
       case NUM_OR_TIME:
-        compactable = inlineCompactDeltaCommitMax <= latestDeltaCommitInfo.getLeft()
-            || inlineCompactDeltaSecondsMax <= parsedToSeconds(instantTime) - parsedToSeconds(latestDeltaCommitInfo.getRight());
+        compactable = inlineCompactDeltaCommitMax <= latestDeltaCommitInfoSinceCompact.getLeft()
+            || inlineCompactDeltaSecondsMax <= parsedToSeconds(instantTime) - parsedToSeconds(latestDeltaCommitInfoSinceCompact.getRight());
         if (compactable) {
           log.info("The delta commits >= {} or elapsed_time >={}s, trigger compaction scheduler.", inlineCompactDeltaCommitMax,
               inlineCompactDeltaSecondsMax);
         }
         break;
       case NUM_AND_TIME:
-        compactable = inlineCompactDeltaCommitMax <= latestDeltaCommitInfo.getLeft()
-            && inlineCompactDeltaSecondsMax <= parsedToSeconds(instantTime) - parsedToSeconds(latestDeltaCommitInfo.getRight());
+        compactable = inlineCompactDeltaCommitMax <= latestDeltaCommitInfoSinceCompact.getLeft()
+            && inlineCompactDeltaSecondsMax <= parsedToSeconds(instantTime) - parsedToSeconds(latestDeltaCommitInfoSinceCompact.getRight());
         if (compactable) {
           log.info("The delta commits >= {} and elapsed_time >={}s, trigger compaction scheduler.", inlineCompactDeltaCommitMax,
               inlineCompactDeltaSecondsMax);
