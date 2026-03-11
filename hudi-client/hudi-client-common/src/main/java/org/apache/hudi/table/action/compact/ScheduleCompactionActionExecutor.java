@@ -191,10 +191,6 @@ public class ScheduleCompactionActionExecutor<T, I, K, O> extends BaseTableServi
       // exceed the LogCompactionBlocksThreshold value before the next time log compaction scheduling is attempted.
       // As a result, LogCompactionBlocksThreshold is treated as a threshold, where if the approximate number of deltacommits
       // since the last compaction and log compaction meets this threshold, then log compaction should be scheduled.
-      // Although for some write-workloads this may cause file groups to have delayed logcompaction (due to enough suficient
-      // log files already being build up), this is an acceptable trade-off since log compaction scheduling will still be
-      // attempted once enough deltacommits have been built up, and since logcompaction is an optional opimtization
-      // we should avoid always spending time to attempt scheduling log compaction during each write
       Option<Pair<Integer, String>> latestDeltaCommitInfoSinceLogCompactOption = getDeltaCommitInfoSinceLogCompaction();
       int numDeltaCommitsSinceLatestCompaction = latestDeltaCommitInfoSinceCompact.getLeft();
       int numDeltaCommitsSinceLatestLogCompaction = latestDeltaCommitInfoSinceLogCompactOption.isPresent()

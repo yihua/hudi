@@ -237,6 +237,93 @@ public class TestHoodieClientOnMergeOnReadStorage extends HoodieClientTestBase {
   }
 
   /**
+   * Verify that log compaction is only scheduled when the number of delta commits since the last
+   * compaction or log compaction meets or exceeds the LogCompactionBlocksThreshold, and that
+   * the counter resets after each log compaction.
+   */
+  @Test
+  public void testLogCompactionSchedulingRespectsThreshold() throws Exception {
+    int logCompactionThreshold = 3;
+    HoodieCompactionConfig compactionConfig = HoodieCompactionConfig.newBuilder()
+        .withMaxNumDeltaCommitsBeforeCompaction(1)
+        .withLogCompactionBlocksThreshold(logCompactionThreshold)
+        .build();
+    HoodieWriteConfig config = getConfigBuilder(HoodieTestDataGenerator.TRIP_EXAMPLE_SCHEMA,
+        HoodieIndex.IndexType.INMEMORY).withCompactionConfig(compactionConfig).build();
+    SparkRDDWriteClient client = getHoodieWriteClient(config);
+
+    // Insert
+    int expectedTotalRecs = 100;
+    String newCommitTime = WriteClientTestUtils.createNewInstantTime();
+    insertBatch(config, client, newCommitTime, "000", expectedTotalRecs,
+        SparkRDDWriteClient::insert, false, false, expectedTotalRecs, expectedTotalRecs,
+        1, Option.empty(), INSTANT_GENERATOR);
+
+    // Do enough upserts to trigger compaction (maxNumDeltaCommitsBeforeCompaction=1)
+    String prevCommitTime = newCommitTime;
+    newCommitTime = WriteClientTestUtils.createNewInstantTime();
+    expectedTotalRecs += 50;
+    updateBatch(config, client, newCommitTime, prevCommitTime,
+        Option.of(Arrays.asList(prevCommitTime)), "000", 50, SparkRDDWriteClient::upsert,
+        false, false, 50, expectedTotalRecs, 2, config.populateMetaFields(), INSTANT_GENERATOR);
+
+    // Schedule and execute compaction to establish a baseline
+    Option<String> compactionTimeStamp = client.scheduleCompaction(Option.empty());
+    assertTrue(compactionTimeStamp.isPresent());
+    HoodieWriteMetadata result = client.compact(compactionTimeStamp.get());
+    client.commitCompaction(compactionTimeStamp.get(), result, Option.empty());
+
+    // Do (threshold - 1) upserts -- below threshold
+    prevCommitTime = compactionTimeStamp.get();
+    for (int i = 0; i < logCompactionThreshold - 1; i++) {
+      newCommitTime = WriteClientTestUtils.createNewInstantTime();
+      expectedTotalRecs += 50;
+      updateBatch(config, client, newCommitTime, prevCommitTime,
+          Option.of(Arrays.asList(prevCommitTime)), "000", 50, SparkRDDWriteClient::upsert,
+          false, false, 50, expectedTotalRecs, i + 3, config.populateMetaFields(), INSTANT_GENERATOR);
+      prevCommitTime = newCommitTime;
+    }
+
+    // Log compaction should NOT be scheduled (below threshold)
+    Option<String> logCompactionTimeStamp = client.scheduleLogCompaction(Option.empty());
+    assertFalse(logCompactionTimeStamp.isPresent(),
+        "Log compaction should not be scheduled when delta commits < threshold");
+
+    // One more upsert to reach the threshold
+    newCommitTime = WriteClientTestUtils.createNewInstantTime();
+    expectedTotalRecs += 50;
+    updateBatch(config, client, newCommitTime, prevCommitTime,
+        Option.of(Arrays.asList(prevCommitTime)), "000", 50, SparkRDDWriteClient::upsert,
+        false, false, 50, expectedTotalRecs, logCompactionThreshold + 2, config.populateMetaFields(), INSTANT_GENERATOR);
+    prevCommitTime = newCommitTime;
+
+    // Log compaction SHOULD be scheduled now (at threshold)
+    logCompactionTimeStamp = client.scheduleLogCompaction(Option.empty());
+    assertTrue(logCompactionTimeStamp.isPresent(),
+        "Log compaction should be scheduled when delta commits >= threshold");
+    result = client.logCompact(logCompactionTimeStamp.get());
+    client.commitLogCompaction(logCompactionTimeStamp.get(), result, Option.empty());
+
+    // After log compaction, do (threshold - 1) upserts again -- below threshold
+    prevCommitTime = logCompactionTimeStamp.get();
+    int totalCommitsAfterLogCompact = logCompactionThreshold + 3;
+    for (int i = 0; i < logCompactionThreshold - 1; i++) {
+      newCommitTime = WriteClientTestUtils.createNewInstantTime();
+      expectedTotalRecs += 50;
+      updateBatch(config, client, newCommitTime, prevCommitTime,
+          Option.of(Arrays.asList(prevCommitTime)), "000", 50, SparkRDDWriteClient::upsert,
+          false, false, 50, expectedTotalRecs, totalCommitsAfterLogCompact + i,
+          config.populateMetaFields(), INSTANT_GENERATOR);
+      prevCommitTime = newCommitTime;
+    }
+
+    // Log compaction should NOT be scheduled again (counter reset, below threshold)
+    logCompactionTimeStamp = client.scheduleLogCompaction(Option.empty());
+    assertFalse(logCompactionTimeStamp.isPresent(),
+        "Log compaction should not be scheduled after reset when delta commits < threshold");
+  }
+
+  /**
    * Test log-compaction before any compaction is scheduled. Here base file is not yet created.
    */
   @Test
