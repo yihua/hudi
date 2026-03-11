@@ -42,6 +42,7 @@ import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieCleaningPolicy;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieFailedWritesCleaningPolicy;
+import org.apache.hudi.common.model.HoodiePreWriteCleanerPolicy;
 import org.apache.hudi.common.model.HoodieFileFormat;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieReplaceCommitMetadata;
@@ -84,8 +85,11 @@ import org.apache.hudi.testutils.HoodieCleanerTestBase;
 
 import org.apache.hadoop.fs.Path;
 import org.apache.spark.api.java.JavaRDD;
+import org.apache.hudi.client.WriteClientTestUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
@@ -105,6 +109,7 @@ import java.util.stream.Stream;
 
 import scala.Tuple3;
 
+import static org.apache.hudi.common.model.HoodieCleaningPolicy.KEEP_LATEST_COMMITS;
 import static org.apache.hudi.common.table.timeline.HoodieTimeline.COMMIT_ACTION;
 import static org.apache.hudi.common.table.timeline.HoodieTimeline.DELTA_COMMIT_ACTION;
 import static org.apache.hudi.common.table.timeline.InstantComparison.GREATER_THAN;
@@ -1524,5 +1529,170 @@ public class TestCleaner extends HoodieCleanerTestBase {
     } finally {
       testTable.close();
     }
+  }
+
+  private static Stream<Arguments> preWriteCleanPolicyTypeAndCommitTimeSpecified() {
+    return Stream.of(
+        Arguments.of(HoodiePreWriteCleanerPolicy.CLEAN, true),
+        Arguments.of(HoodiePreWriteCleanerPolicy.CLEAN, false),
+        Arguments.of(HoodiePreWriteCleanerPolicy.ROLLBACK_FAILED_WRITES, true),
+        Arguments.of(HoodiePreWriteCleanerPolicy.ROLLBACK_FAILED_WRITES, false)
+    );
+  }
+
+  /**
+   * Test that both pre write clean policies (CLEAN and ROLLBACK_FAILED_WRITES) are enforced/executed by APIs
+   * used for starting an (ingestion) write commit (startCommit and startCommitWithTime).
+   */
+  @ParameterizedTest
+  @MethodSource("preWriteCleanPolicyTypeAndCommitTimeSpecified")
+  public void testPreWriteCleanPolicy(HoodiePreWriteCleanerPolicy policy, boolean commitTimeSpecified) throws Exception {
+    int maxCommits = 2; // keep up to 2 commits from the past
+    HoodieWriteConfig cfg = getConfigBuilder()
+        .withCleanConfig(HoodieCleanConfig.newBuilder()
+            // Disable auto clean to ensure that clean/rollback only happens during pre-write phase
+            .withAutoClean(false)
+            .withFailedWritesCleaningPolicy(HoodieFailedWritesCleaningPolicy.LAZY)
+            .withCleanerPolicy(KEEP_LATEST_COMMITS)
+            .withPreWriteCleanerPolicy(policy)
+            .retainCommits(maxCommits).build())
+        .withParallelism(1, 1).withBulkInsertParallelism(1).withFinalizeWriteParallelism(1).withDeleteParallelism(1)
+        .withConsistencyGuardConfig(ConsistencyGuardConfig.newBuilder().withConsistencyCheckEnabled(true).build())
+        .build();
+    SparkRDDWriteClient client = getHoodieWriteClient(cfg);
+
+    // Complete 1 insert and 3 upserts.
+    String firstCommit = WriteClientTestUtils.createNewInstantTime();
+    insertBatch(cfg, client, firstCommit, "000", 1000,
+        SparkRDDWriteClient::insert, false, true, 1000, 1000, 1, Option.empty(), INSTANT_GENERATOR);
+
+    String secondCommit = WriteClientTestUtils.createNewInstantTime();
+    updateBatch(cfg, client, secondCommit, firstCommit, Option.of(Arrays.asList(firstCommit)),
+        "000", 100, SparkRDDWriteClient::upsert, false, true,
+        100, 1000, 2, true, INSTANT_GENERATOR);
+
+    String thirdCommit = WriteClientTestUtils.createNewInstantTime();
+    updateBatch(cfg, client, thirdCommit, secondCommit, Option.of(Arrays.asList(secondCommit)),
+        "000", 100, SparkRDDWriteClient::upsert, false, true,
+        100, 1000, 3, true, INSTANT_GENERATOR);
+
+    String fourthCommit = WriteClientTestUtils.createNewInstantTime();
+    updateBatch(cfg, client, fourthCommit, thirdCommit, Option.of(Arrays.asList(thirdCommit)),
+        "000", 100, SparkRDDWriteClient::upsert, false, true,
+        100, 1000, 4, true, INSTANT_GENERATOR);
+
+    final String fifthCommit;
+    if (commitTimeSpecified) {
+      fifthCommit = WriteClientTestUtils.createNewInstantTime();
+      WriteClientTestUtils.startCommitWithTime(client, fifthCommit);
+    } else {
+      fifthCommit = client.startCommit();
+    }
+    // Stop heartbeat so that HoodieFailedWritesCleaningPolicy.LAZY rollback policy will consider
+    // this inflight as a failed write
+    client.getHeartbeatClient().stop(fifthCommit);
+
+    // fifthCommit inflight will still be present, but if policy is CLEAN then a clean should be completed
+    assertEquals(5, metaClient.reloadActiveTimeline().getWriteTimeline().countInstants());
+    if (policy.isClean()) {
+      assertEquals(1, metaClient.getActiveTimeline().getCleanerTimeline().countInstants());
+    } else {
+      assertEquals(0, metaClient.getActiveTimeline().getCleanerTimeline().countInstants());
+    }
+
+    String sixthCommit = WriteClientTestUtils.createNewInstantTime();
+    updateBatch(cfg, client, sixthCommit, fourthCommit, Option.of(Arrays.asList(fourthCommit)),
+        "000", 100, SparkRDDWriteClient::upsert, false, true,
+        100, 1000, 5, true, INSTANT_GENERATOR);
+
+    final String seventhCommit;
+    if (commitTimeSpecified) {
+      seventhCommit = WriteClientTestUtils.createNewInstantTime();
+      WriteClientTestUtils.startCommitWithTime(client, seventhCommit);
+    } else {
+      seventhCommit = client.startCommit();
+    }
+
+    // fifthCommit inflight should be rolled back for both CLEAN and ROLLBACK_FAILED_WRITES policies.
+    // But only the former should lead to creating another clean
+    assertEquals(6, metaClient.reloadActiveTimeline().getWriteTimeline().countInstants());
+    if (policy.isClean()) {
+      assertEquals(2, metaClient.getActiveTimeline().getCleanerTimeline().countInstants());
+    } else {
+      assertEquals(0, metaClient.getActiveTimeline().getCleanerTimeline().countInstants());
+    }
+  }
+
+  /**
+   * Test that pre-write clean/rollback does NOT happen when table services are disabled,
+   * even if the user explicitly sets a prewrite cleaner policy. The guard in
+   * BaseHoodieWriteClient.runPreWriteCleanerPolicy should skip execution.
+   */
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  public void testPreWriteCleanPolicyDisabledWhenTableServicesDisabled(boolean commitTimeSpecified) throws Exception {
+    int maxCommits = 2;
+    HoodieWriteConfig cfg = getConfigBuilder()
+        .withTableServicesEnabled(false)
+        .withCleanConfig(HoodieCleanConfig.newBuilder()
+            .withAutoClean(false)
+            .withFailedWritesCleaningPolicy(HoodieFailedWritesCleaningPolicy.LAZY)
+            .withCleanerPolicy(KEEP_LATEST_COMMITS)
+            .withPreWriteCleanerPolicy(HoodiePreWriteCleanerPolicy.CLEAN)
+            .retainCommits(maxCommits).build())
+        .withParallelism(1, 1).withBulkInsertParallelism(1).withFinalizeWriteParallelism(1).withDeleteParallelism(1)
+        .withConsistencyGuardConfig(ConsistencyGuardConfig.newBuilder().withConsistencyCheckEnabled(true).build())
+        .build();
+    SparkRDDWriteClient client = getHoodieWriteClient(cfg);
+
+    String firstCommit = WriteClientTestUtils.createNewInstantTime();
+    insertBatch(cfg, client, firstCommit, "000", 1000,
+        SparkRDDWriteClient::insert, false, true, 1000, 1000, 1, Option.empty(), INSTANT_GENERATOR);
+
+    String secondCommit = WriteClientTestUtils.createNewInstantTime();
+    updateBatch(cfg, client, secondCommit, firstCommit, Option.of(Arrays.asList(firstCommit)),
+        "000", 100, SparkRDDWriteClient::upsert, false, true,
+        100, 1000, 2, true, INSTANT_GENERATOR);
+
+    String thirdCommit = WriteClientTestUtils.createNewInstantTime();
+    updateBatch(cfg, client, thirdCommit, secondCommit, Option.of(Arrays.asList(secondCommit)),
+        "000", 100, SparkRDDWriteClient::upsert, false, true,
+        100, 1000, 3, true, INSTANT_GENERATOR);
+
+    String fourthCommit = WriteClientTestUtils.createNewInstantTime();
+    updateBatch(cfg, client, fourthCommit, thirdCommit, Option.of(Arrays.asList(thirdCommit)),
+        "000", 100, SparkRDDWriteClient::upsert, false, true,
+        100, 1000, 4, true, INSTANT_GENERATOR);
+
+    final String fifthCommit;
+    if (commitTimeSpecified) {
+      fifthCommit = WriteClientTestUtils.createNewInstantTime();
+      WriteClientTestUtils.startCommitWithTime(client, fifthCommit);
+    } else {
+      fifthCommit = client.startCommit();
+    }
+    client.getHeartbeatClient().stop(fifthCommit);
+
+    // With table services disabled, pre-write clean should NOT have occurred.
+    assertEquals(5, metaClient.reloadActiveTimeline().getWriteTimeline().countInstants());
+    assertEquals(0, metaClient.getActiveTimeline().getCleanerTimeline().countInstants());
+
+    // fifthCommit inflight is still on the timeline (not rolled back), so 6th commit makes 6 total
+    String sixthCommit = WriteClientTestUtils.createNewInstantTime();
+    updateBatch(cfg, client, sixthCommit, fourthCommit, Option.of(Arrays.asList(fourthCommit)),
+        "000", 100, SparkRDDWriteClient::upsert, false, true,
+        100, 1000, 6, true, INSTANT_GENERATOR);
+
+    final String seventhCommit;
+    if (commitTimeSpecified) {
+      seventhCommit = WriteClientTestUtils.createNewInstantTime();
+      WriteClientTestUtils.startCommitWithTime(client, seventhCommit);
+    } else {
+      seventhCommit = client.startCommit();
+    }
+
+    // fifthCommit inflight should NOT have been rolled back since table services are disabled.
+    assertEquals(7, metaClient.reloadActiveTimeline().getWriteTimeline().countInstants());
+    assertEquals(0, metaClient.getActiveTimeline().getCleanerTimeline().countInstants());
   }
 }
