@@ -305,32 +305,39 @@ public class ParquetUtils extends BaseFileUtils {
     ParquetMetadata metadata = readMetadata(conf, parquetFilePath);
 
     // Collect stats from all individual Parquet blocks
+    // NOTE: Intermediate collect to List is required since Java 1.8 cannot infer
+    //       the generic type parameter through the flatMap chain
+    @SuppressWarnings("unchecked")
+    List<HoodieColumnRangeMetadata<Comparable>> allBlockStats = (List<HoodieColumnRangeMetadata<Comparable>>) (List<?>)
+        metadata.getBlocks().stream().sequential()
+            .flatMap(blockMetaData ->
+                blockMetaData.getColumns().stream()
+                  .filter(f -> cols.contains(f.getPath().toDotString()))
+                  .map(columnChunkMetaData -> {
+                    Statistics stats = columnChunkMetaData.getStatistics();
+                    return HoodieColumnRangeMetadata.<Comparable>create(
+                        parquetFilePath.getName(),
+                        columnChunkMetaData.getPath().toDotString(),
+                        convertToNativeJavaType(
+                            columnChunkMetaData.getPrimitiveType(),
+                            stats.genericGetMin()),
+                        convertToNativeJavaType(
+                            columnChunkMetaData.getPrimitiveType(),
+                            stats.genericGetMax()),
+                        // NOTE: In case when column contains only nulls Parquet won't be creating
+                        //       stats for it instead returning stubbed (empty) object. In that case
+                        //       we have to equate number of nulls to the value count ourselves
+                        stats.isEmpty() ? columnChunkMetaData.getValueCount() : stats.getNumNulls(),
+                        columnChunkMetaData.getValueCount(),
+                        columnChunkMetaData.getTotalSize(),
+                        columnChunkMetaData.getTotalUncompressedSize());
+                  })
+            )
+            .collect(Collectors.toList());
     Map<String, List<HoodieColumnRangeMetadata<Comparable>>> columnToStatsListMap = new HashMap<>();
-    metadata.getBlocks().stream().sequential()
-        .flatMap(blockMetaData ->
-            blockMetaData.getColumns().stream()
-              .filter(f -> cols.contains(f.getPath().toDotString()))
-              .map(columnChunkMetaData -> {
-                Statistics stats = columnChunkMetaData.getStatistics();
-                return HoodieColumnRangeMetadata.<Comparable>create(
-                    parquetFilePath.getName(),
-                    columnChunkMetaData.getPath().toDotString(),
-                    convertToNativeJavaType(
-                        columnChunkMetaData.getPrimitiveType(),
-                        stats.genericGetMin()),
-                    convertToNativeJavaType(
-                        columnChunkMetaData.getPrimitiveType(),
-                        stats.genericGetMax()),
-                    // NOTE: In case when column contains only nulls Parquet won't be creating
-                    //       stats for it instead returning stubbed (empty) object. In that case
-                    //       we have to equate number of nulls to the value count ourselves
-                    stats.isEmpty() ? columnChunkMetaData.getValueCount() : stats.getNumNulls(),
-                    columnChunkMetaData.getValueCount(),
-                    columnChunkMetaData.getTotalSize(),
-                    columnChunkMetaData.getTotalUncompressedSize());
-              })
-        )
-        .forEach(crm -> columnToStatsListMap.computeIfAbsent(crm.getColumnName(), k -> new ArrayList<>()).add(crm));
+    for (HoodieColumnRangeMetadata<Comparable> crm : allBlockStats) {
+      columnToStatsListMap.computeIfAbsent(crm.getColumnName(), k -> new ArrayList<>()).add(crm);
+    }
 
     // Combine those into file-level statistics
     // NOTE: Inlining this var makes javac (1.8) upset (due to its inability to infer
