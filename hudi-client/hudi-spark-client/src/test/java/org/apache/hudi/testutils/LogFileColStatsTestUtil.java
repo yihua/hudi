@@ -20,6 +20,7 @@ package org.apache.hudi.testutils;
 
 import org.apache.hudi.common.model.HoodieColumnRangeMetadata;
 import org.apache.hudi.common.model.HoodieRecord;
+import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.hudi.common.table.log.HoodieUnMergedLogRecordScanner;
@@ -27,6 +28,7 @@ import org.apache.hudi.common.util.Option;
 import org.apache.hudi.exception.HoodieException;
 
 import org.apache.avro.Schema;
+import org.apache.avro.generic.IndexedRecord;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.catalyst.expressions.GenericRow;
 
@@ -53,7 +55,7 @@ public class LogFileColStatsTestUtil {
           .collect(Collectors.toList());
       List<HoodieRecord> records = new ArrayList<>();
       HoodieUnMergedLogRecordScanner scanner = HoodieUnMergedLogRecordScanner.newBuilder()
-          .withStorage(datasetMetaClient.getStorage())
+          .withFileSystem(datasetMetaClient.getFs())
           .withBasePath(datasetMetaClient.getBasePath())
           .withLogFilePaths(Collections.singletonList(filePath))
           .withBufferSize(maxBufferSize)
@@ -65,8 +67,15 @@ public class LogFileColStatsTestUtil {
       if (records.isEmpty()) {
         return Option.empty();
       }
+      List<IndexedRecord> indexedRecords = new ArrayList<>();
+      for (HoodieRecord hoodieRecord : records) {
+        Option<IndexedRecord> insertValue = ((HoodieRecordPayload) hoodieRecord.getData()).getInsertValue(writerSchemaOpt.get());
+        if (insertValue.isPresent()) {
+          indexedRecords.add(insertValue.get());
+        }
+      }
       Map<String, HoodieColumnRangeMetadata<Comparable>> columnRangeMetadataMap =
-          collectColumnRangeMetadata(records, fieldsToIndex, filePath, writerSchemaOpt.get());
+          collectColumnRangeMetadata(indexedRecords, fieldsToIndex, filePath);
       List<HoodieColumnRangeMetadata<Comparable>> columnRangeMetadataList = new ArrayList<>(columnRangeMetadataMap.values());
       return Option.of(getColStatsEntry(filePath, columnRangeMetadataList));
     } else {
