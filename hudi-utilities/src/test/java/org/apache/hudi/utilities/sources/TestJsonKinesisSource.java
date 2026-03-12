@@ -392,6 +392,58 @@ class TestJsonKinesisSource extends SparkClientFunctionalTestHarness {
     assertFalse(checkpoint.contains("shardId-000000000002"));
   }
 
+  @Test
+  void testCreateCheckpointEmbeddsArrivalTimeForReadShards() {
+    Map<String, String> lastCheckpointData = new HashMap<>();
+    lastCheckpointData.put("shardId-000000000000", "seq100");
+    lastCheckpointData.put("shardId-000000000001", "seq200");
+
+    Map<String, Long> lastArrivalTimes = new HashMap<>();
+    lastArrivalTimes.put("shardId-000000000000", 1700000000000L);
+    // shard-1 has no arrival time (e.g. record had null approximateArrivalTimestamp)
+
+    KinesisOffsetGen.KinesisShardRange[] ranges = {
+        KinesisOffsetGen.KinesisShardRange.of("shardId-000000000000", Option.empty(), Option.empty()),
+        KinesisOffsetGen.KinesisShardRange.of("shardId-000000000001", Option.empty(), Option.empty())
+    };
+
+    String checkpoint = source.testCreateCheckpointFromBatch(
+        emptyRdd(), ranges, lastCheckpointData, null, lastArrivalTimes);
+
+    // shard-0: arrival time embedded
+    assertTrue(checkpoint.contains("shardId-000000000000:seq100@1700000000000"),
+        "Arrival time should be embedded with '@' separator");
+    // shard-1: no arrival time, plain lastSeq
+    assertTrue(checkpoint.contains("shardId-000000000001:seq200"));
+    assertFalse(checkpoint.contains("shardId-000000000001:seq200@"),
+        "shard without arrival time should not have '@'");
+  }
+
+  @Test
+  void testCreateCheckpointArrivalTimeNotAddedForUnreadShards() {
+    // shard-1 was not read (not in lastCheckpointData); its arrival time must not appear even if
+    // somehow present in lastArrivalTimes
+    Map<String, String> lastCheckpointData = new HashMap<>();
+    lastCheckpointData.put("shardId-000000000000", "seq100");
+
+    Map<String, Long> lastArrivalTimes = new HashMap<>();
+    lastArrivalTimes.put("shardId-000000000001", 1700000000000L);
+
+    KinesisOffsetGen.KinesisShardRange[] ranges = {
+        KinesisOffsetGen.KinesisShardRange.of("shardId-000000000000", Option.empty(), Option.empty()),
+        KinesisOffsetGen.KinesisShardRange.of("shardId-000000000001",
+            Option.of("seq200"), Option.empty())
+    };
+
+    String checkpoint = source.testCreateCheckpointFromBatch(
+        emptyRdd(), ranges, lastCheckpointData, null, lastArrivalTimes);
+
+    assertTrue(checkpoint.contains("shardId-000000000000:seq100"));
+    assertTrue(checkpoint.contains("shardId-000000000001:seq200"));
+    assertFalse(checkpoint.contains("shardId-000000000001:seq200@"),
+        "Unread shard should not have arrival time in checkpoint");
+  }
+
   private JavaRDD<String> emptyRdd() {
     return jsc().emptyRDD();
   }
@@ -407,14 +459,21 @@ class TestJsonKinesisSource extends SparkClientFunctionalTestHarness {
 
     String testCreateCheckpointFromBatch(JavaRDD<String> batch,
         KinesisOffsetGen.KinesisShardRange[] shardRanges, Map<String, String> lastCheckpointData) {
-      return testCreateCheckpointFromBatch(batch, shardRanges, lastCheckpointData, null);
+      return testCreateCheckpointFromBatch(batch, shardRanges, lastCheckpointData, null, null);
     }
 
     String testCreateCheckpointFromBatch(JavaRDD<String> batch,
         KinesisOffsetGen.KinesisShardRange[] shardRanges, Map<String, String> lastCheckpointData,
         Set<String> shardsReachedEnd) {
+      return testCreateCheckpointFromBatch(batch, shardRanges, lastCheckpointData, shardsReachedEnd, null);
+    }
+
+    String testCreateCheckpointFromBatch(JavaRDD<String> batch,
+        KinesisOffsetGen.KinesisShardRange[] shardRanges, Map<String, String> lastCheckpointData,
+        Set<String> shardsReachedEnd, Map<String, Long> lastArrivalTimes) {
       this.lastCheckpointData = lastCheckpointData;
       this.shardsReachedEnd = shardsReachedEnd;
+      this.lastArrivalTimes = lastArrivalTimes;
       return createCheckpointFromBatch(batch, shardRanges, shardRanges);
     }
   }

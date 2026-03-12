@@ -69,14 +69,21 @@ public class KinesisOffsetGen {
     /** Separator between lastSeq and endSeq for closed shards. Seq numbers are numeric, so this is safe. */
     private static final String END_SEQ_SEPARATOR = "|";
     /**
+     * Separator between lastSeq and arrivalTime (epoch millis of the record with last sequence number).
+     * '@' is used as it is absent from numeric Kinesis sequence numbers and visually distinct from '|'.
+     */
+    private static final String ARRIVAL_TIME_SEPARATOR = "@";
+    /**
      * Kinesis checkpoint pattern.
-     * Format: streamName,shardId:lastSeq,shardId:lastSeq|endSeq,...
-     * For closed shards we store lastSeq|endSeq so we can detect data loss when shard expires.
+     * Format: streamName,shardId:lastSeq[@arrivalTime][|endSeq],...
+     * For closed shards we store lastSeq|endSeq (or lastSeq@arrivalTime|endSeq with arrival time)
+     * so we can detect data loss when shard expires.
      */
     private static final Pattern PATTERN = Pattern.compile(".*,.*:.*");
 
     /**
-     * Parse checkpoint string to shardId -> value map. Value is lastSeq or lastSeq|endSeq for closed shards.
+     * Parse checkpoint string to shardId -> value map.
+     * Value format: lastSeq, or lastSeq@arrivalTime, or lastSeq|endSeq, or lastSeq@arrivalTime|endSeq.
      */
     public static Map<String, String> strToOffsets(String checkpointStr) {
       Map<String, String> offsetMap = new HashMap<>();
@@ -94,25 +101,55 @@ public class KinesisOffsetGen {
     }
 
     /**
-     * Extract lastSeq from checkpoint value (which may be "lastSeq" or "lastSeq|endSeq").
+     * Extract lastSeq from a checkpoint value.
+     * Handles formats: "lastSeq", "lastSeq|endSeq", "lastSeq@arrivalTime", "lastSeq@arrivalTime|endSeq".
      */
     public static String getLastSeqFromValue(String value) {
       if (value == null || value.isEmpty()) {
         return value;
       }
-      int sep = value.indexOf(END_SEQ_SEPARATOR);
-      return sep >= 0 ? value.substring(0, sep) : value;
+      int arrivalSep = value.indexOf(ARRIVAL_TIME_SEPARATOR);
+      if (arrivalSep >= 0) {
+        return value.substring(0, arrivalSep);
+      }
+      int endSep = value.indexOf(END_SEQ_SEPARATOR);
+      return endSep >= 0 ? value.substring(0, endSep) : value;
     }
 
     /**
-     * Extract endSeq from checkpoint value if present. Returns null for open shards.
+     * Extract arrivalTime (epoch millis) from a checkpoint value if present, otherwise null.
+     * Handles formats: "lastSeq@arrivalTime" and "lastSeq@arrivalTime|endSeq".
+     */
+    public static Long getArrivalTimeFromValue(String value) {
+      if (value == null || value.isEmpty()) {
+        return null;
+      }
+      int arrivalSep = value.indexOf(ARRIVAL_TIME_SEPARATOR);
+      if (arrivalSep < 0) {
+        return null;
+      }
+      String rest = value.substring(arrivalSep + ARRIVAL_TIME_SEPARATOR.length());
+      int endSep = rest.indexOf(END_SEQ_SEPARATOR);
+      String arrivalStr = endSep >= 0 ? rest.substring(0, endSep) : rest;
+      try {
+        return Long.parseLong(arrivalStr);
+      } catch (NumberFormatException e) {
+        return null;
+      }
+    }
+
+    /**
+     * Extract endSeq from a checkpoint value if present. Returns null for open shards.
+     * Handles formats: "lastSeq|endSeq" and "lastSeq@arrivalTime|endSeq".
+     * Since '@' and '|' are distinct, '|' always unambiguously marks the endSeq regardless of
+     * whether an arrival time is present.
      */
     public static String getEndSeqFromValue(String value) {
       if (value == null || value.isEmpty()) {
         return null;
       }
-      int sep = value.indexOf(END_SEQ_SEPARATOR);
-      return sep >= 0 && sep < value.length() - 1 ? value.substring(sep + 1) : null;
+      int endSep = value.indexOf(END_SEQ_SEPARATOR);
+      return endSep >= 0 && endSep < value.length() - 1 ? value.substring(endSep + 1) : null;
     }
 
     /**
@@ -126,13 +163,25 @@ public class KinesisOffsetGen {
     }
 
     /**
-     * Build checkpoint value: "lastSeq" or "lastSeq|endSeq" when endSeq is present (closed shards).
+     * Build checkpoint value without arrival time: "lastSeq" or "lastSeq|endSeq".
      */
     public static String buildCheckpointValue(String lastSeq, String endSeq) {
-      if (endSeq != null && !endSeq.isEmpty()) {
-        return lastSeq + END_SEQ_SEPARATOR + endSeq;
+      return buildCheckpointValue(lastSeq, null, endSeq);
+    }
+
+    /**
+     * Build checkpoint value with optional arrival time.
+     * Format: lastSeq[@arrivalTime][|endSeq]
+     */
+    public static String buildCheckpointValue(String lastSeq, Long arrivalTime, String endSeq) {
+      StringBuilder sb = new StringBuilder(lastSeq != null ? lastSeq : "");
+      if (arrivalTime != null) {
+        sb.append(ARRIVAL_TIME_SEPARATOR).append(arrivalTime);
       }
-      return lastSeq;
+      if (endSeq != null && !endSeq.isEmpty()) {
+        sb.append(END_SEQ_SEPARATOR).append(endSeq);
+      }
+      return sb.toString();
     }
 
     /**

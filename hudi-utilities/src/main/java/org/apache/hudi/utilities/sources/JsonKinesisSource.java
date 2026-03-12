@@ -67,6 +67,8 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
   private static class ShardFetchSummary implements Serializable {
     private final String shardId;
     private final Option<String> lastSequenceNumber;
+    // UTC in milliseconds.
+    private final Option<Long> lastArrivalTime;
     private final int recordCount;
     private final boolean reachedEndOfShard;
   }
@@ -89,6 +91,8 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
   private long lastRecordCount;
   /** Shard IDs where the executor observed nextShardIterator==null (end-of-shard reached). */
   protected Set<String> shardsReachedEnd;
+  /** Arrival time (epoch millis) of the record with last sequence number, per shard. */
+  protected Map<String, Long> lastArrivalTimes;
 
   public JsonKinesisSource(TypedProperties properties, JavaSparkContext sparkContext, SparkSession sparkSession,
                            SchemaProvider schemaProvider, HoodieIngestionMetrics metrics) {
@@ -141,8 +145,11 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
               boolean addMetaFields = readConfig.isShouldAddMetaFields();
               List<String> jsonRecords = new ArrayList<>();
               long numNull = 0;
+              java.time.Instant lastArrivalTimestamp = null;
               while (recordIt.hasNext()) {
-                String s = recordToJsonStatic(recordIt.next(), shardId, addMetaFields);
+                Record r = recordIt.next();
+                lastArrivalTimestamp = r.approximateArrivalTimestamp();
+                String s = recordToJsonStatic(r, shardId, addMetaFields);
                 if (s != null) {
                   jsonRecords.add(s);
                 } else {
@@ -152,11 +159,15 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
               if (numNull > 0) {
                 log.warn("There are {} null strings for shard id {}", numNull, shardId);
               }
+              // Capture the arrival time of the last record (same record whose sequence number
+              // becomes the checkpoint lastSeq) so it can be embedded in the checkpoint.
+              Option<Long> lastArrivalTime = lastArrivalTimestamp != null
+                  ? Option.of(lastArrivalTimestamp.toEpochMilli()) : Option.empty();
               // recordCount reflects actual output records (null-filtered), not raw Kinesis count.
-              // NOTE: Functions recordIt.getLastSequenceNumber, recordIt.isReachedEndOfShard
-              //       must be called after read since their return values are final ONLY when recordIt.hasNext() == false.
+              // NOTE: getLastSequenceNumber/isReachedEndOfShard are final only after hasNext()==false.
               ShardFetchSummary summary = new ShardFetchSummary(shardId,
-                  recordIt.getLastSequenceNumber(), jsonRecords.size(), recordIt.isReachedEndOfShard());
+                  recordIt.getLastSequenceNumber(), lastArrivalTime,
+                  jsonRecords.size(), recordIt.isReachedEndOfShard());
               results.add(new ShardFetchResult(jsonRecords, summary));
             }
           }
@@ -235,6 +246,16 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
     return checkpoint;
   }
 
+  private Map<String, Long> buildArrivalTimesFromSummaries(List<ShardFetchSummary> summaries) {
+    Map<String, Long> arrivalTimes = new HashMap<>();
+    for (ShardFetchSummary s : summaries) {
+      if (s.getLastArrivalTime().isPresent()) {
+        arrivalTimes.put(s.getShardId(), s.getLastArrivalTime().get());
+      }
+    }
+    return arrivalTimes;
+  }
+
   @Override
   protected String createCheckpointFromBatch(JavaRDD<String> batch,
       KinesisOffsetGen.KinesisShardRange[] shardRangesWithUnreadRecords,
@@ -249,7 +270,8 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
       String endSeq;
       // CASE 1: basic case
       // Shards that we read
-      if (lastCheckpointData != null && lastCheckpointData.containsKey(range.getShardId())) {
+      boolean wasRead = lastCheckpointData != null && lastCheckpointData.containsKey(range.getShardId());
+      if (wasRead) {
         lastSeq = lastCheckpointData.get(range.getShardId());
         endSeq = range.getEndingSequenceNumber().orElse(null);
       } else {
@@ -268,7 +290,9 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
       if (lastSeq != null && lastSeq.isEmpty() && endSeq != null && !endSeq.isEmpty()) {
         lastSeq = endSeq;
       }
-      String value = KinesisOffsetGen.CheckpointUtils.buildCheckpointValue(lastSeq, endSeq);
+      // Include arrival time only for shards we actually read in this batch.
+      Long arrivalTime = wasRead && lastArrivalTimes != null ? lastArrivalTimes.get(range.getShardId()) : null;
+      String value = KinesisOffsetGen.CheckpointUtils.buildCheckpointValue(lastSeq, arrivalTime, endSeq);
       if (lastSeq != null && !lastSeq.isEmpty()) {
         fullCheckpoint.put(range.getShardId(), value);
       }
@@ -302,6 +326,7 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
   private void collectCheckpointInfo(JavaRDD<ShardFetchResult> fetchRdd) {
     List<ShardFetchSummary> summaries = fetchRdd.map(ShardFetchResult::getSummary).collect();
     lastCheckpointData = buildCheckpointFromSummaries(summaries);
+    lastArrivalTimes = buildArrivalTimesFromSummaries(summaries);
     Set<String> reached = new HashSet<>();
     for (ShardFetchSummary s : summaries) {
       if (s.isReachedEndOfShard()) {
