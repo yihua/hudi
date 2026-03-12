@@ -55,25 +55,68 @@ class TestKinesisCheckpointUtils {
 
   @Test
   void testGetLastSeqFromValue() {
+    // legacy format: no separators
     assertEquals("seq123", CheckpointUtils.getLastSeqFromValue("seq123"));
+    // legacy format: lastSeq|endSeq
     assertEquals("seq123", CheckpointUtils.getLastSeqFromValue("seq123|seq999"));
+    // new format: lastSeq@arrivalTime
+    assertEquals("seq123", CheckpointUtils.getLastSeqFromValue("seq123@1700000000000"));
+    // new format: lastSeq@arrivalTime|endSeq
+    assertEquals("seq123", CheckpointUtils.getLastSeqFromValue("seq123@1700000000000|seq999"));
     assertNull(CheckpointUtils.getLastSeqFromValue(null));
     assertEquals("", CheckpointUtils.getLastSeqFromValue(""));
   }
 
   @Test
+  void testGetArrivalTimeFromValue() {
+    // no arrival time
+    assertNull(CheckpointUtils.getArrivalTimeFromValue("seq123"));
+    assertNull(CheckpointUtils.getArrivalTimeFromValue("seq123|seq999"));
+    assertNull(CheckpointUtils.getArrivalTimeFromValue(null));
+    assertNull(CheckpointUtils.getArrivalTimeFromValue(""));
+    // with arrival time, no endSeq
+    assertEquals(1700000000000L, CheckpointUtils.getArrivalTimeFromValue("seq123@1700000000000"));
+    // with arrival time and endSeq
+    assertEquals(1700000000000L, CheckpointUtils.getArrivalTimeFromValue("seq123@1700000000000|seq999"));
+  }
+
+  @Test
   void testGetEndSeqFromValue() {
+    // legacy format
     assertNull(CheckpointUtils.getEndSeqFromValue("seq123"));
     assertEquals("seq999", CheckpointUtils.getEndSeqFromValue("seq123|seq999"));
+    // new format: arrivalTime present but no endSeq
+    assertNull(CheckpointUtils.getEndSeqFromValue("seq123@1700000000000"));
+    // new format: arrivalTime and endSeq
+    assertEquals("seq999", CheckpointUtils.getEndSeqFromValue("seq123@1700000000000|seq999"));
     assertNull(CheckpointUtils.getEndSeqFromValue(null));
     assertNull(CheckpointUtils.getEndSeqFromValue(""));
   }
 
   @Test
   void testBuildCheckpointValue() {
-    assertEquals("seq123", CheckpointUtils.buildCheckpointValue("seq123", null));
+    // 2-arg: legacy format
+    assertEquals("seq123", CheckpointUtils.buildCheckpointValue("seq123", (String) null));
     assertEquals("seq123", CheckpointUtils.buildCheckpointValue("seq123", ""));
     assertEquals("seq123|seq999", CheckpointUtils.buildCheckpointValue("seq123", "seq999"));
+    // 3-arg: with arrival time
+    assertEquals("seq123@1700000000000",
+        CheckpointUtils.buildCheckpointValue("seq123", 1700000000000L, null));
+    assertEquals("seq123@1700000000000",
+        CheckpointUtils.buildCheckpointValue("seq123", 1700000000000L, ""));
+    assertEquals("seq123@1700000000000|seq999",
+        CheckpointUtils.buildCheckpointValue("seq123", 1700000000000L, "seq999"));
+    // 3-arg: null arrival time falls back to legacy format
+    assertEquals("seq123|seq999",
+        CheckpointUtils.buildCheckpointValue("seq123", (Long) null, "seq999"));
+  }
+
+  @Test
+  void testBuildAndParseRoundTripWithArrivalTime() {
+    String value = CheckpointUtils.buildCheckpointValue("seq123", 1700000000000L, "seq999");
+    assertEquals("seq123", CheckpointUtils.getLastSeqFromValue(value));
+    assertEquals(1700000000000L, CheckpointUtils.getArrivalTimeFromValue(value));
+    assertEquals("seq999", CheckpointUtils.getEndSeqFromValue(value));
   }
 
   @Test
