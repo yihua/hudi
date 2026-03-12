@@ -64,6 +64,7 @@ import org.apache.hudi.common.util.HoodieRecordUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.ParquetUtils;
 import org.apache.hudi.common.util.StringUtils;
+import org.apache.hudi.common.util.VisibleForTesting;
 import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.common.util.collection.Tuple3;
@@ -74,7 +75,6 @@ import org.apache.hudi.io.storage.HoodieFileReader;
 import org.apache.hudi.io.storage.HoodieFileReaderFactory;
 import org.apache.hudi.util.Lazy;
 
-import com.google.common.annotations.VisibleForTesting;
 import org.apache.avro.AvroTypeException;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
@@ -106,8 +106,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.BiFunction;
-import java.util.function.Function;
-import java.util.stream.Collector;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -242,27 +240,25 @@ public class HoodieTableMetadataUtil {
       });
     });
 
-    Collector<HoodieColumnRangeMetadata<Comparable>, ?, Map<String, HoodieColumnRangeMetadata<Comparable>>> collector =
-        Collectors.toMap(colRangeMetadata -> colRangeMetadata.getColumnName(), Function.identity());
-
-    return (Map<String, HoodieColumnRangeMetadata<Comparable>>) targetFields.stream()
-        .map(field -> {
-          ColumnStats colStats = allColumnStats.get(field.name());
-          return HoodieColumnRangeMetadata.<Comparable>create(
-              filePath,
-              field.name(),
-              colStats == null ? null : coerceToComparable(field.schema(), colStats.minValue),
-              colStats == null ? null : coerceToComparable(field.schema(), colStats.maxValue),
-              colStats == null ? 0 : colStats.nullCount,
-              colStats == null ? 0 : colStats.valueCount,
-              // NOTE: Size and compressed size statistics are set to 0 to make sure we're not
-              //       mixing up those provided by Parquet with the ones from other encodings,
-              //       since those are not directly comparable
-              0,
-              0
-          );
-        })
-        .collect(collector);
+    Map<String, HoodieColumnRangeMetadata<Comparable>> result = new HashMap<>();
+    targetFields.forEach(field -> {
+      ColumnStats colStats = allColumnStats.get(field.name());
+      HoodieColumnRangeMetadata<Comparable> rangeMetadata = HoodieColumnRangeMetadata.<Comparable>create(
+          filePath,
+          field.name(),
+          colStats == null ? null : coerceToComparable(field.schema(), colStats.minValue),
+          colStats == null ? null : coerceToComparable(field.schema(), colStats.maxValue),
+          colStats == null ? 0 : colStats.nullCount,
+          colStats == null ? 0 : colStats.valueCount,
+          // NOTE: Size and compressed size statistics are set to 0 to make sure we're not
+          //       mixing up those provided by Parquet with the ones from other encodings,
+          //       since those are not directly comparable
+          0,
+          0
+      );
+      result.put(rangeMetadata.getColumnName(), rangeMetadata);
+    });
+    return result;
   }
 
   /**
