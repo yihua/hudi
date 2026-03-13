@@ -1825,10 +1825,6 @@ public class HoodieWriteConfig extends HoodieConfig {
     return getBoolean(HoodieCleanConfig.AUTO_CLEAN);
   }
 
-  public int getMaxCommitsToClean() {
-    return getInt(HoodieCleanConfig.MAX_COMMITS_TO_CLEAN);
-  }
-
   public boolean shouldArchiveBeyondSavepoint() {
     return getBooleanOrDefault(HoodieArchivalConfig.ARCHIVE_BEYOND_SAVEPOINT);
   }
@@ -1855,6 +1851,10 @@ public class HoodieWriteConfig extends HoodieConfig {
 
   public String getCleanerPartitionFilterSelected() {
     return getString(HoodieCleanConfig.CLEAN_PARTITION_FILTER_SELECTED);
+  }
+
+  public long getMaxCommitsToClean() {
+    return getLong(HoodieCleanConfig.MAX_COMMITS_TO_CLEAN);
   }
 
   public boolean inlineCompactionEnabled() {
