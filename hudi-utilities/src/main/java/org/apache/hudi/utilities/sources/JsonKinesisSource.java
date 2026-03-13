@@ -122,7 +122,10 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
         getIntWithAltKeys(props, KinesisSourceConfig.KINESIS_MAX_RECORDS_PER_REQUEST),
         getLongWithAltKeys(props, KinesisSourceConfig.KINESIS_GET_RECORDS_INTERVAL_MS),
         // NOTE that: Evenly set the max events per shard.
-        shardRanges.length > 0 ? Math.max(1, numEvents / shardRanges.length) : numEvents);
+        shardRanges.length > 0 ? Math.max(1, numEvents / shardRanges.length) : numEvents,
+        getLongWithAltKeys(props, KinesisSourceConfig.KINESIS_RETRY_INITIAL_INTERVAL_MS),
+        getLongWithAltKeys(props, KinesisSourceConfig.KINESIS_RETRY_MAX_INTERVAL_MS),
+        getLongWithAltKeys(props, KinesisSourceConfig.KINESIS_THROTTLE_TIMEOUT_MS));
 
     JavaRDD<ShardFetchResult> fetchRdd = sparkContext.parallelize(
         java.util.Arrays.asList(shardRanges), shardRanges.length)
@@ -139,7 +142,9 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
               KinesisSource.ShardRecordIterator recordIt = KinesisSource.readShardRecords(
                   client, readConfig.getStreamName(), range, readConfig.getStartingPosition(),
                   readConfig.getMaxRecordsPerRequest(), readConfig.getIntervalMilliSeconds(),
-                  readConfig.getMaxRecordsPerShard(), readConfig.isEnableDeaggregation());
+                  readConfig.getMaxRecordsPerShard(), readConfig.isEnableDeaggregation(),
+                  readConfig.getRetryInitialIntervalMs(), readConfig.getRetryMaxIntervalMs(),
+                  readConfig.getThrottleTimeoutMs());
 
               String shardId = range.getShardId();
               boolean addMetaFields = readConfig.isShouldAddMetaFields();

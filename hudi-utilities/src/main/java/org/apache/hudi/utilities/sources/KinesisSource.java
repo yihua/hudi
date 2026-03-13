@@ -49,6 +49,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.concurrent.ThreadLocalRandom;
 
 import static org.apache.hudi.common.util.ConfigUtils.getBooleanWithAltKeys;
 
@@ -138,6 +139,9 @@ public abstract class KinesisSource<T> extends Source<T> {
     private final long intervalMs;
     private final long maxTotalRecords;
     private final boolean enableDeaggregation;
+    private final long retryInitialIntervalMs;
+    private final long retryMaxIntervalMs;
+    private final long throttleTimeoutMs;
 
     /** Current position in the Kinesis shard; null means the shard is exhausted. */
     private String shardIteratorStr;
@@ -156,8 +160,17 @@ public abstract class KinesisSource<T> extends Source<T> {
     private long totalConsumed = 0;
     private int emptyPageCount = 0;
 
+    /**
+     * Dynamically tuned records-per-request limit.
+     * Halved on each ProvisionedThroughputExceededException and held there for the rest of the shard read.
+     */
+    private int currentMaxRecords;
+    /** Epoch ms of the last successful GetRecords call; used to enforce {@link #throttleTimeoutMs}. */
+    private long lastSuccessTimeMs;
+
     public ShardRecordIterator(String initialShardIterator, KinesisClient client, String shardId,
-        int maxRecordsPerRequest, long intervalMs, long maxTotalRecords, boolean enableDeaggregation) {
+        int maxRecordsPerRequest, long intervalMs, long maxTotalRecords, boolean enableDeaggregation,
+        long retryInitialIntervalMs, long retryMaxIntervalMs, long throttleTimeoutMs) {
       this.shardIteratorStr = initialShardIterator;
       this.client = client;
       this.shardId = shardId;
@@ -165,6 +178,11 @@ public abstract class KinesisSource<T> extends Source<T> {
       this.intervalMs = intervalMs;
       this.maxTotalRecords = maxTotalRecords;
       this.enableDeaggregation = enableDeaggregation;
+      this.retryInitialIntervalMs = retryInitialIntervalMs;
+      this.retryMaxIntervalMs = retryMaxIntervalMs;
+      this.throttleTimeoutMs = throttleTimeoutMs;
+      this.currentMaxRecords = maxRecordsPerRequest;
+      this.lastSuccessTimeMs = System.currentTimeMillis();
     }
 
     @Override
@@ -213,18 +231,44 @@ public abstract class KinesisSource<T> extends Source<T> {
         return;
       }
       GetRecordsResponse response;
-      try {
-        response = client.getRecords(
-            GetRecordsRequest.builder()
-                .shardIterator(shardIteratorStr)
-                .limit(Math.min(maxRecordsPerRequest, (int) (maxTotalRecords - totalConsumed)))
-                .build());
-      } catch (ExpiredIteratorException e) {
-        log.warn("Shard iterator expired for {} during GetRecords, stopping read", shardId);
-        fetchingDone = true;
-        return;
-      } catch (ProvisionedThroughputExceededException e) {
-        throw new HoodieReadFromSourceException("Kinesis throughput exceeded reading shard " + shardId, e);
+      int attempt = 0;
+      while (true) {
+        try {
+          response = client.getRecords(
+              GetRecordsRequest.builder()
+                  .shardIterator(shardIteratorStr)
+                  .limit(Math.min(currentMaxRecords, (int) (maxTotalRecords - totalConsumed)))
+                  .build());
+          lastSuccessTimeMs = System.currentTimeMillis();
+          break;
+        } catch (ExpiredIteratorException e) {
+          log.warn("Shard iterator expired for {} during GetRecords, stopping read", shardId);
+          fetchingDone = true;
+          return;
+        } catch (ProvisionedThroughputExceededException e) {
+          long nowMs = System.currentTimeMillis();
+          if (nowMs - lastSuccessTimeMs > throttleTimeoutMs) {
+            throw new HoodieReadFromSourceException(
+                "Kinesis throughput exceeded for shard " + shardId + ": no successful fetch within "
+                    + throttleTimeoutMs + " ms. Last successful fetch, or first fetch was " + (nowMs - lastSuccessTimeMs) + " ms ago.", e);
+          }
+          // Halve the per-request limit to reduce pressure; floor at 1.
+          int prevLimit = currentMaxRecords;
+          currentMaxRecords = Math.max(1, currentMaxRecords / 2);
+          // Use attempt count only to compute exponential backoff delay, not as a stop condition.
+          long waitMs = Math.min(retryInitialIntervalMs * (1L << Math.min(attempt, 30)), retryMaxIntervalMs);
+          waitMs += ThreadLocalRandom.current().nextInt(500);
+          log.warn("Throughput exceeded for shard {}: halving records/request from {} to {}, retry after {} ms "
+              + "(no success for {} ms, will give up after {} ms)",
+              shardId, prevLimit, currentMaxRecords, waitMs, nowMs - lastSuccessTimeMs, throttleTimeoutMs);
+          try {
+            Thread.sleep(waitMs);
+          } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new HoodieReadFromSourceException("Interrupted while backing off for shard " + shardId, ie);
+          }
+          attempt++;
+        }
       }
 
       List<Record> rawRecords = response.records();
@@ -272,26 +316,26 @@ public abstract class KinesisSource<T> extends Source<T> {
    * page in memory at a time instead of the entire shard batch.
    *
    * @param enableDeaggregation when true, de-aggregates KPL records into individual user records
+   * @param retryInitialIntervalMs initial backoff in ms for throughput-exceeded retries
+   * @param retryMaxIntervalMs max backoff in ms for throughput-exceeded retries
+   * @param throttleTimeoutMs max ms with no successful fetch before giving up on throttling
    */
   public static ShardRecordIterator readShardRecords(KinesisClient client, String streamName,
       KinesisOffsetGen.KinesisShardRange range, KinesisSourceConfig.KinesisStartingPositionStrategy defaultPosition,
       int maxRecordsPerRequest, long intervalMs, long maxTotalRecords,
-      boolean enableDeaggregation) {
-    String initialShardIterator;
+      boolean enableDeaggregation,
+      long retryInitialIntervalMs, long retryMaxIntervalMs, long throttleTimeoutMs) {
     try {
-      initialShardIterator = getShardIterator(client, streamName, range, defaultPosition);
+      String initialShardIterator = getShardIterator(client, streamName, range, defaultPosition);
+      return new ShardRecordIterator(initialShardIterator, client, range.getShardId(),
+          maxRecordsPerRequest, intervalMs, maxTotalRecords, enableDeaggregation,
+          retryInitialIntervalMs, retryMaxIntervalMs, throttleTimeoutMs);
     } catch (InvalidArgumentException e) {
-      // GetShardIterator throws InvalidArgumentException (not ExpiredIteratorException) when the
-      // requested sequence number is past the stream's retention window.
       throw new HoodieReadFromSourceException("Sequence number in checkpoint is expired or invalid for shard "
           + range.getShardId() + ". Reset the checkpoint to recover.", e);
     } catch (ResourceNotFoundException e) {
       throw new HoodieReadFromSourceException("Shard or stream not found: " + range.getShardId(), e);
-    } catch (ProvisionedThroughputExceededException e) {
-      throw new HoodieReadFromSourceException("Kinesis throughput exceeded reading shard " + range.getShardId(), e);
     }
-    return new ShardRecordIterator(initialShardIterator, client, range.getShardId(),
-        maxRecordsPerRequest, intervalMs, maxTotalRecords, enableDeaggregation);
   }
 
   private static String getShardIterator(KinesisClient client, String streamName,

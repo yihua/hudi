@@ -123,6 +123,26 @@ public class KinesisSourceConfig extends HoodieConfig {
       .markAdvanced()
       .withDocumentation("Minimum interval in ms between two GetRecords API calls per shard.");
 
+  public static final ConfigProperty<Long> KINESIS_RETRY_INITIAL_INTERVAL_MS = ConfigProperty
+      .key(PREFIX + "retry.initial_interval_ms")
+      .defaultValue(1000L)
+      .markAdvanced()
+      .withDocumentation("Initial backoff in ms when Kinesis returns ProvisionedThroughputExceededException. "
+          + "Backoff doubles each retry up to retry.max_interval_ms.");
+
+  public static final ConfigProperty<Long> KINESIS_RETRY_MAX_INTERVAL_MS = ConfigProperty
+      .key(PREFIX + "retry.max_interval_ms")
+      .defaultValue(10000L)
+      .markAdvanced()
+      .withDocumentation("Maximum backoff in ms between retries for throughput exceeded.");
+
+  public static final ConfigProperty<Long> KINESIS_THROTTLE_TIMEOUT_MS = ConfigProperty
+      .key(PREFIX + "retry.throttle_timeout_ms")
+      .defaultValue(600000L)
+      .markAdvanced()
+      .withDocumentation("Maximum time in ms to keep retrying GetRecords calls after ProvisionedThroughputExceededException "
+          + "with no successful fetch. When exceeded, the read fails. Default: 600000 (10 minutes).");
+
   public static final ConfigProperty<Boolean> KINESIS_PERSIST_FETCH_RDD = ConfigProperty
       .key(PREFIX + "persist.fetch.rdd")
       .defaultValue(false)
