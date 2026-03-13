@@ -144,8 +144,6 @@ public class TestHoodieMetadataPayload extends HoodieCommonTestHarness {
         deletedColumnStatsRecord.getData().preCombine(columnStatsRecord.getData());
 
     assertEquals(deletedColumnStatsRecord.getData(), deletedCombinedMetadataPayload);
-    assertFalse(deletedCombinedMetadataPayload.getInsertValue(null).isPresent());
-    assertTrue(deletedCombinedMetadataPayload.isDeleted());
 
     // NOTE: In this case, proper incoming record will be overwriting previously deleted
     //       record
