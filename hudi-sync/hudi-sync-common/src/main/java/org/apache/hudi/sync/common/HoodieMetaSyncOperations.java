@@ -279,4 +279,11 @@ public interface HoodieMetaSyncOperations {
   default String generatePushDownFilter(List<String> writtenPartitions, List<FieldSchema> partitionFields) {
     throw new UnsupportedOperationException();
   }
+
+  /**
+   * Publish version of HUDI client library used
+   */
+  default void updateHoodieWriterVersion(String tableName) {
+    throw new UnsupportedOperationException();
+  }
 }

@@ -271,6 +271,7 @@ public class HiveSyncTool extends HoodieSyncTool implements AutoCloseable {
       if (!config.getBoolean(META_SYNC_CONDITIONAL_SYNC) || meetSyncConditions) {
         syncClient.updateLastCommitTimeSynced(tableName);
       }
+      syncClient.updateHoodieWriterVersion(tableName);
       log.info("Sync complete for {}", tableName);
     } catch (HoodieHiveSyncException ex) {
       if (shouldRecreateAndSyncTable()) {

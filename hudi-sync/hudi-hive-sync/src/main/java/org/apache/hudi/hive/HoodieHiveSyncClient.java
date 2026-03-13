@@ -19,6 +19,7 @@
 package org.apache.hudi.hive;
 
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hudi.HoodieVersion;
 import org.apache.hudi.common.model.HoodieFileFormat;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
@@ -483,6 +484,18 @@ public class HoodieHiveSyncClient extends HoodieSyncClient {
     } else {
       ddlExecutor.updateTableComments(tableName, alterComments);
       return true;
+    }
+  }
+
+  @Override
+  public void updateHoodieWriterVersion(String tableName) {
+    try {
+      Table table = client.getTable(databaseName, tableName);
+      table.putToParameters(HoodieVersion.HOODIE_WRITER_VERSION, HoodieVersion.get());
+      client.alter_table(databaseName, tableName, table);
+    } catch (Exception e) {
+      throw new HoodieHiveSyncException(String.format("Failed to update hudi writer major version %s for %s",
+          HoodieVersion.get(), tableName), e);
     }
   }
 
