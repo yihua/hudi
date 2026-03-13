@@ -46,4 +46,7 @@ public class KinesisReadConfig implements Serializable {
   private final int maxRecordsPerRequest;
   private final long intervalMilliSeconds;
   private final long maxRecordsPerShard;
+  private final long retryInitialIntervalMs;
+  private final long retryMaxIntervalMs;
+  private final long throttleTimeoutMs;
 }
