@@ -421,7 +421,7 @@ public class HoodieCleanConfig extends HoodieConfig {
       return this;
     }
 
-    public HoodieCleanConfig.Builder withMaxCommitsToClean(int maxCommitsToClean) {
+    public HoodieCleanConfig.Builder withMaxCommitsToClean(long maxCommitsToClean) {
       cleanConfig.setValue(MAX_COMMITS_TO_CLEAN, String.valueOf(maxCommitsToClean));
       return this;
     }

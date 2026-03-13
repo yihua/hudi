@@ -108,8 +108,9 @@ class TestCleanerUtils {
     );
 
     assertTrue(result.isPresent());
-    // Should cap at 50 commits from commit 0, so earliest commit to retain should be commit 49
-    assertEquals("20000000000049", result.get().requestedTime());
+    // Should cap at 50 commits from commit 0, so earliest commit to retain should be commit 50
+    // (Clean commits 0-49, retain from 50 onwards)
+    assertEquals("20000000000050", result.get().requestedTime());
 
     result = CleanerUtils.getEarliestCommitToRetain(
         timeline,
@@ -118,13 +119,14 @@ class TestCleanerUtils {
         Instant.now(),
         24, // hours retained
         HoodieTimelineTimeZone.UTC,
-        Option.of("20000000000049"), // previous clean's earliest commit to retain (commit 0)
+        Option.of("20000000000050"), // previous clean's earliest commit to retain (commit 50)
         50L // maxCommitsToClean
     );
 
     assertTrue(result.isPresent());
-    // Should cap at 50 commits from commit 0, so earliest commit to retain should be commit 49
-    assertEquals("20000000000098", result.get().requestedTime());
+    // Should cap at 50 commits from commit 50, so earliest commit to retain should be commit 100
+    // (Clean commits 50-99, retain from 100 onwards)
+    assertEquals("20000000000100", result.get().requestedTime());
   }
 
   @Test
