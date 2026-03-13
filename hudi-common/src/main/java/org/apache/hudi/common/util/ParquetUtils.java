@@ -61,6 +61,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.stream.Collector;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -304,40 +305,38 @@ public class ParquetUtils extends BaseFileUtils {
   ) {
     ParquetMetadata metadata = readMetadata(conf, parquetFilePath);
 
+    // NOTE: This collector has to have fully specialized generic type params since
+    //       Java 1.8 struggles to infer them
+    Collector<HoodieColumnRangeMetadata<Comparable>, ?, Map<String, List<HoodieColumnRangeMetadata<Comparable>>>> groupingByCollector =
+        Collectors.groupingBy(HoodieColumnRangeMetadata::getColumnName);
+
     // Collect stats from all individual Parquet blocks
-    // NOTE: Intermediate collect to List is required since Java 1.8 cannot infer
-    //       the generic type parameter through the flatMap chain
-    @SuppressWarnings("unchecked")
-    List<HoodieColumnRangeMetadata<Comparable>> allBlockStats = (List<HoodieColumnRangeMetadata<Comparable>>) (List<?>)
-        metadata.getBlocks().stream().sequential()
-            .flatMap(blockMetaData ->
-                blockMetaData.getColumns().stream()
-                  .filter(f -> cols.contains(f.getPath().toDotString()))
-                  .map(columnChunkMetaData -> {
-                    Statistics stats = columnChunkMetaData.getStatistics();
-                    return HoodieColumnRangeMetadata.<Comparable>create(
-                        parquetFilePath.getName(),
-                        columnChunkMetaData.getPath().toDotString(),
-                        convertToNativeJavaType(
-                            columnChunkMetaData.getPrimitiveType(),
-                            stats.genericGetMin()),
-                        convertToNativeJavaType(
-                            columnChunkMetaData.getPrimitiveType(),
-                            stats.genericGetMax()),
-                        // NOTE: In case when column contains only nulls Parquet won't be creating
-                        //       stats for it instead returning stubbed (empty) object. In that case
-                        //       we have to equate number of nulls to the value count ourselves
-                        stats.isEmpty() ? columnChunkMetaData.getValueCount() : stats.getNumNulls(),
-                        columnChunkMetaData.getValueCount(),
-                        columnChunkMetaData.getTotalSize(),
-                        columnChunkMetaData.getTotalUncompressedSize());
-                  })
-            )
-            .collect(Collectors.toList());
-    Map<String, List<HoodieColumnRangeMetadata<Comparable>>> columnToStatsListMap = new HashMap<>();
-    for (HoodieColumnRangeMetadata<Comparable> crm : allBlockStats) {
-      columnToStatsListMap.computeIfAbsent(crm.getColumnName(), k -> new ArrayList<>()).add(crm);
-    }
+    Map<String, List<HoodieColumnRangeMetadata<Comparable>>> columnToStatsListMap =
+        (Map<String, List<HoodieColumnRangeMetadata<Comparable>>>) metadata.getBlocks().stream().sequential()
+          .flatMap(blockMetaData ->
+              blockMetaData.getColumns().stream()
+                .filter(f -> cols.contains(f.getPath().toDotString()))
+                .map(columnChunkMetaData -> {
+                  Statistics stats = columnChunkMetaData.getStatistics();
+                  return HoodieColumnRangeMetadata.<Comparable>create(
+                      parquetFilePath.getName(),
+                      columnChunkMetaData.getPath().toDotString(),
+                      convertToNativeJavaType(
+                          columnChunkMetaData.getPrimitiveType(),
+                          stats.genericGetMin()),
+                      convertToNativeJavaType(
+                          columnChunkMetaData.getPrimitiveType(),
+                          stats.genericGetMax()),
+                      // NOTE: In case when column contains only nulls Parquet won't be creating
+                      //       stats for it instead returning stubbed (empty) object. In that case
+                      //       we have to equate number of nulls to the value count ourselves
+                      stats.isEmpty() ? columnChunkMetaData.getValueCount() : stats.getNumNulls(),
+                      columnChunkMetaData.getValueCount(),
+                      columnChunkMetaData.getTotalSize(),
+                      columnChunkMetaData.getTotalUncompressedSize());
+                })
+          )
+          .collect(groupingByCollector);
 
     // Combine those into file-level statistics
     // NOTE: Inlining this var makes javac (1.8) upset (due to its inability to infer

@@ -34,16 +34,17 @@ import java.util.Map;
 
 import static org.apache.hudi.common.util.CollectionUtils.createImmutableMap;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests {@link HoodieMetadataPayload}.
  */
 public class TestHoodieMetadataPayload extends HoodieCommonTestHarness {
+  public static final String PARTITION_NAME = "2022/10/01";
 
   @Test
   public void testFileSystemMetadataPayloadMerging() {
-    String partitionName = "2022/10/01";
-
     Map<String, Long> firstCommitAddedFiles = createImmutableMap(
         Pair.of("file1.parquet", 1000L),
         Pair.of("file2.parquet", 2000L),
@@ -51,7 +52,7 @@ public class TestHoodieMetadataPayload extends HoodieCommonTestHarness {
     );
 
     HoodieRecord<HoodieMetadataPayload> firstPartitionFilesRecord =
-        HoodieMetadataPayload.createPartitionFilesRecord(partitionName, firstCommitAddedFiles, Collections.emptyList());
+        HoodieMetadataPayload.createPartitionFilesRecord(PARTITION_NAME, firstCommitAddedFiles, Collections.emptyList());
 
     Map<String, Long> secondCommitAddedFiles = createImmutableMap(
         // NOTE: This is an append
@@ -63,13 +64,13 @@ public class TestHoodieMetadataPayload extends HoodieCommonTestHarness {
     List<String> secondCommitDeletedFiles = Collections.singletonList("file1.parquet");
 
     HoodieRecord<HoodieMetadataPayload> secondPartitionFilesRecord =
-        HoodieMetadataPayload.createPartitionFilesRecord(partitionName, secondCommitAddedFiles, secondCommitDeletedFiles);
+        HoodieMetadataPayload.createPartitionFilesRecord(PARTITION_NAME, secondCommitAddedFiles, secondCommitDeletedFiles);
 
     HoodieMetadataPayload combinedPartitionFilesRecordPayload =
         secondPartitionFilesRecord.getData().preCombine(firstPartitionFilesRecord.getData());
 
     HoodieMetadataPayload expectedCombinedPartitionedFilesRecordPayload =
-        HoodieMetadataPayload.createPartitionFilesRecord(partitionName,
+        HoodieMetadataPayload.createPartitionFilesRecord(PARTITION_NAME,
             createImmutableMap(
                 Pair.of("file2.parquet", 2000L),
                 Pair.of("file3.parquet", 3333L),
@@ -84,7 +85,6 @@ public class TestHoodieMetadataPayload extends HoodieCommonTestHarness {
 
   @Test
   public void testColumnStatsPayloadMerging() throws IOException {
-    String partitionPath = "2022/10/01";
     String fileName = "file.parquet";
     String targetColName = "c1";
 
@@ -92,7 +92,7 @@ public class TestHoodieMetadataPayload extends HoodieCommonTestHarness {
         HoodieColumnRangeMetadata.<Comparable>create(fileName, targetColName, 100, 1000, 5, 1000, 123456, 123456);
 
     HoodieRecord<HoodieMetadataPayload> columnStatsRecord =
-        HoodieMetadataPayload.createColumnStatsRecords(partitionPath, Collections.singletonList(c1Metadata), false)
+        HoodieMetadataPayload.createColumnStatsRecords(PARTITION_NAME, Collections.singletonList(c1Metadata), false)
             .findFirst().get();
 
     ////////////////////////////////////////////////////////////////////////
@@ -105,7 +105,7 @@ public class TestHoodieMetadataPayload extends HoodieCommonTestHarness {
         HoodieColumnRangeMetadata.<Comparable>create(fileName, targetColName, 0, 500, 0, 100, 12345, 12345);
 
     HoodieRecord<HoodieMetadataPayload> updatedColumnStatsRecord =
-        HoodieMetadataPayload.createColumnStatsRecords(partitionPath, Collections.singletonList(c1AppendedBlockMetadata), false)
+        HoodieMetadataPayload.createColumnStatsRecords(PARTITION_NAME, Collections.singletonList(c1AppendedBlockMetadata), false)
             .findFirst().get();
 
     HoodieMetadataPayload combinedMetadataPayload =
@@ -115,7 +115,7 @@ public class TestHoodieMetadataPayload extends HoodieCommonTestHarness {
         HoodieColumnRangeMetadata.<Comparable>create(fileName, targetColName, 0, 1000, 5, 1100, 135801, 135801);
 
     HoodieRecord<HoodieMetadataPayload> expectedColumnStatsRecord =
-        HoodieMetadataPayload.createColumnStatsRecords(partitionPath, Collections.singletonList(expectedColumnRangeMetadata), false)
+        HoodieMetadataPayload.createColumnStatsRecords(PARTITION_NAME, Collections.singletonList(expectedColumnRangeMetadata), false)
             .findFirst().get();
 
     // Assert combined payload
@@ -135,7 +135,7 @@ public class TestHoodieMetadataPayload extends HoodieCommonTestHarness {
         HoodieColumnRangeMetadata.<Comparable>stub(fileName, targetColName);
 
     HoodieRecord<HoodieMetadataPayload> deletedColumnStatsRecord =
-        HoodieMetadataPayload.createColumnStatsRecords(partitionPath, Collections.singletonList(c1StubbedMetadata), true)
+        HoodieMetadataPayload.createColumnStatsRecords(PARTITION_NAME, Collections.singletonList(c1StubbedMetadata), true)
             .findFirst().get();
 
     // NOTE: In this case, deleted (or tombstone) record will be therefore deleting
@@ -144,6 +144,8 @@ public class TestHoodieMetadataPayload extends HoodieCommonTestHarness {
         deletedColumnStatsRecord.getData().preCombine(columnStatsRecord.getData());
 
     assertEquals(deletedColumnStatsRecord.getData(), deletedCombinedMetadataPayload);
+    assertFalse(deletedCombinedMetadataPayload.getInsertValue(null).isPresent());
+    assertTrue(deletedCombinedMetadataPayload.isDeleted());
 
     // NOTE: In this case, proper incoming record will be overwriting previously deleted
     //       record
