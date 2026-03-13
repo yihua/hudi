@@ -124,7 +124,7 @@ class ColumnStatIndexTestBase extends HoodieSparkClientTestBase {
     val fsv = FileSystemViewManager.createInMemoryFileSystemView(new HoodieSparkEngineContext(jsc), metaClient, HoodieMetadataConfig.newBuilder().enable(false).build())
     fsv.loadAllPartitions()
     val filegroupList = fsv.getAllFileGroups.collect(Collectors.toList[HoodieFileGroup])
-    val baseFilesList = filegroupList.stream().flatMap(fileGroup => fileGroup.getAllBaseFiles).collect(Collectors.toList[HoodieBaseFile])
+    val baseFilesList = filegroupList.stream().flatMap((fileGroup: HoodieFileGroup) => fileGroup.getAllBaseFiles).collect(Collectors.toList[HoodieBaseFile])
     val baseFiles = baseFilesList.stream()
       .map[Path](baseFile => new Path(baseFile.getPath)).collect(Collectors.toList[Path]).asScala
 
@@ -164,7 +164,7 @@ class ColumnStatIndexTestBase extends HoodieSparkClientTestBase {
     if (metaClient.getTableConfig.getTableType == HoodieTableType.COPY_ON_WRITE) {
       baseFilesDf // COW table
     } else {
-      val allLogFiles = filegroupList.stream().flatMap(fileGroup => fileGroup.getAllFileSlices)
+      val allLogFiles = filegroupList.stream().flatMap((fileGroup: HoodieFileGroup) => fileGroup.getAllFileSlices)
         .flatMap(fileSlice => fileSlice.getLogFiles)
         .collect(Collectors.toList[HoodieLogFile])
       if (allLogFiles.isEmpty) {
@@ -188,7 +188,7 @@ class ColumnStatIndexTestBase extends HoodieSparkClientTestBase {
                                         writerSchemaOpt: org.apache.hudi.common.util.Option[Schema],
                                         maxBufferSize: Integer,
                                         indexSchema: StructType): DataFrame = {
-    val colStatsEntries = logFiles.stream().map[org.apache.hudi.common.util.Option[Row]](logFile => {
+    val colStatsEntries = logFiles.stream().map[org.apache.hudi.common.util.Option[Row]]((logFile: HoodieLogFile) => {
       try {
         getColStatsFromLogFile(logFile.getPath.toString, latestCommit, columnsToIndex, datasetMetaClient, writerSchemaOpt, maxBufferSize)
       } catch {

@@ -24,7 +24,7 @@ import org.apache.hudi.ColumnStatsIndexSupport.composeIndexSchema
 import org.apache.hudi.DataSourceWriteOptions.{PRECOMBINE_FIELD, RECORDKEY_FIELD}
 import org.apache.hudi.HoodieConversionUtils.toProperties
 import org.apache.hudi.common.config.{HoodieCommonConfig, HoodieMetadataConfig, HoodieStorageConfig}
-import org.apache.hudi.common.model.HoodieTableType
+import org.apache.hudi.common.model.{FileSlice, HoodieTableType}
 import org.apache.hudi.common.table.{HoodieTableConfig, HoodieTableMetaClient}
 import org.apache.hudi.common.util.ParquetUtils
 import org.apache.hudi.config.{HoodieCleanConfig, HoodieCompactionConfig, HoodieWriteConfig}
@@ -173,9 +173,9 @@ class TestColumnStatsIndex extends ColumnStatIndexTestBase {
       fsv.loadAllPartitions()
       val basePath2 = new Path(basePath)
       val allPartitionPaths = fsv.getPartitionPaths
-      allPartitionPaths.forEach(partitionPath => {
+      allPartitionPaths.forEach((partitionPath: Path) => {
         val pPath = FSUtils.getRelativePartitionPath(basePath2, partitionPath)
-        assertTrue (fsv.getLatestFileSlices(pPath).filter(fileSlice => fileSlice.getLogFiles.findAny().isPresent).count() > 0)
+        assertTrue (fsv.getLatestFileSlices(pPath).filter((fileSlice: FileSlice) => fileSlice.getLogFiles.findAny().isPresent).count() > 0)
       })
       fsv.close()
     }
