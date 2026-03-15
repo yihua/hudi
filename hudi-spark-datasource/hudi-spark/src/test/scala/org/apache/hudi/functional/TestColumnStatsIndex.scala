@@ -173,9 +173,9 @@ class TestColumnStatsIndex extends ColumnStatIndexTestBase {
       fsv.loadAllPartitions()
       val basePath2 = new Path(basePath)
       val allPartitionPaths = fsv.getPartitionPaths
-      allPartitionPaths.forEach((partitionPath: Path) => {
+      allPartitionPaths.asScala.foreach(partitionPath => {
         val pPath = FSUtils.getRelativePartitionPath(basePath2, partitionPath)
-        assertTrue (fsv.getLatestFileSlices(pPath).filter((fileSlice: FileSlice) => fileSlice.getLogFiles.findAny().isPresent).count() > 0)
+        assertTrue (fsv.getLatestFileSlices(pPath).iterator().asScala.count(fileSlice => fileSlice.getLogFiles.findAny().isPresent) > 0)
       })
       fsv.close()
     }
