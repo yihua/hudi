@@ -101,8 +101,8 @@ public final class HoodieMetadataConfig extends HoodieConfig {
       .key(METADATA_PREFIX + ".table.service.manager.actions")
       .defaultValue("")
       .markAdvanced()
-      .withDocumentation("Comma-separated list of table service actions (e.g. compaction, logcompaction) on the metadata table "
-          + "that should be delegated to the table service manager.");
+      .withDocumentation("Comma-separated list of table service actions on the metadata table "
+          + "that should be delegated to the table service manager. Currently supported actions are: compaction, logcompaction.");
 
   public static final ConfigProperty<Integer> STREAMING_WRITE_DATATABLE_WRITE_STATUSES_COALESCE_DIVISOR = ConfigProperty
       .key(METADATA_PREFIX + ".streaming.write.datatable.write.statuses.coalesce.divisor")
