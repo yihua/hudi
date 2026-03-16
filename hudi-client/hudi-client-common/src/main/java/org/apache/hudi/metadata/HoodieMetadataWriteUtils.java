@@ -23,6 +23,7 @@ import org.apache.hudi.client.FailOnFirstErrorWriteStatus;
 import org.apache.hudi.client.transaction.lock.InProcessLockProvider;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.config.HoodieTableServiceManagerConfig;
+import org.apache.hudi.common.config.LockConfiguration;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.config.HoodieReaderConfig;
 import org.apache.hudi.common.config.HoodieStorageConfig;
@@ -384,19 +385,17 @@ public class HoodieMetadataWriteUtils {
     HoodieWriteConfig metadataWriteConfig = builder.build();
     if (mergeMetdataLockConfigAtEnd) {
       // We need to update the MDT write config to have the same lock related configs as the data table.
-      // Unfortunately, we cannot use infer which keys on data table are specific to lock config, as
-      // users may use custom lock providers and lock configs. As a workaround, we will add all write
-      // config props on data table that are not present/explicitly set on MDT write config to the MDT write config.
-      Properties dataTablePropsNotInMdt = new Properties();
+      // All data table props with the lock prefix are always copied (to override MDT defaults with
+      // user-configured values). Other data table props not present in MDT config are also copied to
+      // support custom lock providers that may use non-standard config keys.
+      Properties lockProps = new Properties();
       TypedProperties dataTableProps = writeConfig.getProps();
       TypedProperties mdtProps = metadataWriteConfig.getProps();
       for (String key : dataTableProps.stringPropertyNames()) {
-        if (!mdtProps.containsKey(key)) {
-          dataTablePropsNotInMdt.setProperty(key, dataTableProps.getProperty(key));
+        if (key.startsWith(LockConfiguration.LOCK_PREFIX) || !mdtProps.containsKey(key)) {
+          lockProps.setProperty(key, dataTableProps.getProperty(key));
         }
       }
-      Properties lockProps = new Properties();
-      lockProps.putAll(dataTablePropsNotInMdt);
       lockProps.setProperty(HoodieWriteConfig.WRITE_CONCURRENCY_MODE.key(), metadataWriteConcurrencyMode.name());
       String lockProviderClass = writeConfig.getLockProviderClass();
       checkState(lockProviderClass != null, "Lock provider class must be set for metadata table");
