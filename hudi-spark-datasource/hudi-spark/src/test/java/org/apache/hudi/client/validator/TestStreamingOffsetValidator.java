@@ -505,8 +505,9 @@ public class TestStreamingOffsetValidator {
     config.setProperty("test.key", "test.value");
 
     MockOffsetValidator validator = new MockOffsetValidator(config);
-    assertNotNull(validator.getConfig());
-    assertEquals("test.value", validator.getConfig().getString("test.key"));
+    // config is a protected field accessible from subclasses
+    assertNotNull(validator.config);
+    assertEquals("test.value", validator.config.getString("test.key"));
   }
 
   @Test
