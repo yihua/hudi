@@ -19,6 +19,8 @@
 
 package org.apache.hudi.common.config;
 
+import org.apache.hudi.common.model.WriteConcurrencyMode;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.Properties;
@@ -170,5 +172,58 @@ class TestHoodieMetadataConfig {
     // Verify the config key is correct
     assertEquals("hoodie.metadata.write.fail.on.table.service.failures",
         HoodieMetadataConfig.FAIL_ON_TABLE_SERVICE_FAILURES.key());
+  }
+
+  @Test
+  void testWriteConcurrencyMode() {
+    HoodieMetadataConfig config = HoodieMetadataConfig.newBuilder().build();
+    assertEquals(WriteConcurrencyMode.SINGLE_WRITER.name(), config.getWriteConcurrencyMode());
+
+    HoodieMetadataConfig occConfig = HoodieMetadataConfig.newBuilder()
+        .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL)
+        .build();
+    assertEquals(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL.name(), occConfig.getWriteConcurrencyMode());
+
+    Properties props = new Properties();
+    props.put(HoodieMetadataConfig.METADATA_WRITE_CONCURRENCY_MODE.key(),
+        WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL.name());
+    HoodieMetadataConfig propsConfig = HoodieMetadataConfig.newBuilder()
+        .fromProperties(props)
+        .build();
+    assertEquals(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL.name(), propsConfig.getWriteConcurrencyMode());
+  }
+
+  @Test
+  void testTableServiceManagerEnabled() {
+    HoodieMetadataConfig config = HoodieMetadataConfig.newBuilder().build();
+    assertFalse(config.isTableServiceManagerEnabled());
+
+    HoodieMetadataConfig enabledConfig = HoodieMetadataConfig.newBuilder()
+        .withTableServiceManagerEnabled(true)
+        .build();
+    assertTrue(enabledConfig.isTableServiceManagerEnabled());
+
+    HoodieMetadataConfig disabledConfig = HoodieMetadataConfig.newBuilder()
+        .withTableServiceManagerEnabled(false)
+        .build();
+    assertFalse(disabledConfig.isTableServiceManagerEnabled());
+  }
+
+  @Test
+  void testTableServiceManagerActions() {
+    HoodieMetadataConfig config = HoodieMetadataConfig.newBuilder().build();
+    assertEquals("", config.getTableServiceManagerActions());
+
+    HoodieMetadataConfig configWithActions = HoodieMetadataConfig.newBuilder()
+        .withTableServiceManagerActions("compaction,logcompaction")
+        .build();
+    assertEquals("compaction,logcompaction", configWithActions.getTableServiceManagerActions());
+
+    Properties props = new Properties();
+    props.put(HoodieMetadataConfig.TABLE_SERVICE_MANAGER_ACTIONS.key(), "compaction");
+    HoodieMetadataConfig propsConfig = HoodieMetadataConfig.newBuilder()
+        .fromProperties(props)
+        .build();
+    assertEquals("compaction", propsConfig.getTableServiceManagerActions());
   }
 }
