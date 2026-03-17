@@ -77,13 +77,4 @@ public abstract class BasePreCommitValidator {
     // Concrete validators override this to implement validation logic
   }
 
-  /**
-   * Get the validator configuration.
-   *
-   * @return Typed properties with validator settings
-   */
-  @PublicAPIMethod(maturity = ApiMaturityLevel.EVOLVING)
-  public TypedProperties getConfig() {
-    return config;
-  }
 }

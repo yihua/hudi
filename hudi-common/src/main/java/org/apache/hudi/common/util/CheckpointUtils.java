@@ -150,7 +150,13 @@ public class CheckpointUtils {
           totalDiff += diff;
         }
       } else {
-        // New partition - count from 0 to current
+        // New partition appeared. We count from 0 to currentOffset as a conservative
+        // estimate. This may overcount if the partition's start offset is not 0
+        // (e.g., compacted topics). Consumers should set appropriate tolerance to
+        // accommodate this.
+        LOG.warn("New partition {} detected (not in previous checkpoint). "
+            + "Using current offset {} as diff (may overcount if start offset > 0).",
+            partition, currentOffset);
         totalDiff += currentOffset;
       }
     }
