@@ -67,6 +67,7 @@ public class HoodiePreCommitValidatorConfig extends HoodieConfig {
   public static final ConfigProperty<String> STREAMING_OFFSET_TOLERANCE_PERCENTAGE = ConfigProperty
       .key("hoodie.precommit.validators.streaming.offset.tolerance.percentage")
       .defaultValue("0.0")
+      .sinceVersion("1.2.0")
       .markAdvanced()
       .withDocumentation("Tolerance percentage for streaming offset validation "
           + "(used by org.apache.hudi.client.validator.StreamingOffsetValidator). "
@@ -89,6 +90,7 @@ public class HoodiePreCommitValidatorConfig extends HoodieConfig {
   public static final ConfigProperty<String> VALIDATION_FAILURE_POLICY = ConfigProperty
       .key("hoodie.precommit.validators.failure.policy")
       .defaultValue(ValidationFailurePolicy.FAIL.name())
+      .sinceVersion("1.2.0")
       .markAdvanced()
       .withDocumentation("Policy for handling pre-commit validation failures. "
           + "FAIL (default): validation failures block the commit with an exception. "
