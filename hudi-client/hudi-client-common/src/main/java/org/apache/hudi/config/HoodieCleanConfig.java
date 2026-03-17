@@ -27,6 +27,7 @@ import org.apache.hudi.common.model.HoodieFailedWritesCleaningPolicy;
 import org.apache.hudi.common.model.HoodiePreWriteCleanerPolicy;
 import org.apache.hudi.common.model.WriteConcurrencyMode;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.ValidationUtils;
 import org.apache.hudi.table.action.clean.CleaningTriggerStrategy;
 
 import javax.annotation.concurrent.Immutable;
@@ -250,6 +251,16 @@ public class HoodieCleanConfig extends HoodieConfig {
       .markAdvanced()
       .withDocumentation("Maximum number of commits to clean in one clean commit. Applicable only when the clean policy is based on KEEP_LATEST_COMMITS or KEEP_LATEST_HOURS");
 
+  public static final ConfigProperty<Long> MAX_DURATION_TO_CREATE_EMPTY_CLEAN_MS = ConfigProperty
+      .key("hoodie.write.empty.clean.create.duration.ms")
+      .defaultValue(-1L)
+      .markAdvanced()
+      .withDocumentation("In some cases empty clean commit needs to be created to ensure the clean planner "
+          + "does not look through entire dataset if there are no clean plans. This is possible for append-only "
+          + "dataset. Also, for these datasets we cannot ignore clean completely since in the future there could "
+          + "be upsert or replace operations. By creating empty clean commit, earliest_commit_to_retain value "
+          + "will be updated so that now clean planner can only check for partitions that are modified after the "
+          + "last empty clean's earliest_commit_toRetain value there by optimizing the clean planning");
 
   /** @deprecated Use {@link #CLEANER_POLICY} and its methods instead */
   @Deprecated
@@ -426,6 +437,11 @@ public class HoodieCleanConfig extends HoodieConfig {
       return this;
     }
 
+    public HoodieCleanConfig.Builder withMaxDurationToCreateEmptyClean(long duration) {
+      cleanConfig.setValue(MAX_DURATION_TO_CREATE_EMPTY_CLEAN_MS, String.valueOf(duration));
+      return this;
+    }
+
     public HoodieCleanConfig build() {
       cleanConfig.setDefaults(HoodieCleanConfig.class.getName());
       HoodieCleaningPolicy.valueOf(cleanConfig.getString(CLEANER_POLICY));
@@ -434,6 +450,9 @@ public class HoodieCleanConfig extends HoodieConfig {
       if (maxCommitsToClean < 1) {
         throw new IllegalArgumentException(MAX_COMMITS_TO_CLEAN.key() + " must be >= 1, but was " + maxCommitsToClean);
       }
+      long maxDuration = cleanConfig.getLong(MAX_DURATION_TO_CREATE_EMPTY_CLEAN_MS);
+      ValidationUtils.checkArgument(maxDuration != 0,
+          MAX_DURATION_TO_CREATE_EMPTY_CLEAN_MS.key() + " must be either -1 (disabled) or a positive value, but got 0");
       return cleanConfig;
     }
   }
