@@ -1,6 +1,6 @@
 ---
 name: concurrency-check
-description: Review and diagnose Hudi concurrency control, multi-writer, and locking configuration. Use when dealing with write conflicts, lock timeouts, deadlocks, or setting up multi-writer.
+description: Review Hudi multi-writer and locking config. Use when dealing with write conflicts, lock timeouts, OCC, or concurrent writers.
 user-invocable: true
 allowed-tools: Read, Grep, Glob, Agent
 argument-hint: [scenario e.g. "multi-writer setup", "lock timeout", "write conflict", "OCC"]

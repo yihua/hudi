@@ -1,6 +1,6 @@
 ---
 name: hudi-config
-description: Find, explain, and recommend Hudi configuration settings. Use when someone asks about configs, tuning, performance settings, or wants to know what a config does, its default, alternatives, and impact.
+description: Find, explain, or analyze impact of Hudi configs. Use when asking about config keys, tuning, defaults, or what changes when a config is modified.
 user-invocable: true
 allowed-tools: Read, Grep, Glob, Agent
 argument-hint: [config key or topic e.g. "hoodie.compaction.strategy", "compaction tuning", "file sizing"]
@@ -39,6 +39,12 @@ Report:
 
 ### Config validation
 Check `HoodieWriteConfig.Builder.validate()` at `hudi-client/hudi-client-common/src/main/java/org/apache/hudi/config/HoodieWriteConfig.java` for cross-config validation rules that apply.
+
+### For impact analysis (before changing a config in production):
+1. Find all read sites (search for `getStringOrDefault`, `getBooleanOrDefault`, `getIntOrDefault` with the config property)
+2. For each read site, document: where (file:line), what it controls, impact of change
+3. Check if change requires metadata table rebuild, affects file format/timeline, or is safe to change on existing tables
+4. Provide: risk assessment (safe/caution/dangerous), rollback plan, testing recommendation
 
 ### Always include:
 - Spark SQL property syntax: `SET hoodie.xxx.yyy=value;`

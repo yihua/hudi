@@ -1,6 +1,6 @@
 ---
 name: explain-hudi
-description: Explain any Hudi concept by diving into the actual source code. Use when someone asks "what is", "how does", "explain", or wants to understand Hudi internals like timeline, file groups, compaction, clustering, metadata table, indexes, etc.
+description: Explain any Hudi concept, architecture, or CoW vs MoR tradeoffs from source code. Use when asking "what is", "how does", "explain", or "compare CoW MoR".
 user-invocable: true
 allowed-tools: Read, Grep, Glob, Agent
 argument-hint: [concept e.g. "compaction", "file groups", "metadata table", "record-level index"]
@@ -20,6 +20,17 @@ Search the codebase for classes, interfaces, and configs related to the concept.
 - Client/write path: `hudi-client/hudi-client-common/src/main/java/org/apache/hudi/`
 - Spark integration: `hudi-spark-datasource/`
 - Configs: classes ending in `Config.java` under `hudi-client/hudi-client-common/src/main/java/org/apache/hudi/config/` and `hudi-common/src/main/java/org/apache/hudi/common/config/`
+
+### For architecture questions, also cover:
+- Module layout: `hudi-io/` (IO), `hudi-common/` (core), `hudi-client/` (write), `hudi-spark-datasource/` (Spark), `hudi-flink-datasource/` (Flink), `hudi-utilities/` (tools), `hudi-sync/` (metastore sync), `hudi-hadoop-common/` (storage), `packaging/` (bundles)
+- Key abstractions and interfaces, extension points, design patterns
+- Layering rules: `hudi-common` cannot depend on engine-specific code
+
+### For CoW vs MoR comparisons, ground in:
+- CoW commit: `BaseCommitActionExecutor` (rewrites full Parquet files)
+- MoR append: `HoodieAppendHandle` (appends to log files)
+- File group reader: `HoodieFileGroupReader.java` (merges base + logs)
+- Table type enum: `HoodieTableType.java`
 
 ### Step 2: Build the explanation
 Structure your explanation as:

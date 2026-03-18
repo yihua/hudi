@@ -1,6 +1,6 @@
 ---
 name: hudi-index
-description: Explain and help choose Hudi index types (Bloom, Bucket, Record-level, HBase). Use when someone asks about indexing, upsert performance, or needs to choose the right index for their workload.
+description: Choose and configure Hudi index types. Use when asking about bloom, bucket, record-level, or HBase indexes for upsert performance.
 user-invocable: true
 allowed-tools: Read, Grep, Glob, Agent
 argument-hint: [question e.g. "which index for high cardinality", "bloom filter false positives", "bucket index sizing"]

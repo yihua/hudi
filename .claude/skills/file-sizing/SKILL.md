@@ -1,6 +1,6 @@
 ---
 name: file-sizing
-description: Help with Hudi file sizing, small file problem, and write performance tuning. Use when dealing with too many small files, large files, write amplification, or file size optimization.
+description: Fix Hudi file sizing and write performance. Use when dealing with small files, large files, write amplification, or file size optimization.
 user-invocable: true
 allowed-tools: Read, Grep, Glob, Agent
 argument-hint: [scenario e.g. "too many small files", "write amplification high", "large log files"]

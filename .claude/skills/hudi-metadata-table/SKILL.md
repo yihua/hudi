@@ -1,6 +1,6 @@
 ---
 name: hudi-metadata-table
-description: Explain and troubleshoot the Hudi metadata table - the internal table that accelerates file listing, column stats, bloom filters, and record index. Use when metadata table is slow, corrupt, or needs tuning.
+description: Explain or troubleshoot the Hudi metadata table. Use when metadata is slow, corrupt, column stats not working, or data skipping is ineffective.
 user-invocable: true
 allowed-tools: Read, Grep, Glob, Agent
 argument-hint: [question e.g. "enable metadata table", "column stats not working", "metadata table rebuild"]

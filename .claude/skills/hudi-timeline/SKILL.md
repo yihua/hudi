@@ -1,6 +1,6 @@
 ---
 name: hudi-timeline
-description: Explain and debug the Hudi timeline - the core metadata structure tracking all operations on a table. Use when learning about timeline, debugging stuck instants, understanding action states, or timeline corruption.
+description: Explain or debug the Hudi timeline. Use when asking about instants, actions, states, stuck operations, archival, or timeline corruption.
 user-invocable: true
 allowed-tools: Read, Grep, Glob, Agent
 argument-hint: [question e.g. "what is the timeline", "stuck inflight instant", "timeline too large", "archival not working"]

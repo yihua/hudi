@@ -1,6 +1,6 @@
 ---
 name: hudi-procedures
-description: Find and explain Hudi Spark SQL CALL procedures. Use when someone wants to know what procedures are available, how to use a specific procedure, or wants to perform a table operation via Spark SQL.
+description: Find and explain Hudi Spark SQL CALL procedures. Use when asking about available procedures or how to run table operations via SQL.
 user-invocable: true
 allowed-tools: Read, Grep, Glob, Agent
 argument-hint: [procedure name or operation e.g. "show_commits", "run compaction", "repair"]

@@ -1,6 +1,6 @@
 ---
 name: diagnose-table
-description: Diagnose a Hudi table's health and state. Use when someone wants to understand why their table is slow, has too many small files, has pending operations stuck, or generally wants a health check. Provide a table path or describe the symptoms.
+description: Health check a Hudi table. Use when a table is slow, has stuck operations, small files, or needs a diagnostic.
 user-invocable: true
 disable-model-invocation: true
 allowed-tools: Read, Grep, Glob, Bash, Agent

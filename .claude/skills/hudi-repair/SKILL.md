@@ -1,6 +1,6 @@
 ---
 name: hudi-repair
-description: Guide for repairing Hudi tables - metadata table corruption, dangling files, stuck operations, partition issues. Use when a table is in a bad state and needs recovery.
+description: Repair a broken Hudi table. Use when metadata is corrupt, files are dangling, operations are stuck, or partitions have issues.
 user-invocable: true
 disable-model-invocation: true
 allowed-tools: Read, Grep, Glob, Bash, Agent

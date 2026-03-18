@@ -1,6 +1,6 @@
 ---
 name: troubleshoot-error
-description: Troubleshoot Hudi errors and exceptions. Use when someone pastes a stack trace, error message, or describes an error they're seeing with Hudi.
+description: Troubleshoot Hudi errors from stack traces or error messages. Use when pasting exceptions or describing error symptoms.
 user-invocable: true
 allowed-tools: Read, Grep, Glob, Agent
 argument-hint: [error message or exception class e.g. "HoodieWriteConflictException", "Cannot resolve conflicts"]

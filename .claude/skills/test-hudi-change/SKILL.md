@@ -1,6 +1,6 @@
 ---
 name: test-hudi-change
-description: Help write tests for Hudi code changes following the project's testing guidelines. Use when writing unit, functional, or integration tests for Hudi.
+description: Write tests for Hudi changes following project guidelines. Use when writing unit, functional, or integration tests for Hudi code.
 user-invocable: true
 allowed-tools: Read, Grep, Glob, Agent
 argument-hint: [what to test e.g. "compaction with empty partitions", "schema evolution for nested fields"]

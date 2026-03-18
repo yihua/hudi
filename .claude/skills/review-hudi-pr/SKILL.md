@@ -1,6 +1,6 @@
 ---
 name: review-hudi-pr
-description: Review a Hudi pull request following the project's code review standards from CLAUDE.md. Use when reviewing PRs for correctness, design, testing, and breaking changes.
+description: Review a Hudi PR per CLAUDE.md standards. Use when reviewing pull requests for correctness, design, and breaking changes.
 user-invocable: true
 disable-model-invocation: true
 allowed-tools: Read, Grep, Glob, Bash, Agent

@@ -1,6 +1,6 @@
 ---
 name: migration-guide
-description: Guide for upgrading or downgrading Hudi table versions, migrating between table types (CoW/MoR), or upgrading Hudi library versions. Use when planning version upgrades or table migrations.
+description: Guide Hudi version upgrades, downgrades, or table type migrations. Use when planning upgrades to Hudi 1.0/1.1 or migrating CoW to MoR.
 user-invocable: true
 allowed-tools: Read, Grep, Glob, Agent
 argument-hint: [migration e.g. "upgrade to 1.0", "CoW to MoR", "downgrade table version"]

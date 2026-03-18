@@ -1,6 +1,6 @@
 ---
 name: schema-evolution
-description: Help with Hudi schema evolution - adding/dropping/renaming columns, type changes, and compatibility issues. Use when dealing with schema changes on existing tables.
+description: Guide Hudi schema changes. Use when adding, dropping, renaming columns, changing types, or hitting schema compatibility errors.
 user-invocable: true
 allowed-tools: Read, Grep, Glob, Agent
 argument-hint: [operation e.g. "add column", "rename column", "change type", "schema compatibility error"]
