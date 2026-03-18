@@ -266,7 +266,11 @@ public abstract class HoodieBackedTableMetadataWriter<I> implements HoodieTableM
       // If there is no commit on the dataset yet, use the SOLO_COMMIT_TIMESTAMP as the instant time for initial commit
       // Otherwise, we use the timestamp of the latest completed action.
       String initializationTime = dataMetaClient.getActiveTimeline().filterCompletedInstants().lastInstant().map(HoodieInstant::getTimestamp).orElse(SOLO_COMMIT_TIMESTAMP);
-      initializeFromFilesystem(initializationTime, metadataPartitionsToInit, inflightInstantTimestamp);
+      if(!initializeFromFilesystem(initializationTime, metadataPartitionsToInit, inflightInstantTimestamp)) {
+        LOG.error("Failed to initialize MDT from filesystem");
+        return false;
+      }
+
       metrics.ifPresent(m -> m.updateMetrics(HoodieMetadataMetrics.INITIALIZE_STR, timer.endTimer()));
       return true;
     } catch (IOException e) {
@@ -339,10 +343,13 @@ public abstract class HoodieBackedTableMetadataWriter<I> implements HoodieTableM
    * @param partitionsToInit         - List of MDT partitions to initialize
    * @param inflightInstantTimestamp - Current action instant responsible for this initialization
    */
-  private void initializeFromFilesystem(String initializationTime, List<MetadataPartitionType> partitionsToInit,
+  private boolean initializeFromFilesystem(String initializationTime, List<MetadataPartitionType> partitionsToInit,
                                            Option<String> inflightInstantTimestamp) throws IOException {
-    Set<String> pendingDataInstants = getPendingDataInstants(dataMetaClient);
+    if (anyPendingDataInstant(dataMetaClient, inflightInstantTimestamp)) {
+      return false;
+    }
 
+    Set<String> pendingDataInstants = inflightInstantTimestamp.map(Collections::singleton).orElse(Collections.emptySet());
     // FILES partition is always required and is initialized first
     boolean filesPartitionAvailable = dataMetaClient.getTableConfig().isMetadataPartitionAvailable(MetadataPartitionType.FILES);
     if (!filesPartitionAvailable) {
@@ -434,6 +441,8 @@ public abstract class HoodieBackedTableMetadataWriter<I> implements HoodieTableM
       long totalInitTime = partitionInitTimer.endTimer();
       LOG.info(String.format("Initializing %s index in metadata table took " + totalInitTime + " in ms", partitionType.name()));
     }
+
+    return true;
   }
 
   /**
@@ -551,6 +560,24 @@ public abstract class HoodieBackedTableMetadataWriter<I> implements HoodieTableM
         .filter(i -> !HoodieTimeline.INDEXING_ACTION.equals(i.getAction()))
         .map(HoodieInstant::getTimestamp)
         .collect(Collectors.toSet());
+  }
+
+  private boolean anyPendingDataInstant(HoodieTableMetaClient dataMetaClient, Option<String> inflightInstantTimestamp) {
+    // We can only initialize if there are no pending operations on the dataset
+    List<HoodieInstant> pendingDataInstant = dataMetaClient.getActiveTimeline()
+        .getInstantsAsStream().filter(i -> !i.isCompleted())
+        .filter(i -> !inflightInstantTimestamp.isPresent() || !i.getTimestamp().equals(inflightInstantTimestamp.get()))
+        // regular writers should not be blocked due to pending indexing action
+        .filter(i -> !HoodieTimeline.INDEXING_ACTION.equals(i.getAction()))
+        .collect(Collectors.toList());
+
+    if (!pendingDataInstant.isEmpty()) {
+      metrics.ifPresent(m -> m.updateMetrics(HoodieMetadataMetrics.BOOTSTRAP_ERR_STR, 1));
+      LOG.warn("Cannot initialize metadata table as operation(s) are in progress on the dataset: "
+          + Arrays.toString(pendingDataInstant.toArray()));
+      return true;
+    }
+    return false;
   }
 
   private HoodieTableMetaClient initializeMetaClient() throws IOException {
