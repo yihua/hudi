@@ -56,7 +56,7 @@ The current implementation of Spark Datasource V2 integration is presented in th
 
 The main problem is that Hudi's write path involves indexing, precombining, upsert/insert routing, file sizing, and table services (compaction/clustering/cleaning). 
 Also `HoodieSparkSqlWriter::write` handles schema evolution, partition encoding, metadata updates, and multi-writer concurrency.
-DSv2's `WriteBuilder` >> `BatchWrite` >> DataWriter API is too simplistic for this, and moving to this entirely would be high risk.
+DSv2's `WriteBuilder` >> `BatchWrite` >> DataWriter API is too simplistic for this, and moving to this entirely would be a non-starter. Also, due to the flexibility of the V1 API in terms of allowing the writes to shuffle data after the `df.write.format....save` is invoked, Hudi supports a streaming DF write for its upsert operation. A good majority of Hudi jobs work this way today, and we cannot break all of these at once
 
 The proposed approach is hybrid: DSv2 for reads, with a DSv1 fallback for writes (`V2TableWithV1Fallback`) in the current state.
 Later, if a DSv2 write path can be implemented without loss of performance or functionality, it may become possible to move to full DSv2 support.
