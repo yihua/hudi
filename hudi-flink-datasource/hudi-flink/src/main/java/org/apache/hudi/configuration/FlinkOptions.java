@@ -725,15 +725,6 @@ public class FlinkOptions extends HoodieConfig {
           + "The order of entire written file is not guaranteed.");
 
   @AdvancedConfig
-  public static final ConfigOption<Boolean> WRITE_BUFFER_SORT_CONTINUOUS_ENABLED = ConfigOptions
-      .key("write.buffer.sort.continuous.enabled")
-      .booleanType()
-      .defaultValue(false) // default use batch sorting
-      .withDescription("Whether to use continuous sorting (TreeMap-based) instead of batch sorting. "
-          + "Continuous sorting provides O(log n) inserts and incremental draining, "
-          + "but has higher per-record overhead. Requires write.buffer.sort.enabled=true.");
-
-  @AdvancedConfig
   public static final ConfigOption<Integer> WRITE_BUFFER_SORT_CONTINUOUS_DRAIN_SIZE = ConfigOptions
       .key("write.buffer.sort.continuous.drain.size")
       .intType()
@@ -760,7 +751,8 @@ public class FlinkOptions extends HoodieConfig {
       .withDescription("Buffer type for append write function: "
           + "NONE (no buffer sort, default), "
           + "BOUNDED_IN_MEMORY (double buffer with async write), "
-          + "DISRUPTOR (ring buffer with async write, recommended for better throughput)");
+          + "DISRUPTOR (ring buffer with async write, recommended for better throughput), "
+          + "CONTINUOUS_SORT (TreeMap-based continuous sorting with incremental draining)");
 
   @AdvancedConfig
   public static final ConfigOption<Integer> WRITE_BUFFER_DISRUPTOR_RING_SIZE = ConfigOptions

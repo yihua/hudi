@@ -29,6 +29,7 @@ import org.apache.flink.core.memory.MemorySegment;
 import org.apache.flink.core.memory.MemorySegmentFactory;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.planner.codegen.sort.SortCodeGenerator;
+import org.apache.flink.table.runtime.typeutils.RowDataSerializer;
 import org.apache.flink.table.runtime.generated.GeneratedNormalizedKeyComputer;
 import org.apache.flink.table.runtime.generated.GeneratedRecordComparator;
 import org.apache.flink.table.runtime.generated.NormalizedKeyComputer;
@@ -50,7 +51,7 @@ import java.util.stream.Collectors;
 /**
  * Sink function to write data with continuous sorting for improved compression.
  *
- * <p>Unlike {@link AppendWriteFunctionWithBufferSort} which uses batch sorting,
+ * <p>Unlike {@link AppendWriteFunctionWithBIMBufferSort} which uses batch sorting,
  * this function maintains sorted order continuously using a TreeMap, providing:
  * <ul>
  *   <li>Non-blocking inserts (O(log n) vs O(1) + periodic O(n log n))</li>
@@ -81,9 +82,10 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
   // Sort key computation
   private transient NormalizedKeyComputer normalizedKeyComputer;
   private transient RecordComparator recordComparator;
-  private transient byte[] reusableKeyBuffer;
   private transient MemorySegment reusableKeySegment;
   private transient int normalizedKeySize;
+  private transient boolean objectReuseEnabled;
+  private transient RowDataSerializer rowDataSerializer;
 
   // Metrics
   private transient long totalDrainOperations;
@@ -114,21 +116,8 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
           String.format("Drain size must be positive, got: %d", drainSize));
     }
 
-    // Parse and validate sort keys
-    String sortKeys = config.get(FlinkOptions.WRITE_BUFFER_SORT_KEYS);
-    if (sortKeys == null || sortKeys.trim().isEmpty()) {
-      throw new IllegalArgumentException("Sort keys cannot be null or empty for continuous sort");
-    }
-
-    List<String> sortKeyList = Arrays.stream(sortKeys.split(","))
-        .map(String::trim)
-        .filter(s -> !s.isEmpty())
-        .collect(Collectors.toList());
-
-    if (sortKeyList.isEmpty()) {
-      throw new IllegalArgumentException(
-          String.format("Sort keys list is empty after parsing: '%s'", sortKeys));
-    }
+    // Resolve sort keys, falling back to record key if not specified
+    List<String> sortKeyList = AppendWriteFunctions.resolveSortKeys(config);
 
     super.open(parameters);
 
@@ -167,8 +156,14 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
     this.insertionSequence = 0L;
 
     // Allocate reusable on-heap buffer for computing keys
-    this.reusableKeyBuffer = new byte[normalizedKeySize];
+    byte[] reusableKeyBuffer = new byte[normalizedKeySize];
     this.reusableKeySegment = MemorySegmentFactory.wrap(reusableKeyBuffer);
+
+    // Detect object reuse mode and create serializer for copying if needed
+    this.objectReuseEnabled = getRuntimeContext().isObjectReuseEnabled();
+    if (this.objectReuseEnabled) {
+      this.rowDataSerializer = new RowDataSerializer(rowType);
+    }
 
     // Initialize metrics
     this.totalDrainOperations = 0;
@@ -195,6 +190,11 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
       }
     }
 
+    // Copy RowData when object reuse is enabled to prevent mutation after insertion
+    if (objectReuseEnabled) {
+      data = rowDataSerializer.copy(data);
+    }
+
     // Write to buffer (maintains sorted order)
     // Compute normalized key into reusable segment
     normalizedKeyComputer.putKey(data, reusableKeySegment, 0);
@@ -202,7 +202,7 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
     // Create sort key (copies the normalized key from reusable segment)
     SortKey key = new SortKey(reusableKeySegment, normalizedKeySize, data, insertionSequence++);
 
-    // Store the original RowData
+    // Store the RowData
     sortedRecords.put(key, data);
 
     totalInserted++;
@@ -245,15 +245,13 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
   @Override
   public void snapshotState() {
     try {
-      // Drain all remaining records
+      // Drain all remaining records and reset for next checkpoint interval
       if (!sortedRecords.isEmpty()) {
         LOG.info("Snapshot: draining {} remaining records", sortedRecords.size());
         drainRecords(sortedRecords.size());
+        sortedRecords.clear();
+        insertionSequence = 0L;
       }
-
-      // Reset for next checkpoint interval
-      sortedRecords.clear();
-      insertionSequence = 0L;
 
       LOG.info("Snapshot complete: total drained={}, operations={}",
           totalDrainedRecords, totalDrainOperations);
@@ -268,15 +266,13 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
   @Override
   public void endInput() {
     try {
-      // Drain all remaining records
+      // Drain all remaining records and clear buffer
       if (!sortedRecords.isEmpty()) {
         LOG.info("EndInput: draining {} remaining records", sortedRecords.size());
         drainRecords(sortedRecords.size());
+        sortedRecords.clear();
+        insertionSequence = 0L;
       }
-
-      // Clear buffer and reset sequence
-      sortedRecords.clear();
-      insertionSequence = 0L;
 
     } catch (IOException e) {
       throw new HoodieIOException("Failed to drain buffer during endInput", e);

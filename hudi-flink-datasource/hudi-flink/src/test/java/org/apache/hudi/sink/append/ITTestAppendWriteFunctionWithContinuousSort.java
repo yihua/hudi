@@ -23,6 +23,7 @@ import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.table.types.logical.TimestampType;
 import org.apache.flink.table.types.logical.VarCharType;
 import org.apache.hudi.configuration.FlinkOptions;
+import org.apache.hudi.sink.buffer.BufferType;
 import org.apache.hudi.sink.utils.TestWriteBase;
 import org.apache.hudi.utils.TestConfigurations;
 import org.apache.hudi.utils.TestData;
@@ -63,8 +64,7 @@ public class ITTestAppendWriteFunctionWithContinuousSort extends TestWriteBase {
   @BeforeEach
   public void before(@TempDir File tempDir) throws Exception {
     this.conf = TestConfigurations.getDefaultConf(tempFile.getAbsolutePath());
-    this.conf.set(FlinkOptions.WRITE_BUFFER_SORT_ENABLED, true);
-    this.conf.set(FlinkOptions.WRITE_BUFFER_SORT_CONTINUOUS_ENABLED, true);
+    this.conf.set(FlinkOptions.WRITE_BUFFER_TYPE, BufferType.CONTINUOUS_SORT.name());
     this.conf.set(FlinkOptions.OPERATION, "insert");
     this.conf.set(FlinkOptions.WRITE_BUFFER_SORT_KEYS, "name,age");
     this.conf.set(FlinkOptions.WRITE_BUFFER_SIZE, 100L);
