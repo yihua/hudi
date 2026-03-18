@@ -49,7 +49,23 @@ CALL show_timeline(path => '<path>', limit => 50);
 - **Not freeing space**: Old file versions retained by `hoodie.cleaner.commits.retained` (default: 10)
 - **Cleaning blocked**: Pending compaction/clustering blocks cleaning of involved file groups
 
+#### 5. Filesystem-level checks (no Spark needed, adapt for gs://, az://, or hdfs://)
+```bash
+# Count pending compactions/clustering
+aws s3 ls s3://my-bucket/my_table/.hoodie/ | grep -c '.compaction.requested'
+aws s3 ls s3://my-bucket/my_table/.hoodie/ | grep -c '.compaction.inflight'
+aws s3 ls s3://my-bucket/my_table/.hoodie/ | grep -c '.replacecommit.requested'
+
+# Check log file sizes in a partition (MoR)
+aws s3 ls s3://my-bucket/my_table/<partition>/ | grep '\.log'
+
+# Check heartbeat for stuck writers
+aws s3 ls s3://my-bucket/my_table/.hoodie/.heartbeat/
+```
+
 ### Output
 1. **Root cause** with evidence
-2. **Fix** — specific commands or config changes
-3. **Prevention** — configs to avoid recurrence
+2. **Fix** — specific commands with safety markers (`[SAFE]`/`[CAUTION]`/`[DANGEROUS]`)
+3. **Verification** — commands to confirm the fix worked
+4. **Prevention** — configs to avoid recurrence
+5. **Escalation** — flag if issue indicates deeper problems (data corruption, version bugs)

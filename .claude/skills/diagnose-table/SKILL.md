@@ -64,20 +64,44 @@ CALL show_cleans(path => '<table_path>', limit => 10);
 ```
 Check: Is cleaning keeping up? Are old file versions accumulating?
 
+#### 6. Filesystem-level checks (when Spark SQL is unavailable, adapt for gs://, az://, or hdfs://)
+```bash
+# Table properties
+aws s3 cp s3://my-bucket/my_table/.hoodie/hoodie.properties -
+
+# Recent timeline instants
+aws s3 ls s3://my-bucket/my_table/.hoodie/ | grep -E '\.(commit|deltacommit|compaction|clean)' | sort | tail -20
+
+# Stuck INFLIGHT operations
+aws s3 ls s3://my-bucket/my_table/.hoodie/ | grep '.inflight'
+
+# Heartbeat files (stuck writers)
+aws s3 ls s3://my-bucket/my_table/.hoodie/.heartbeat/
+
+# Marker files (incomplete writes)
+aws s3 ls s3://my-bucket/my_table/.hoodie/.temp/
+
+# Timeline directory size
+aws s3 ls --summarize --recursive s3://my-bucket/my_table/.hoodie/ | tail -2
+```
+
 ### If symptoms are described:
 Map symptoms to likely causes:
 
-| Symptom | Likely Cause | Check |
-|---------|-------------|-------|
-| Slow reads | Too many small files, missing compaction | File sizes, pending compactions |
-| Slow writes | Lock contention, too many table services inline | Lock config, inline service configs |
-| OOM during compaction | Large log files, wrong memory config | Log file sizes, `hoodie.memory.merge.max.size` |
-| Stuck INFLIGHT | Writer crashed mid-operation | Heartbeat files, rollback needed |
-| Growing .hoodie dir | Archival not keeping up | Archive config, `hoodie.keep.max.commits` |
-| Query returns stale data | Sync lag, metadata stale | Metadata table health, sync status |
+| Symptom | Likely Cause | Check | Urgency |
+|---------|-------------|-------|---------|
+| Slow reads | Too many small files, missing compaction | File sizes, pending compactions | P2 |
+| Slow writes | Lock contention, too many inline services | Lock config, inline service configs | P1 |
+| OOM during compaction | Large log files, wrong memory config | Log file sizes, `hoodie.memory.merge.max.size` | P1 |
+| Stuck INFLIGHT | Writer crashed mid-operation | Heartbeat files, rollback needed | P1 |
+| Growing .hoodie dir | Archival not keeping up | Archive config, `hoodie.keep.max.commits` | P3 |
+| Query returns stale data | Sync lag, metadata stale | Metadata table health, sync status | P2 |
+| Missing records | Rollback/failed commit/schema issue | show_rollbacks, schema history | P1 |
+| Spark job OOM | Record/file sizes, merge memory | Executor memory, log file sizes | P1 |
 
 ### Output format:
 1. **Table State Summary** - Key metrics at a glance
-2. **Issues Found** - Ordered by severity (critical first)
-3. **Recommended Actions** - Specific commands/configs to fix each issue
-4. **Preventive Configs** - Settings to prevent recurrence
+2. **Issues Found** - Ordered by severity (P1 critical → P3 low)
+3. **Recommended Actions** - Specific commands with safety markers: `[SAFE]` read-only, `[CAUTION]` mutating, `[DANGEROUS]` potential data loss
+4. **Verification** - Commands to confirm the fix worked
+5. **Preventive Configs** - Settings to prevent recurrence

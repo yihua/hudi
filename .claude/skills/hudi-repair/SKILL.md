@@ -80,14 +80,28 @@ CALL show_invalid_parquet(path => '<table_path>');
 ```
 
 ### Pre-repair checklist:
-1. Stop all writers
-2. Backup `.hoodie/` directory
-3. Run diagnostic queries first (show_timeline, validate_metadata)
-4. Use dry_run mode before actual repair
-5. Verify after repair with validation queries
+1. **Stop all writers** — concurrent writes during repair can cause corruption
+2. **Backup `.hoodie/` directory**: `aws s3 cp --recursive s3://my-bucket/my_table/.hoodie s3://my-bucket/backups/my_table/.hoodie.bak`
+3. **Run diagnostic queries first** (show_timeline, validate_metadata) — understand the damage scope
+4. **Create savepoint if table is readable**: `CALL create_savepoint(table => '<name>', commit_time => '<latest_good_instant>');`
+5. **Use dry_run mode** before actual repair — every repair command that supports it
+6. **Verify after repair** with validation queries
+
+### Safety classification of repair commands:
+- `[SAFE]` validate_metadata_table_files, show_invalid_parquet, repair_add_partition_meta(dry_run=true)
+- `[CAUTION]` delete_metadata_table (rebuilds on next write), rollback_to_instant_time, repair_add_partition_meta(dry_run=false)
+- `[DANGEROUS]` repair_overwrite_hoodie_props (can break table if wrong props), rollback_to_savepoint (drops all commits after savepoint), HoodieRepairTool --mode repair (deletes unreferenced files)
+
+### When to escalate:
+- Timeline has missing COMPLETED instants with no matching rollback
+- Multiple instant files have inconsistent state transitions
+- hoodie.properties is corrupted or has wrong table version
+- Data files reference instants that don't exist on timeline
+- Repair tool dry_run shows files that should NOT be orphans
 
 ### Output:
-1. **Diagnosis** - what's wrong and why
-2. **Repair plan** - ordered steps with dry-run first
-3. **Verification** - how to confirm repair worked
+1. **Diagnosis** - what's wrong, severity, blast radius
+2. **Repair plan** - ordered steps with dry-run first, each marked `[SAFE]`/`[CAUTION]`/`[DANGEROUS]`
+3. **Verification** - commands to confirm repair worked
 4. **Prevention** - configs to avoid recurrence
+5. **Escalation guidance** - when this indicates a deeper issue
