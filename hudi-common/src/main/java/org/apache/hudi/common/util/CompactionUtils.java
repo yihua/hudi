@@ -52,7 +52,6 @@ import static org.apache.hudi.common.table.timeline.TimelineMetadataUtils.deseri
  * Helper class to generate compaction plan from FileGroup/FileSlice abstraction.
  */
 public class CompactionUtils {
-
   private static final Logger LOG = LoggerFactory.getLogger(CompactionUtils.class);
 
   public static final Integer COMPACTION_METADATA_VERSION_1 = CompactionV1MigrationHandler.VERSION;
@@ -369,6 +368,33 @@ public class CompactionUtils {
   }
 
   /**
+   * Returns the most recent log compaction instant from the raw active timeline.
+   *
+   * @param rawActiveTimeline Active timeline of table, that has current and previous states of each instant.
+   * @return The latest log compaction instant, or empty if no log compaction is present.
+   */
+  public static Option<HoodieInstant> getLastLogCompaction(final HoodieActiveTimeline rawActiveTimeline) {
+    Option<HoodieInstant> lastLogCompactionInstantOption = Option.fromJavaOptional(
+        rawActiveTimeline
+            .filterPendingLogCompactionTimeline()
+            .getReverseOrderedInstants()
+            .findFirst()
+    );
+    if (!lastLogCompactionInstantOption.isPresent()) {
+      return Option.empty();
+    }
+    String logCompactionTimestamp = lastLogCompactionInstantOption.get().requestedTime();
+    Option<HoodieInstant> completedInstant = Option.fromJavaOptional(
+        rawActiveTimeline
+            .findInstantsInClosedRange(logCompactionTimestamp, logCompactionTimestamp)
+            .getInstantsAsStream()
+            .filter(HoodieInstant::isCompleted)
+            .findFirst()
+    );
+    return completedInstant.isPresent() ? completedInstant : lastLogCompactionInstantOption;
+  }
+
+  /**
    * Returns a pair of (timeline containing the delta commits after the latest completed
    * log compaction delta commit, the completed log compaction commit instant), if the latest completed
    * log compaction commit is present; a pair of (timeline containing all the delta commits,
@@ -378,37 +404,18 @@ public class CompactionUtils {
    * @param rawActiveTimeline Active timeline of table, that has current and previous states of each instant.
    * @return Pair of timeline containing delta commits and an instant.
    */
-  public static Option<Pair<HoodieTimeline, HoodieInstant>> getDeltaCommitsSinceLatestLogCompaction(
+  public static Option<Pair<HoodieTimeline, HoodieInstant>> getDeltaCommitsSinceLatestCompletedLogCompaction(
       final HoodieTimeline deltaCommitTimeline,
       final HoodieActiveTimeline rawActiveTimeline) {
-    Option<HoodieInstant> lastLogCompactionInstantOption = Option.fromJavaOptional(
-        rawActiveTimeline
-            .filterPendingLogCompactionTimeline()
-            .getReverseOrderedInstants()
-            .findFirst()
-    );
+    Option<HoodieInstant> lastLogCompactionOption = getLastLogCompaction(rawActiveTimeline);
 
-    if (lastLogCompactionInstantOption.isPresent()) {
-      // Search for a corresponding completed delta commit for the latest log compact instant observed.
-      // If a delta commit is found, then that means the last compact instant was completed.
-      // Otherwise return empty, since that means there is a pending log compaction that has not
-      // been executed yet. The latter scenario should not happen in practice, as log compaction
-      // scheduling is only done after previous log compact pending instants have been executed or
-      // rolled back.
-      String lastLogCompactionTimestamp = lastLogCompactionInstantOption.get().requestedTime();
-      Option<HoodieInstant> lastCompletedLogCompactionInstantOption = Option.fromJavaOptional(
-          deltaCommitTimeline
-              .filterCompletedInstants()
-              .filter(hoodieInstant -> hoodieInstant.requestedTime().equals(lastLogCompactionTimestamp))
-              .getInstantsAsStream()
-              .findFirst()
-      );
-      if (lastCompletedLogCompactionInstantOption.isPresent()) {
-        HoodieInstant lastCompletedLogCompactionInstant = lastCompletedLogCompactionInstantOption.get();
-        return Option.of(Pair.of(deltaCommitTimeline.findInstantsAfter(
-            lastCompletedLogCompactionInstant.requestedTime(), Integer.MAX_VALUE), lastCompletedLogCompactionInstant));
+    if (lastLogCompactionOption.isPresent()) {
+      HoodieInstant lastLogCompaction = lastLogCompactionOption.get();
+      if (lastLogCompaction.isCompleted()) {
+        return Option.of(Pair.of(deltaCommitTimeline.findInstantsModifiedAfterByCompletionTime(
+            lastLogCompaction.requestedTime()), lastLogCompaction));
       } else {
-        LOG.info("Last log compaction instant {}, is in pending state so returning empty value.", lastLogCompactionTimestamp);
+        LOG.info("Last log compaction instant {} is in pending state, returning empty value.", lastLogCompaction.requestedTime());
         return Option.empty();
       }
     } else {

@@ -161,11 +161,11 @@ public class ScheduleCompactionActionExecutor<T, I, K, O> extends BaseTableServi
     return Option.empty();
   }
 
-  private Option<Pair<Integer, String>> getDeltaCommitInfoSinceLogCompaction() {
+  private Option<Pair<Integer, String>> getLatestDeltaCommitInfoSinceLogCompaction() {
     HoodieActiveTimeline rawActiveTimeline = table.getMetaClient().getTableFormat()
         .getTimelineFactory().createActiveTimeline(table.getMetaClient(), false);
     Option<Pair<HoodieTimeline, HoodieInstant>> deltaCommitsInfo =
-        CompactionUtils.getDeltaCommitsSinceLatestLogCompaction(
+        CompactionUtils.getDeltaCommitsSinceLatestCompletedLogCompaction(
             table.getActiveTimeline().getDeltaCommitTimeline(), rawActiveTimeline);
     if (deltaCommitsInfo.isPresent()) {
       return Option.of(Pair.of(
@@ -184,22 +184,7 @@ public class ScheduleCompactionActionExecutor<T, I, K, O> extends BaseTableServi
     }
     Pair<Integer, String> latestDeltaCommitInfoSinceCompact = latestDeltaCommitInfoSinceCompactOption.get();
     if (WriteOperationType.LOG_COMPACT.equals(operationType)) {
-      // Log compaction schedule is triggered based on getLogCompactionBlocksThreshold value.
-      // One deltacommit can create either one or more than one block depending on the size of the write batch.
-      // In the worst case it would require approximately equal no. of deltacommits to reach the LogCompactionBlocksThreshold value.
-      // Each logcompaction create one or more blocks, and transient failures and retries can cause the number of blocks to
-      // exceed the LogCompactionBlocksThreshold value before the next time log compaction scheduling is attempted.
-      // As a result, LogCompactionBlocksThreshold is treated as a threshold, where if the approximate number of deltacommits
-      // since the last compaction and log compaction meets this threshold, then log compaction should be scheduled.
-      Option<Pair<Integer, String>> latestDeltaCommitInfoSinceLogCompactOption = getDeltaCommitInfoSinceLogCompaction();
-      int numDeltaCommitsSinceLatestCompaction = latestDeltaCommitInfoSinceCompact.getLeft();
-      int numDeltaCommitsSinceLatestLogCompaction = latestDeltaCommitInfoSinceLogCompactOption.isPresent()
-          ? latestDeltaCommitInfoSinceLogCompactOption.get().getLeft()
-          : 0;
-
-      int numDeltaCommitsSinceLatestCompactionOrLogCompaction = Math.min(numDeltaCommitsSinceLatestCompaction, numDeltaCommitsSinceLatestLogCompaction);
-      log.info("There have been {} delta commits since last compaction or log compaction.", numDeltaCommitsSinceLatestCompactionOrLogCompaction);
-      return numDeltaCommitsSinceLatestCompactionOrLogCompaction >= config.getLogCompactionBlocksThreshold();
+      return needLogCompact(latestDeltaCommitInfoSinceCompact);
     }
     int inlineCompactDeltaCommitMax = config.getInlineCompactDeltaCommitMax();
     int inlineCompactDeltaSecondsMax = config.getInlineCompactDeltaSecondsMax();
@@ -248,6 +233,26 @@ public class ScheduleCompactionActionExecutor<T, I, K, O> extends BaseTableServi
         throw new HoodieCompactionException("Unsupported compaction trigger strategy: " + config.getInlineCompactTriggerStrategy());
     }
     return compactable;
+  }
+
+  /**
+   * Determines whether log compaction should be scheduled based on the number of delta commits
+   * since the last compaction and the last log compaction, compared against the
+   * {@code hoodie.log.compaction.blocks.threshold} config.
+   */
+  private boolean needLogCompact(Pair<Integer, String> latestDeltaCommitInfoSinceCompact) {
+    Option<Pair<Integer, String>> latestDeltaCommitInfoSinceLogCompactOption = getLatestDeltaCommitInfoSinceLogCompaction();
+    int numDeltaCommitsSinceLatestCompaction = latestDeltaCommitInfoSinceCompact.getLeft();
+    int numDeltaCommitsSinceLatestLogCompaction = latestDeltaCommitInfoSinceLogCompactOption.isPresent()
+        ? latestDeltaCommitInfoSinceLogCompactOption.get().getLeft()
+        : 0;
+
+    int numDeltaCommitsSince = Math.min(numDeltaCommitsSinceLatestCompaction, numDeltaCommitsSinceLatestLogCompaction);
+    boolean shouldLogCompact = numDeltaCommitsSince >= config.getLogCompactionBlocksThreshold();
+    if (shouldLogCompact) {
+      log.info("There have been {} delta commits since last compaction or log compaction, triggering log compaction.", numDeltaCommitsSince);
+    }
+    return shouldLogCompact;
   }
 
   private Long parsedToSeconds(String time) {

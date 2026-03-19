@@ -351,7 +351,7 @@ public class TestCompactionUtils extends HoodieCommonTestHarness {
 
   @ParameterizedTest
   @ValueSource(booleans = {true, false})
-  public void testGetDeltaCommitsSinceLatestLogCompaction(boolean hasCompletedLogCompaction) {
+  public void testGetDeltaCommitsSinceLatestCompletedLogCompaction(boolean hasCompletedLogCompaction) {
     if (hasCompletedLogCompaction) {
       // Delta commit timeline: completed delta commits 01-05, 07-08, plus inflight 09
       HoodieActiveTimeline deltaCommitTimeline = new MockHoodieActiveTimeline(
@@ -381,7 +381,7 @@ public class TestCompactionUtils extends HoodieCommonTestHarness {
               .collect(Collectors.toList()));
 
       Pair<HoodieTimeline, HoodieInstant> actual =
-          CompactionUtils.getDeltaCommitsSinceLatestLogCompaction(
+          CompactionUtils.getDeltaCommitsSinceLatestCompletedLogCompaction(
               deltaCommitTimeline.getDeltaCommitTimeline(), rawActiveTimeline).get();
       assertEquals(
           Stream.of(
@@ -409,7 +409,7 @@ public class TestCompactionUtils extends HoodieCommonTestHarness {
       HoodieActiveTimeline rawActiveTimeline = deltaCommitTimeline;
 
       Pair<HoodieTimeline, HoodieInstant> actual =
-          CompactionUtils.getDeltaCommitsSinceLatestLogCompaction(
+          CompactionUtils.getDeltaCommitsSinceLatestCompletedLogCompaction(
               deltaCommitTimeline.getDeltaCommitTimeline(), rawActiveTimeline).get();
       assertEquals(
           Stream.of(
@@ -430,9 +430,9 @@ public class TestCompactionUtils extends HoodieCommonTestHarness {
   }
 
   @Test
-  public void testGetDeltaCommitsSinceLatestLogCompactionWithEmptyDeltaCommits() {
+  public void testGetDeltaCommitsSinceLatestCompletedLogCompactionWithEmptyDeltaCommits() {
     HoodieActiveTimeline timeline = new MockHoodieActiveTimeline();
-    assertEquals(Option.empty(), CompactionUtils.getDeltaCommitsSinceLatestLogCompaction(
+    assertEquals(Option.empty(), CompactionUtils.getDeltaCommitsSinceLatestCompletedLogCompaction(
         timeline.getDeltaCommitTimeline(), timeline));
   }
 
