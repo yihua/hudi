@@ -54,23 +54,10 @@ public class PreferWriterConflictResolutionStrategy
     HoodieActiveTimeline activeTimeline = metaClient.reloadActiveTimeline();
     if (ClusteringUtils.isClusteringInstant(activeTimeline, currentInstant, metaClient.getInstantGenerator())
         || COMPACTION_ACTION.equals(currentInstant.getAction())) {
-      // Table service rollbacks are done by table service jobs/writers only, not by ingestion threads,
-      // so rollback conflict detection is not needed for table services.
       return getCandidateInstantsForTableServicesCommits(activeTimeline, currentInstant);
     } else {
-      return Stream.concat(getCandidateInstantsForNonTableServicesCommits(activeTimeline, currentInstant),
-          getCandidateInstantsForRollbackConflict(activeTimeline, currentInstant));
+      return getCandidateInstantsForNonTableServicesCommits(activeTimeline, currentInstant);
     }
-  }
-
-  private Stream<HoodieInstant> getCandidateInstantsForRollbackConflict(HoodieActiveTimeline activeTimeline, HoodieInstant currentInstant) {
-    // Add Requested rollback action instants that were created after the current instant.
-    List<HoodieInstant> pendingRollbacks = activeTimeline
-        .findInstantsAfter(currentInstant.requestedTime())
-        .filterPendingRollbackTimeline()
-        .getInstantsAsStream().collect(Collectors.toList());
-    log.info(String.format("Rollback instants that may have conflict with %s are %s", currentInstant, pendingRollbacks));
-    return pendingRollbacks.stream();
   }
 
   private Stream<HoodieInstant> getCandidateInstantsForNonTableServicesCommits(HoodieActiveTimeline activeTimeline, HoodieInstant currentInstant) {

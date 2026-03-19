@@ -19,7 +19,6 @@
 package org.apache.hudi.client.transaction;
 
 import org.apache.hudi.avro.model.HoodieRequestedReplaceMetadata;
-import org.apache.hudi.avro.model.HoodieRollbackPlan;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieMetadataWrapper;
 import org.apache.hudi.common.model.HoodieReplaceCommitMetadata;
@@ -48,7 +47,6 @@ import static org.apache.hudi.common.table.timeline.HoodieTimeline.COMPACTION_AC
 import static org.apache.hudi.common.table.timeline.HoodieTimeline.DELTA_COMMIT_ACTION;
 import static org.apache.hudi.common.table.timeline.HoodieTimeline.LOG_COMPACTION_ACTION;
 import static org.apache.hudi.common.table.timeline.HoodieTimeline.REPLACE_COMMIT_ACTION;
-import static org.apache.hudi.common.table.timeline.HoodieTimeline.ROLLBACK_ACTION;
 import static org.apache.hudi.common.util.CommitUtils.getPartitionAndFileIdWithoutSuffixFromSpecificRecord;
 
 /**
@@ -70,11 +68,8 @@ public class ConcurrentOperation {
   private final String actionType;
   @ToString.Include
   private final String instantTime;
-  private final HoodieTableMetaClient metaClient;
   @Getter
   private Set<Pair<String, String>> mutatedPartitionAndFileIds = Collections.emptySet();
-  @Getter
-  private String rolledbackCommit;
 
   public ConcurrentOperation(HoodieInstant instant, HoodieTableMetaClient metaClient) throws IOException {
     // Replace inflight compaction and clustering to requested since inflight does not contain the plan.
@@ -87,7 +82,6 @@ public class ConcurrentOperation {
     this.actionState = instant.getState().name();
     this.actionType = instant.getAction();
     this.instantTime = instant.requestedTime();
-    this.metaClient = metaClient;  // used only by the other concurrent operation (which reads from timeline)
     init(instant);
   }
 
@@ -97,13 +91,7 @@ public class ConcurrentOperation {
     this.actionState = instant.getState().name();
     this.actionType = instant.getAction();
     this.instantTime = instant.requestedTime();
-    this.metaClient = null;  // used only by the other concurrent operation (which reads from timeline)
-    try {
-      init(instant);
-    } catch (IOException e) {
-      // This should never happen since we are initializing with commit metadata
-      throw new RuntimeException("Failed to initialize ConcurrentOperation for instant: " + instant, e);
-    }
+    init(instant);
   }
 
   public String getInstantActionState() {
@@ -118,7 +106,7 @@ public class ConcurrentOperation {
     return instantTime;
   }
 
-  private void init(HoodieInstant instant) throws IOException {
+  private void init(HoodieInstant instant) {
     if (this.metadataWrapper.isAvroMetadata()) {
       switch (getInstantActionType()) {
         case COMPACTION_ACTION:
@@ -133,18 +121,6 @@ public class ConcurrentOperation {
           this.mutatedPartitionAndFileIds = getPartitionAndFileIdWithoutSuffixFromSpecificRecord(this.metadataWrapper.getMetadataFromTimeline().getHoodieCommitMetadata()
               .getPartitionToWriteStats());
           this.operationType = WriteOperationType.fromValue(this.metadataWrapper.getMetadataFromTimeline().getHoodieCommitMetadata().getOperationType());
-          break;
-        case ROLLBACK_ACTION:
-          this.operationType = WriteOperationType.UNKNOWN;
-          if (!instant.isCompleted()) {
-            // requested rollback instants have rollback plan in the details; (inflight rollback is empty).
-            // irrespective of requested/inflight, always read rollback plan.
-            if (this.metaClient != null) {
-              HoodieInstant requested = metaClient.getInstantGenerator().getRollbackRequestedInstant(instant);
-              HoodieRollbackPlan rollbackPlan = metaClient.getActiveTimeline().readRollbackPlan(requested);
-              this.rolledbackCommit = rollbackPlan.getInstantToRollback().getCommitTime();
-            }
-          }
           break;
         case REPLACE_COMMIT_ACTION:
         case CLUSTERING_ACTION:
