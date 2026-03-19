@@ -131,11 +131,11 @@ public class TestCheckpointUtils {
     String current = "topic,0:150,1:200";
 
     // Partition 0: 150-100 = 50
-    // Partition 1: new partition, count from 0 to 200 = 200
-    // Total: 50 + 200 = 250
+    // Partition 1: new partition, skipped (start offset unknown)
+    // Total: 50
     long diff = CheckpointUtils.calculateOffsetDifference(
         CheckpointFormat.SPARK_KAFKA, previous, current);
-    assertEquals(250L, diff);
+    assertEquals(50L, diff);
   }
 
   @Test
@@ -156,11 +156,11 @@ public class TestCheckpointUtils {
     String previous = "topic,0:1000";
     String current = "topic,0:100";
 
-    // When current < previous, we use current offset as the diff
-    // This handles the case where topic was reset
+    // When current < previous (offset reset), partition is skipped
+    // to avoid overcounting since start offset is unknown
     long diff = CheckpointUtils.calculateOffsetDifference(
         CheckpointFormat.SPARK_KAFKA, previous, current);
-    assertEquals(100L, diff);
+    assertEquals(0L, diff);
   }
 
   @Test
@@ -168,12 +168,12 @@ public class TestCheckpointUtils {
     String previous = "topic,0:1000,1:2000";
     String current = "topic,0:100,1:2500";
 
-    // Partition 0: reset, use current offset = 100
+    // Partition 0: reset, skipped to avoid overcounting
     // Partition 1: normal increment = 2500-2000 = 500
-    // Total: 100 + 500 = 600
+    // Total: 500
     long diff = CheckpointUtils.calculateOffsetDifference(
         CheckpointFormat.SPARK_KAFKA, previous, current);
-    assertEquals(600L, diff);
+    assertEquals(500L, diff);
   }
 
   @Test

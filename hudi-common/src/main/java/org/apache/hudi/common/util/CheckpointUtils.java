@@ -115,8 +115,8 @@ public class CheckpointUtils {
    * Algorithm:
    * 1. For each partition in current checkpoint:
    *    - If partition exists in previous: diff = current - previous
-   *    - If partition is new: diff = current (count from 0)
-   *    - If diff is negative (reset): use current offset
+   *    - If partition is new: skip (start offset unknown, would overcount)
+   *    - If diff is negative (reset): skip (start offset unknown, would overcount)
    * 2. Sum all partition diffs
    *
    * @param format Checkpoint format
@@ -141,23 +141,23 @@ public class CheckpointUtils {
         // Partition exists in both checkpoints
         long diff = currentOffset - previousOffset;
 
-        // Handle offset reset (negative diff) - topic/partition recreated
         if (diff < 0) {
+          // Offset reset detected (topic/partition recreated or compaction).
+          // We cannot reliably determine how many records were processed since
+          // the start offset of the new topic may not be 0. Log a warning and
+          // skip this partition to avoid overcounting.
           LOG.warn("Detected offset reset for partition {}. Previous offset: {}, current offset: {}. "
-              + "Using current offset as diff (counting from 0).", partition, previousOffset, currentOffset);
-          totalDiff += currentOffset;
+              + "Skipping partition from diff calculation to avoid overcounting.", partition, previousOffset, currentOffset);
         } else {
           totalDiff += diff;
         }
       } else {
-        // New partition appeared. We count from 0 to currentOffset as a conservative
-        // estimate. This may overcount if the partition's start offset is not 0
-        // (e.g., compacted topics). Consumers should set appropriate tolerance to
-        // accommodate this.
+        // New partition appeared. The start offset may not be 0 (e.g., compacted
+        // topics), so counting from 0 would overcount. Log a warning and skip
+        // this partition to avoid inflating the diff.
         LOG.warn("New partition {} detected (not in previous checkpoint). "
-            + "Using current offset {} as diff (may overcount if start offset > 0).",
-            partition, currentOffset);
-        totalDiff += currentOffset;
+            + "Skipping partition from diff calculation (start offset unknown, "
+            + "current offset: {}).", partition, currentOffset);
       }
     }
 

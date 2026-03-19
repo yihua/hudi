@@ -131,13 +131,17 @@ public interface ValidationContext {
 
   /**
    * Calculate total records written in the current commit.
-   * Derived from {@link #getWriteStats()} by summing {@code numWrites} across all partitions.
+   * Uses {@code numInserts + numUpdateWrites} instead of {@code numWrites} because
+   * for COW upserts, {@code numWrites} is the total number of records in the file
+   * (not just newly written ones), which would make deviation calculations meaningless.
    *
-   * @return Total record count
+   * @return Total newly written record count (inserts + updates)
    */
   default long getTotalRecordsWritten() {
     return getWriteStats()
-        .map(stats -> stats.stream().mapToLong(HoodieWriteStat::getNumWrites).sum())
+        .map(stats -> stats.stream()
+            .mapToLong(s -> s.getNumInserts() + s.getNumUpdateWrites())
+            .sum())
         .orElse(0L);
   }
 
