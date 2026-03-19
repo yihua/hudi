@@ -1118,9 +1118,13 @@ public abstract class HoodieTable<T, I, K, O> implements Serializable {
   }
 
   /**
-   * Deletes the metadata table if the writer disables metadata table with hoodie.metadata.enable=false
+   * Deletes the metadata table if the writer disables metadata table with hoodie.metadata.enable=false.
+   * This operation is a no-op if hoodie.metadata.auto.delete.partitions is set to false.
    */
   public void maybeDeleteMetadataTable() {
+    if (!config.isAutoDeleteMdtPartitionsEnabled()) {
+      return;
+    }
     if (shouldExecuteMetadataTableDeletion()) {
       try {
         log.info("Deleting metadata table because it is disabled in writer.");
@@ -1133,8 +1137,12 @@ public abstract class HoodieTable<T, I, K, O> implements Serializable {
 
   /**
    * Deletes the metadata partition if the writer disables any metadata index.
+   * This operation is a no-op if hoodie.metadata.auto.delete.partitions is set to false.
    */
   public void deleteMetadataIndexIfNecessary() {
+    if (!config.isAutoDeleteMdtPartitionsEnabled()) {
+      return;
+    }
     Stream.of(MetadataPartitionType.getValidValues()).forEach(partitionType -> {
       if (shouldDeleteMetadataPartition(partitionType)) {
         try {
