@@ -94,6 +94,8 @@ public class CleanPlanner<T, I, K, O> implements Serializable {
   @Getter(AccessLevel.PACKAGE)
   private final List<String> savepointedTimestamps;
   private Option<HoodieInstant> earliestCommitToRetain = Option.empty();
+  private Option<HoodieInstant> lastCompletedClean = Option.empty();
+  private Option<HoodieCleanMetadata> lastCleanMetadata = Option.empty();
 
   public CleanPlanner(HoodieEngineContext context, HoodieTable<T, I, K, O> hoodieTable, HoodieWriteConfig config) {
     this.context = context;
@@ -175,9 +177,10 @@ public class CleanPlanner<T, I, K, O> implements Serializable {
     }
 
     if (config.incrementalCleanerModeEnabled()) {
-      Option<HoodieInstant> lastClean = hoodieTable.getCleanTimeline().filterCompletedInstants().lastInstant();
+      Option<HoodieInstant> lastClean = lastCompletedClean.or(Option.of(hoodieTable.getCleanTimeline().filterCompletedInstants().lastInstant().get()));
       if (lastClean.isPresent()) {
-        HoodieCleanMetadata cleanMetadata = hoodieTable.getActiveTimeline().readCleanMetadata(lastClean.get());
+        HoodieCleanMetadata cleanMetadata = (lastCompletedClean.isPresent() && lastCleanMetadata.isPresent()) ? lastCleanMetadata.get()
+            : hoodieTable.getActiveTimeline().readCleanMetadata(lastClean.get());
         if ((cleanMetadata.getEarliestCommitToRetain() != null)
                 && !cleanMetadata.getEarliestCommitToRetain().trim().isEmpty()
                 && !hoodieTable.getActiveTimeline().getCommitsTimeline().isBeforeTimelineStarts(cleanMetadata.getEarliestCommitToRetain())) {
@@ -592,10 +595,11 @@ public class CleanPlanner<T, I, K, O> implements Serializable {
     if (!earliestCommitToRetain.isPresent()) {
       // Get the previous clean's earliest commit to retain, if available
       Option<String> previousEarliestCommitToRetain = Option.empty();
-      Option<HoodieInstant> lastClean = hoodieTable.getCleanTimeline().filterCompletedInstants().lastInstant();
-      if (lastClean.isPresent()) {
+      lastCompletedClean = hoodieTable.getCleanTimeline().filterCompletedInstants().lastInstant();
+      if (lastCompletedClean.isPresent() && config.getMaxCommitsToClean() != Long.MAX_VALUE) {
         try {
-          HoodieCleanMetadata cleanMetadata = hoodieTable.getActiveTimeline().readCleanMetadata(lastClean.get());
+          HoodieCleanMetadata cleanMetadata = hoodieTable.getActiveTimeline().readCleanMetadata(lastCompletedClean.get());
+          lastCleanMetadata = Option.of(cleanMetadata);
           if (cleanMetadata.getEarliestCommitToRetain() != null
               && !cleanMetadata.getEarliestCommitToRetain().trim().isEmpty()) {
             previousEarliestCommitToRetain = Option.of(cleanMetadata.getEarliestCommitToRetain());
