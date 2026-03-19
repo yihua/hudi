@@ -40,6 +40,7 @@ import org.apache.hudi.hive.ddl.HiveSyncMode;
 import org.apache.hudi.index.HoodieIndex;
 import org.apache.hudi.keygen.constant.KeyGeneratorOptions;
 import org.apache.hudi.keygen.constant.KeyGeneratorType;
+import org.apache.hudi.sink.buffer.BufferMemoryType;
 import org.apache.hudi.sink.overwrite.PartitionOverwriteMode;
 import org.apache.hudi.table.action.cluster.ClusteringPlanPartitionFilterMode;
 import org.apache.hudi.util.ClientIds;
@@ -706,6 +707,17 @@ public class FlinkOptions extends HoodieConfig {
       .defaultValue(1024D) // 1GB
       .withDescription("Maximum memory in MB for a write task, when the threshold hits,\n"
           + "it flushes the max size data bucket to avoid OOM, default 1GB");
+
+  @AdvancedConfig
+  public static final ConfigOption<String> WRITE_BUFFER_MEMORY_TYPE = ConfigOptions
+      .key("write.buffer.memory.type")
+      .stringType()
+      .defaultValue(BufferMemoryType.ON_HEAP.name())
+      .withDescription("The memory type used for the write buffer. "
+          + "Supported values are ON_HEAP (default) and MANAGED. "
+          + "ON_HEAP uses JVM heap memory, while MANAGED uses Flink managed memory "
+          + "which is accounted for in the task manager's memory budget "
+          + "and helps avoid OOM errors in containerized environments.");
 
   @AdvancedConfig
   public static final ConfigOption<Boolean> WRITE_BUFFER_SORT_ENABLED = ConfigOptions
