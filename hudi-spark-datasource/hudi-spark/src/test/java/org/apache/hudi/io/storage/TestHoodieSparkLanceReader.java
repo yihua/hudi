@@ -20,10 +20,15 @@ package org.apache.hudi.io.storage;
 
 import org.apache.hudi.HoodieSchemaConversionUtils;
 import org.apache.hudi.client.SparkTaskContextSupplier;
+import org.apache.hudi.common.bloom.BloomFilter;
+import org.apache.hudi.common.bloom.BloomFilterFactory;
+import org.apache.hudi.common.bloom.HoodieDynamicBoundedBloomFilter;
+import org.apache.hudi.common.bloom.SimpleBloomFilter;
 import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.testutils.HoodieTestUtils;
+import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.storage.HoodieStorage;
@@ -57,10 +62,13 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
 
+import static org.apache.hudi.common.bloom.BloomFilterTypeCode.DYNAMIC_V0;
+import static org.apache.hudi.common.bloom.BloomFilterTypeCode.SIMPLE;
 import static org.apache.hudi.io.storage.LanceTestUtils.createRow;
 import static org.apache.hudi.io.storage.LanceTestUtils.createRowWithMetaFields;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -75,12 +83,14 @@ public class TestHoodieSparkLanceReader {
   private HoodieStorage storage;
   private SparkTaskContextSupplier taskContextSupplier;
   private String instantTime;
+  private BloomFilter simpleBloomFilter;
 
   @BeforeEach
   public void setUp() throws IOException {
     storage = HoodieTestUtils.getStorage(tempDir.getAbsolutePath());
     taskContextSupplier = new SparkTaskContextSupplier();
     instantTime = "20251201120000000";
+    simpleBloomFilter = BloomFilterFactory.createBloomFilter(1000, 0.0001, 10000, SIMPLE.name());
   }
 
   @AfterEach
@@ -294,8 +304,9 @@ public class TestHoodieSparkLanceReader {
 
     StoragePath path = new StoragePath(tempDir.getAbsolutePath() + "/test_large.lance");
     int recordCount = 2500;
+    BloomFilter dynamicBloomFilter = BloomFilterFactory.createBloomFilter(1000, 0.0001, 10000, DYNAMIC_V0.name());
     try (HoodieSparkLanceWriter writer = new HoodieSparkLanceWriter(
-        path, schema, instantTime, taskContextSupplier, storage, false)) {
+        path, schema, instantTime, taskContextSupplier, storage, false, Option.of(dynamicBloomFilter))) {
       for (int i = 0; i < recordCount; i++) {
         GenericInternalRow row = new GenericInternalRow(new Object[]{i, (long) i * 2});
         writer.writeRow("key" + i, row);
@@ -320,6 +331,8 @@ public class TestHoodieSparkLanceReader {
       }
 
       assertEquals(recordCount, count, "Should read all records");
+
+      assertBloomFilter(reader, HoodieDynamicBoundedBloomFilter.class, "key0", "key999", 2500);
     }
   }
 
@@ -533,6 +546,8 @@ public class TestHoodieSparkLanceReader {
         seqNos.add(row.getUTF8String(1).toString());
       }
       assertEquals(3, seqNos.size(), "All sequence numbers should be unique");
+
+      assertBloomFilter(reader, SimpleBloomFilter.class, "key0", "key2", 3);
     }
   }
 
@@ -563,7 +578,7 @@ public class TestHoodieSparkLanceReader {
     
   private HoodieSparkLanceReader writeAndCreateReader(StoragePath path, StructType schema, List<InternalRow> rows, boolean populateMetaFields) throws IOException {
     try (HoodieSparkLanceWriter writer = new HoodieSparkLanceWriter(
-        path, schema, instantTime, taskContextSupplier, storage, populateMetaFields)) {
+        path, schema, instantTime, taskContextSupplier, storage, populateMetaFields, Option.of(simpleBloomFilter))) {
       for (int i = 0; i < rows.size(); i++) {
         HoodieKey key = new HoodieKey("key" + i, "default_partition");
         // Note writeRowWithMetadata implicitly handles case where populateMetaFields=false
@@ -588,8 +603,9 @@ public class TestHoodieSparkLanceReader {
 
     // Write Lance file with full schema
     StoragePath path = new StoragePath(tempDir.getAbsolutePath() + "/test_projection.lance");
+    BloomFilter dynamicBloom = BloomFilterFactory.createBloomFilter(1000, 0.0001, 10000, DYNAMIC_V0.name());
     try (HoodieSparkLanceWriter writer = new HoodieSparkLanceWriter(
-        path, fullSchema, instantTime, taskContextSupplier, storage, false)) {
+        path, fullSchema, instantTime, taskContextSupplier, storage, false, Option.of(dynamicBloom))) {
       for (int i = 0; i < rows.size(); i++) {
         writer.writeRow("key" + i, rows.get(i));
       }
@@ -623,7 +639,21 @@ public class TestHoodieSparkLanceReader {
           count++;
         }
         assertEquals(3, count, "Should read all 3 records");
+
+        assertBloomFilter(reader, HoodieDynamicBoundedBloomFilter.class, "key0", "key2", 3);
       }
     }
+  }
+
+  private void assertBloomFilter(HoodieSparkLanceReader reader, Class<?> clazz, String minKey, String maxKey, int keyCount) {
+    BloomFilter bloomFilter = reader.readBloomFilter();
+    assertInstanceOf(clazz, bloomFilter);
+    for (int i = 0; i < keyCount; i++) {
+      assertTrue(bloomFilter.mightContain("key" + i));
+    }
+    assertFalse(bloomFilter.mightContain("no_such_key"));
+    String[] minMaxKeys = reader.readMinMaxRecordKeys();
+    assertEquals(minKey, minMaxKeys[0]);
+    assertEquals(maxKey, minMaxKeys[1]);
   }
 }
