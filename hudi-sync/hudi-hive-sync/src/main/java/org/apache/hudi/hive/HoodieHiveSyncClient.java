@@ -35,6 +35,7 @@ import org.apache.hudi.hive.ddl.DDLExecutor;
 import org.apache.hudi.hive.ddl.HMSDDLExecutor;
 import org.apache.hudi.hive.ddl.HiveQueryDDLExecutor;
 import org.apache.hudi.hive.ddl.HiveSyncMode;
+import org.apache.hudi.hive.ddl.JDBCBasedMetadataOperator;
 import org.apache.hudi.hive.ddl.JDBCExecutor;
 import org.apache.hudi.hive.util.IMetaStoreClientUtil;
 import org.apache.hudi.hive.util.PartitionFilterGenerator;
@@ -49,6 +50,7 @@ import org.apache.hadoop.hive.metastore.api.SerDeInfo;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.metadata.Hive;
+import org.apache.thrift.TApplicationException;
 import org.apache.thrift.TException;
 
 import java.util.HashMap;
@@ -83,6 +85,26 @@ public class HoodieHiveSyncClient extends HoodieSyncClient {
   DDLExecutor ddlExecutor;
   private IMetaStoreClient client;
 
+  /**
+   * JDBC-based metadata operator, lazily initialized on first Thrift
+   * incompatibility. Only available when sync mode is JDBC.
+   */
+  private JDBCBasedMetadataOperator jdbcMetadataOperator;
+
+  /**
+   * Set to true after the first Thrift API call fails with a
+   * {@link TApplicationException}, indicating the HMS version uses an
+   * incompatible Thrift API (e.g., HMS 4.x renamed {@code get_table}
+   * to {@code get_table_req}). Once set, all subsequent metadata
+   * operations are routed through {@link #jdbcMetadataOperator}.
+   *
+   * <p>{@code volatile} is sufficient because this flag only transitions
+   * monotonically from {@code false} to {@code true}. No synchronized
+   * block is needed; in the worst-case race, two threads both detect
+   * incompatibility and log the warning, which is harmless.
+   */
+  private volatile boolean thriftIncompatible;
+
   public HoodieHiveSyncClient(HiveSyncConfig config, HoodieTableMetaClient metaClient) {
     super(config, metaClient);
     this.config = config;
@@ -103,17 +125,64 @@ public class HoodieHiveSyncClient extends HoodieSyncClient {
             ddlExecutor = new HiveQueryDDLExecutor(config, this.client);
             break;
           case JDBC:
-            ddlExecutor = new JDBCExecutor(config);
+            JDBCExecutor jdbcExecutor = new JDBCExecutor(config);
+            ddlExecutor = jdbcExecutor;
+            jdbcMetadataOperator = new JDBCBasedMetadataOperator(
+                jdbcExecutor.getConnection(), databaseName);
             break;
           default:
             throw new HoodieHiveSyncException("Invalid sync mode given " + config.getString(HIVE_SYNC_MODE));
         }
       } else {
-        ddlExecutor = config.getBoolean(HIVE_USE_JDBC) ? new JDBCExecutor(config) : new HiveQueryDDLExecutor(config, this.client);
+        if (config.getBoolean(HIVE_USE_JDBC)) {
+          JDBCExecutor jdbcExecutor = new JDBCExecutor(config);
+          ddlExecutor = jdbcExecutor;
+          jdbcMetadataOperator = new JDBCBasedMetadataOperator(
+              jdbcExecutor.getConnection(), databaseName);
+        } else {
+          ddlExecutor = new HiveQueryDDLExecutor(config, this.client);
+        }
       }
     } catch (Exception e) {
       throw new HoodieHiveSyncException("Failed to create HiveMetaStoreClient", e);
     }
+  }
+
+  /**
+   * Returns true if Thrift API was detected as incompatible and JDBC
+   * fallback is available. When true, metadata operations should use
+   * {@link #jdbcMetadataOperator} instead of {@link #client}.
+   */
+  private boolean useJdbcFallback() {
+    return thriftIncompatible && jdbcMetadataOperator != null;
+  }
+
+  /**
+   * Checks if the given exception (or its cause chain) contains a
+   * {@link TApplicationException}, which indicates an incompatible
+   * Thrift API (e.g., HMS 4.x). If detected, switches all subsequent
+   * metadata operations to the JDBC fallback.
+   *
+   * @return true if JDBC fallback is now active
+   */
+  private boolean detectThriftIncompatibility(Exception e) {
+    Throwable cause = e;
+    while (cause != null) {
+      if (cause instanceof TApplicationException) {
+        if (!thriftIncompatible) {
+          log.warn("Thrift API incompatible with HMS, switching to JDBC"
+              + " fallback for metadata operations: {}", cause.getMessage());
+          thriftIncompatible = true;
+        }
+        if (jdbcMetadataOperator == null) {
+          log.error("Thrift API incompatible with HMS but no JDBC fallback available. "
+              + "Consider using mode=jdbc with a valid jdbcUrl.");
+        }
+        return jdbcMetadataOperator != null;
+      }
+      cause = cause.getCause();
+    }
+    return false;
   }
 
   private Table getInitialTable(String table) {
@@ -152,6 +221,13 @@ public class HoodieHiveSyncClient extends HoodieSyncClient {
       return false;
     }
 
+    if (useJdbcFallback()) {
+      // setTableProperties throws HoodieHiveSyncException on failure,
+      // so reaching here means the DDL statement succeeded.
+      jdbcMetadataOperator.setTableProperties(tableName, tableProperties);
+      return true;
+    }
+
     try {
       Table table = client.getTable(databaseName, tableName);
       Map<String, String> remoteTableProperties = table.getParameters();
@@ -165,6 +241,10 @@ public class HoodieHiveSyncClient extends HoodieSyncClient {
       client.alter_table(databaseName, tableName, table);
       return true;
     } catch (Exception e) {
+      if (detectThriftIncompatibility(e)) {
+        jdbcMetadataOperator.setTableProperties(tableName, tableProperties);
+        return true;
+      }
       throw new HoodieHiveSyncException("Failed to update table properties for table: "
           + tableName, e);
     }
@@ -174,6 +254,9 @@ public class HoodieHiveSyncClient extends HoodieSyncClient {
   public boolean updateSerdeProperties(String tableName, Map<String, String> serdeProperties, boolean useRealtimeFormat) {
     if (MapUtils.isNullOrEmpty(serdeProperties)) {
       return false;
+    }
+    if (useJdbcFallback()) {
+      return updateSerdePropertiesViaJdbc(tableName, serdeProperties, useRealtimeFormat);
     }
     try {
       serdeProperties.putIfAbsent("serialization.format", "1");
@@ -215,8 +298,23 @@ public class HoodieHiveSyncClient extends HoodieSyncClient {
       client.alter_table(databaseName, tableName, table);
       return true;
     } catch (Exception e) {
+      if (detectThriftIncompatibility(e)) {
+        return updateSerdePropertiesViaJdbc(tableName, serdeProperties, useRealtimeFormat);
+      }
       throw new HoodieHiveSyncException("Failed to update table serde info for table: " + tableName, e);
     }
+  }
+
+  private boolean updateSerdePropertiesViaJdbc(String tableName, Map<String, String> serdeProperties, boolean useRealtimeFormat) {
+    serdeProperties.putIfAbsent("serialization.format", "1");
+    HoodieFileFormat baseFileFormat = HoodieFileFormat.valueOf(
+        config.getStringOrDefault(META_SYNC_BASE_FILE_FORMAT).toUpperCase());
+    String inputFormat = getInputFormatClassName(baseFileFormat, useRealtimeFormat);
+    String outputFormat = getOutputFormatClassName(baseFileFormat);
+    String serdeClass = getSerDeClassName(baseFileFormat);
+    jdbcMetadataOperator.setStorageFormat(
+        tableName, inputFormat, outputFormat, serdeClass, serdeProperties);
+    return true;
   }
 
   @Override
@@ -226,18 +324,29 @@ public class HoodieHiveSyncClient extends HoodieSyncClient {
 
   @Override
   public List<Partition> getAllPartitions(String tableName) {
+    if (useJdbcFallback()) {
+      return jdbcMetadataOperator.getAllPartitions(
+          tableName, config.getString(META_SYNC_BASE_PATH));
+    }
     try {
       return client.listPartitions(databaseName, tableName, (short) -1)
           .stream()
           .map(p -> new Partition(p.getValues(), p.getSd().getLocation()))
           .collect(Collectors.toList());
     } catch (TException e) {
+      if (detectThriftIncompatibility(e)) {
+        return jdbcMetadataOperator.getAllPartitions(
+            tableName, config.getString(META_SYNC_BASE_PATH));
+      }
       throw new HoodieHiveSyncException("Failed to get all partitions for table " + tableId(databaseName, tableName), e);
     }
   }
 
   @Override
   public List<Partition> getPartitionsFromList(String tableName, List<String> partitions) {
+    if (useJdbcFallback()) {
+      return filterPartitionsFromJdbc(tableName, partitions);
+    }
     String filter = null;
     try {
       List<String> partitionKeys = config.getSplitStrings(META_SYNC_PARTITION_FIELDS).stream()
@@ -250,14 +359,26 @@ public class HoodieHiveSyncClient extends HoodieSyncClient {
           .collect(Collectors.toList());
       filter = this.generatePushDownFilter(partitions, partitionFields);
 
-      return client.listPartitionsByFilter(databaseName, tableName, filter, (short)-1)
+      return client.listPartitionsByFilter(databaseName, tableName, filter, (short) -1)
           .stream()
           .map(p -> new Partition(p.getValues(), p.getSd().getLocation()))
           .collect(Collectors.toList());
     } catch (TException e) {
+      if (detectThriftIncompatibility(e)) {
+        return filterPartitionsFromJdbc(tableName, partitions);
+      }
       throw new HoodieHiveSyncException("Failed to get partitions for table "
           + tableId(databaseName, tableName) + " with filter " + filter, e);
     }
+  }
+
+  private List<Partition> filterPartitionsFromJdbc(String tableName, List<String> partitions) {
+    List<Partition> allPartitions = jdbcMetadataOperator.getAllPartitions(
+        tableName, config.getString(META_SYNC_BASE_PATH));
+    return allPartitions.stream()
+        .filter(p -> partitions.stream().anyMatch(
+            spec -> p.getStorageLocation().endsWith(spec)))
+        .collect(Collectors.toList());
   }
 
   @Override
@@ -278,19 +399,26 @@ public class HoodieHiveSyncClient extends HoodieSyncClient {
       createTable(tableName, storageSchema, inputFormatClass, outputFormatClass, serdeClass, serdeProperties, tableProperties);
       return;
     }
+    String tempTableName = generateTempTableName(tableName);
     try {
-      // create temp table
-      String tempTableName = generateTempTableName(tableName);
       createTable(tempTableName, storageSchema, inputFormatClass, outputFormatClass, serdeClass, serdeProperties, tableProperties);
 
       // if create table is successful, drop the actual table
       // and rename temp table to actual table
       dropTable(tableName);
 
-      Table table = client.getTable(databaseName, tempTableName);
-      table.setTableName(tableName);
-      client.alter_table(databaseName, tempTableName, table);
+      if (useJdbcFallback()) {
+        jdbcMetadataOperator.renameTable(tempTableName, tableName);
+      } else {
+        Table table = client.getTable(databaseName, tempTableName);
+        table.setTableName(tableName);
+        client.alter_table(databaseName, tempTableName, table);
+      }
     } catch (Exception ex) {
+      if (detectThriftIncompatibility(ex)) {
+        jdbcMetadataOperator.renameTable(tempTableName, tableName);
+        return;
+      }
       throw new HoodieHiveSyncException("failed to create table " + tableId(databaseName, tableName), ex);
     }
   }
@@ -313,15 +441,24 @@ public class HoodieHiveSyncClient extends HoodieSyncClient {
 
   @Override
   public boolean tableExists(String tableName) {
+    if (useJdbcFallback()) {
+      return jdbcMetadataOperator.tableExists(tableName);
+    }
     try {
       return client.tableExists(databaseName, tableName);
     } catch (TException e) {
+      if (detectThriftIncompatibility(e)) {
+        return jdbcMetadataOperator.tableExists(tableName);
+      }
       throw new HoodieHiveSyncException("Failed to check if table exists " + tableName, e);
     }
   }
 
   @Override
   public boolean databaseExists(String databaseName) {
+    if (useJdbcFallback()) {
+      return jdbcMetadataOperator.databaseExists(databaseName);
+    }
     try {
       client.getDatabase(databaseName);
       return true;
@@ -329,6 +466,9 @@ public class HoodieHiveSyncClient extends HoodieSyncClient {
       // NoSuchObjectException is thrown when there is no existing database of the name.
       return false;
     } catch (TException e) {
+      if (detectThriftIncompatibility(e)) {
+        return jdbcMetadataOperator.databaseExists(databaseName);
+      }
       throw new HoodieHiveSyncException("Failed to check if database exists " + databaseName, e);
     }
   }
@@ -340,26 +480,38 @@ public class HoodieHiveSyncClient extends HoodieSyncClient {
 
   @Override
   public Option<String> getLastCommitTimeSynced(String tableName) {
-    // Get the last commit time from the TBLproperties
+    if (useJdbcFallback()) {
+      return jdbcMetadataOperator.getTableProperty(tableName, HOODIE_LAST_COMMIT_TIME_SYNC);
+    }
     try {
       return Option.ofNullable(getInitialTable(tableName).getParameters().getOrDefault(HOODIE_LAST_COMMIT_TIME_SYNC, null));
     } catch (Exception e) {
+      if (detectThriftIncompatibility(e)) {
+        return jdbcMetadataOperator.getTableProperty(tableName, HOODIE_LAST_COMMIT_TIME_SYNC);
+      }
       throw new HoodieHiveSyncException("Failed to get the last commit time synced from the table " + tableName, e);
     }
   }
 
   @Override
   public Option<String> getLastCommitCompletionTimeSynced(String tableName) {
-    // Get the last commit completion time from the TBLproperties
+    if (useJdbcFallback()) {
+      return jdbcMetadataOperator.getTableProperty(tableName, HOODIE_LAST_COMMIT_COMPLETION_TIME_SYNC);
+    }
     try {
       return Option.ofNullable(getInitialTable(tableName).getParameters().getOrDefault(HOODIE_LAST_COMMIT_COMPLETION_TIME_SYNC, null));
     } catch (Exception e) {
+      if (detectThriftIncompatibility(e)) {
+        return jdbcMetadataOperator.getTableProperty(tableName, HOODIE_LAST_COMMIT_COMPLETION_TIME_SYNC);
+      }
       throw new HoodieHiveSyncException("Failed to get the last commit completion time synced from the table " + tableName, e);
     }
   }
 
   public Option<String> getLastReplicatedTime(String tableName) {
-    // Get the last replicated time from the TBLproperties
+    if (useJdbcFallback()) {
+      return jdbcMetadataOperator.getTableProperty(tableName, GLOBALLY_CONSISTENT_READ_TIMESTAMP);
+    }
     try {
       Table table = client.getTable(databaseName, tableName);
       return Option.ofNullable(table.getParameters().getOrDefault(GLOBALLY_CONSISTENT_READ_TIMESTAMP, null));
@@ -367,6 +519,9 @@ public class HoodieHiveSyncClient extends HoodieSyncClient {
       log.error("database.table [{}.{}] not found in hms", databaseName, tableName);
       return Option.empty();
     } catch (Exception e) {
+      if (detectThriftIncompatibility(e)) {
+        return jdbcMetadataOperator.getTableProperty(tableName, GLOBALLY_CONSISTENT_READ_TIMESTAMP);
+      }
       throw new HoodieHiveSyncException("Failed to get the last replicated time from the table " + tableName, e);
     }
   }
@@ -376,17 +531,33 @@ public class HoodieHiveSyncClient extends HoodieSyncClient {
       throw new HoodieHiveSyncException(
           "Not a valid completed timestamp " + timeStamp + " for table " + tableName);
     }
+    if (useJdbcFallback()) {
+      Map<String, String> props = new HashMap<>();
+      props.put(GLOBALLY_CONSISTENT_READ_TIMESTAMP, timeStamp);
+      jdbcMetadataOperator.setTableProperties(tableName, props);
+      return;
+    }
     try {
       Table table = client.getTable(databaseName, tableName);
       table.putToParameters(GLOBALLY_CONSISTENT_READ_TIMESTAMP, timeStamp);
       client.alter_table(databaseName, tableName, table);
     } catch (Exception e) {
+      if (detectThriftIncompatibility(e)) {
+        Map<String, String> props = new HashMap<>();
+        props.put(GLOBALLY_CONSISTENT_READ_TIMESTAMP, timeStamp);
+        jdbcMetadataOperator.setTableProperties(tableName, props);
+        return;
+      }
       throw new HoodieHiveSyncException(
           "Failed to update last replicated time to " + timeStamp + " for " + tableName, e);
     }
   }
 
   public void deleteLastReplicatedTimeStamp(String tableName) {
+    if (useJdbcFallback()) {
+      jdbcMetadataOperator.unsetTableProperty(tableName, GLOBALLY_CONSISTENT_READ_TIMESTAMP);
+      return;
+    }
     try {
       Table table = client.getTable(databaseName, tableName);
       String timestamp = table.getParameters().remove(GLOBALLY_CONSISTENT_READ_TIMESTAMP);
@@ -397,6 +568,10 @@ public class HoodieHiveSyncClient extends HoodieSyncClient {
     } catch (NoSuchObjectException e) {
       // this is ok the table doesn't even exist.
     } catch (Exception e) {
+      if (detectThriftIncompatibility(e)) {
+        jdbcMetadataOperator.unsetTableProperty(tableName, GLOBALLY_CONSISTENT_READ_TIMESTAMP);
+        return;
+      }
       throw new HoodieHiveSyncException(
           "Failed to delete last replicated timestamp for " + tableName, e);
     }
@@ -417,37 +592,65 @@ public class HoodieHiveSyncClient extends HoodieSyncClient {
 
   @Override
   public void updateLastCommitTimeSynced(String tableName) {
-    // Set the last commit time and commit completion from the TBLproperties
     HoodieTimeline activeTimeline = getActiveTimeline();
     Option<String> lastCommitSynced = activeTimeline.lastInstant().map(HoodieInstant::requestedTime);
     Option<String> lastCommitCompletionSynced = activeTimeline.getLatestCompletionTime();
-    if (lastCommitSynced.isPresent()) {
-      try {
-        Table table = client.getTable(databaseName, tableName);
-        String basePath = config.getString(META_SYNC_BASE_PATH);
-        StorageDescriptor sd = table.getSd();
-        sd.setLocation(basePath);
-        SerDeInfo serdeInfo = sd.getSerdeInfo();
-        serdeInfo.putToParameters(ConfigUtils.TABLE_SERDE_PATH, basePath);
-        table.putToParameters(HOODIE_LAST_COMMIT_TIME_SYNC, lastCommitSynced.get());
-        if (lastCommitCompletionSynced.isPresent()) {
-          table.putToParameters(HOODIE_LAST_COMMIT_COMPLETION_TIME_SYNC, lastCommitCompletionSynced.get());
-        }
-        client.alter_table(databaseName, tableName, table);
-      } catch (Exception e) {
-        throw new HoodieHiveSyncException("Failed to get update last commit time synced to " + lastCommitSynced, e);
-      }
+    if (!lastCommitSynced.isPresent()) {
+      return;
     }
+
+    if (useJdbcFallback()) {
+      updateLastCommitTimeSyncedViaJdbc(tableName, lastCommitSynced.get(), lastCommitCompletionSynced);
+      return;
+    }
+
+    try {
+      Table table = client.getTable(databaseName, tableName);
+      String basePath = config.getString(META_SYNC_BASE_PATH);
+      StorageDescriptor sd = table.getSd();
+      sd.setLocation(basePath);
+      SerDeInfo serdeInfo = sd.getSerdeInfo();
+      serdeInfo.putToParameters(ConfigUtils.TABLE_SERDE_PATH, basePath);
+      table.putToParameters(HOODIE_LAST_COMMIT_TIME_SYNC, lastCommitSynced.get());
+      if (lastCommitCompletionSynced.isPresent()) {
+        table.putToParameters(HOODIE_LAST_COMMIT_COMPLETION_TIME_SYNC, lastCommitCompletionSynced.get());
+      }
+      client.alter_table(databaseName, tableName, table);
+    } catch (Exception e) {
+      if (detectThriftIncompatibility(e)) {
+        updateLastCommitTimeSyncedViaJdbc(tableName, lastCommitSynced.get(), lastCommitCompletionSynced);
+        return;
+      }
+      throw new HoodieHiveSyncException("Failed to get update last commit time synced to " + lastCommitSynced, e);
+    }
+  }
+
+  private void updateLastCommitTimeSyncedViaJdbc(String tableName, String lastCommitTime,
+                                                  Option<String> lastCompletionTime) {
+    String basePath = config.getString(META_SYNC_BASE_PATH);
+    Map<String, String> props = new HashMap<>();
+    props.put(HOODIE_LAST_COMMIT_TIME_SYNC, lastCommitTime);
+    if (lastCompletionTime.isPresent()) {
+      props.put(HOODIE_LAST_COMMIT_COMPLETION_TIME_SYNC, lastCompletionTime.get());
+    }
+    jdbcMetadataOperator.setTableProperties(tableName, props);
+    jdbcMetadataOperator.setTableLocation(tableName, basePath, Option.of(ConfigUtils.TABLE_SERDE_PATH));
   }
 
   @Override
   public List<FieldSchema> getMetastoreFieldSchemas(String tableName) {
+    if (useJdbcFallback()) {
+      return jdbcMetadataOperator.getFieldSchemas(tableName);
+    }
     try {
       return client.getSchema(databaseName, tableName)
           .stream()
           .map(f -> new FieldSchema(f.getName(), f.getType(), f.getComment()))
           .collect(Collectors.toList());
     } catch (Exception e) {
+      if (detectThriftIncompatibility(e)) {
+        return jdbcMetadataOperator.getFieldSchemas(tableName);
+      }
       throw new HoodieHiveSyncException("Failed to get field schemas from metastore for table : " + tableName, e);
     }
   }
@@ -506,19 +709,33 @@ public class HoodieHiveSyncClient extends HoodieSyncClient {
 
   @Override
   public void dropTable(String tableName) {
+    if (useJdbcFallback()) {
+      jdbcMetadataOperator.dropTable(tableName);
+      return;
+    }
     try {
       client.dropTable(databaseName, tableName);
       log.info("Successfully deleted table in Hive: {}.{}", databaseName, tableName);
     } catch (Exception e) {
+      if (detectThriftIncompatibility(e)) {
+        jdbcMetadataOperator.dropTable(tableName);
+        return;
+      }
       throw new HoodieHiveSyncException("Failed to delete the table " + tableId(databaseName, tableName), e);
     }
   }
 
   @Override
   public String getTableLocation(String tableName) {
+    if (useJdbcFallback()) {
+      return jdbcMetadataOperator.getTableLocation(tableName);
+    }
     try {
       return getInitialTable(tableName).getSd().getLocation();
     } catch (Exception e) {
+      if (detectThriftIncompatibility(e)) {
+        return jdbcMetadataOperator.getTableLocation(tableName);
+      }
       throw new HoodieHiveSyncException("Failed to get the basepath of the table " + tableId(databaseName, tableName), e);
     }
   }
