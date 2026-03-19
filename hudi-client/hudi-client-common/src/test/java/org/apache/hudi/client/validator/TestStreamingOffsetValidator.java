@@ -468,7 +468,9 @@ public class TestStreamingOffsetValidator {
         Option.of(Arrays.asList(stat1, stat2)),
         true, Option.empty());
 
-    assertEquals(350, context.getTotalRecordsWritten());
+    // getTotalRecordsWritten uses numInserts + numUpdateWrites (not numWrites)
+    // stat1: 100 + 20 = 120, stat2: 50 + 30 = 80, total = 200
+    assertEquals(200, context.getTotalRecordsWritten());
     assertEquals(150, context.getTotalInsertRecordsWritten());
     assertEquals(50, context.getTotalUpdateRecordsWritten());
   }
