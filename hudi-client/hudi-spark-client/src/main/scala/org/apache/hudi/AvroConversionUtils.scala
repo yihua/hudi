@@ -67,7 +67,7 @@ object AvroConversionUtils {
             .asInstanceOf[GenericRecord]
         } catch {
           case e: HoodieSchemaException => throw e
-          case e => throw new SchemaCompatibilityException("Failed to convert spark record into avro record", e)
+          case e: Throwable => throw new SchemaCompatibilityException("Failed to convert spark record into avro record", e)
         }
       }
     }
