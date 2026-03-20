@@ -33,18 +33,13 @@ GH Discussion: https://github.com/apache/hudi/discussions/13955
 
 ## Abstract
 
-Data source is one of the foundational APIs in Spark, with two major versions known as "V1" and "V2". 
-The representation of a read in the physical plan differs depending on the API version used.
-Adopting the V2 API is essential for enhanced control over the data source, deeper integration with the Spark optimizer, and improved overall performance.
+Data source is one of the foundational APIs in Spark, with two major versions known as "V1" and "V2".
+Moving Hudi reads to the V2 API unlocks Spark-native pushdown interfaces that the V1 scan path cannot support:
 
-First steps towards integrating of Spark Datasource V2 were taken in [RFC-38](../rfc-38/rfc-38.md). 
-However, there are multiple issues with advertising Hudi table as V2 without actual implementing certain API, and with using custom relation rule to fall back to V1 API.
-As a result, the current implementation of `HoodieCatalog` and `BaseDefaultSource` returns a `V1Table` instead of `HoodieInternalV2Table`,
-in order to [address performance regression](https://github.com/apache/hudi/pull/5737).
-
-There was [an attempt](https://github.com/apache/hudi/pull/6442) to implement Spark Datasource V2 read functionality as a regular task, 
-but it failed due to the scope of work required.
-Therefore, this RFC proposes to discuss design of Spark Datasource V2 integration in advance and to continue working on it accordingly.
+- Aggregate pushdown (`SupportsPushDownAggregates`): queries like `SELECT COUNT(*)` or `MIN/MAX(col)` can be resolved from column statistics without scanning data files, dramatically reducing query time.
+- Column pruning at scan level (`SupportsPushDownRequiredColumns`): the V2 scan prunes unneeded columns before data reaches Spark operators, reducing I/O for projection queries.
+- Filter pushdown (`SupportsPushDownFilters`): predicate evaluation is pushed into the scan, enabling more efficient data skipping and partition pruning.
+- Limit and TopN pushdown (`SupportsPushDownLimit`, `SupportsPushDownTopN`): Spark pushes row limits into the scan, avoiding full-table reads for `LIMIT` queries.
 
 ## Background
 
@@ -54,7 +49,7 @@ The current implementation of Spark Datasource V2 integration is presented in th
 
 ## Implementation
 
-The main problem is that Hudi's write path involves indexing, precombining, upsert/insert routing, file sizing, and table services (compaction/clustering/cleaning). 
+Hudi's write path is mature, and involves indexing, precombining, upsert/insert routing, file sizing, and table services (compaction/clustering/cleaning). 
 Also `HoodieSparkSqlWriter::write` handles schema evolution, partition encoding, metadata updates, and multi-writer concurrency.
 DSv2's `WriteBuilder` >> `BatchWrite` >> DataWriter API is too simplistic for this, and moving to this entirely would be a non-starter. Also, due to the flexibility of the V1 API in terms of allowing the writes to shuffle data after the `df.write.format....save` is invoked, Hudi supports a streaming DF write for its upsert operation. A good majority of Hudi jobs work this way today, and we cannot break all of these at once
 
