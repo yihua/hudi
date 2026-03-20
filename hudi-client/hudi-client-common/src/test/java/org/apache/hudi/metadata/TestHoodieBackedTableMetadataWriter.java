@@ -138,6 +138,7 @@ class TestHoodieBackedTableMetadataWriter {
     tsmProps.put(HoodieTableServiceManagerConfig.TABLE_SERVICE_MANAGER_ACTIONS.key(), "compaction,logcompaction");
     HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder().withPath("/tmp/").withProperties(tsmProps).build();
     when(writeClient.getConfig()).thenReturn(writeConfig);
+    when(writeClient.shouldDelegateToTableServiceManager(any(), any())).thenCallRealMethod();
 
     when(metaClient.getActiveTimeline()).thenReturn(initialTimeline);
     when(initialTimeline.filterPendingCompactionTimeline().countInstants()).thenReturn(1);
@@ -165,6 +166,7 @@ class TestHoodieBackedTableMetadataWriter {
     tsmProps.put(HoodieTableServiceManagerConfig.TABLE_SERVICE_MANAGER_ACTIONS.key(), "compaction");
     HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder().withPath("/tmp/").withProperties(tsmProps).build();
     when(writeClient.getConfig()).thenReturn(writeConfig);
+    when(writeClient.shouldDelegateToTableServiceManager(any(), any())).thenCallRealMethod();
 
     when(metaClient.getActiveTimeline()).thenReturn(initialTimeline);
     when(initialTimeline.filterPendingCompactionTimeline().countInstants()).thenReturn(1);
