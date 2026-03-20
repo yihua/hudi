@@ -21,7 +21,6 @@ package org.apache.hudi.metadata;
 import org.apache.hudi.avro.model.HoodieRollbackMetadata;
 import org.apache.hudi.client.BaseHoodieWriteClient;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
-import org.apache.hudi.common.config.HoodieTableServiceManagerConfig;
 import org.apache.hudi.common.model.ActionType;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.model.HoodieFailedWritesCleaningPolicy;
@@ -278,7 +277,6 @@ public abstract class HoodieBackedTableMetadataWriterTableVersionSix<I, O> exten
    */
   @Override
   void compactIfNecessary(BaseHoodieWriteClient<?,I,?,O> writeClient, Option<String> latestDeltaCommitTimeOpt) {
-    HoodieTableServiceManagerConfig tsmConfig = metadataWriteConfig.getTableServiceManagerConfig();
     // Trigger compaction with suffixes based on the same instant time. This ensures that any future
     // delta commits synced over will not have an instant time lesser than the last completed instant on the
     // metadata table.
@@ -292,7 +290,7 @@ public abstract class HoodieBackedTableMetadataWriterTableVersionSix<I, O> exten
       LOG.info("Compaction with same {} time is already present in the timeline.", compactionInstantTime);
     } else if (writeClient.scheduleCompactionAtInstant(compactionInstantTime, Option.empty())) {
       LOG.info("Compaction is scheduled for timestamp {}", compactionInstantTime);
-      if (tsmConfig.isEnabledAndActionSupported(ActionType.compaction)) {
+      if (shouldDelegateToTableServiceManager(metadataWriteConfig, ActionType.compaction)) {
         LOG.info("Skipping execution of compaction on MDT as it is delegated to table service manager.");
       } else {
         writeClient.compact(compactionInstantTime, true);
@@ -306,7 +304,7 @@ public abstract class HoodieBackedTableMetadataWriterTableVersionSix<I, O> exten
         LOG.info("Log compaction with same {} time is already present in the timeline.", logCompactionInstantTime);
       } else if (writeClient.scheduleLogCompactionAtInstant(logCompactionInstantTime, Option.empty())) {
         LOG.info("Log compaction is scheduled for timestamp {}", logCompactionInstantTime);
-        if (tsmConfig.isEnabledAndActionSupported(ActionType.logcompaction)) {
+        if (shouldDelegateToTableServiceManager(metadataWriteConfig, ActionType.logcompaction)) {
           LOG.info("Skipping execution of log compaction on MDT as it is delegated to table service manager.");
         } else {
           writeClient.logCompact(logCompactionInstantTime, true);
