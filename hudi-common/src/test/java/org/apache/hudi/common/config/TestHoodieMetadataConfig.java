@@ -27,6 +27,7 @@ import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -225,5 +226,28 @@ class TestHoodieMetadataConfig {
         .fromProperties(props)
         .build();
     assertEquals("compaction", propsConfig.getTableServiceManagerActions());
+  }
+
+  @Test
+  void testTableServiceManagerActionsRejectsUnsupportedActions() {
+    assertThrows(IllegalArgumentException.class, () ->
+        HoodieMetadataConfig.newBuilder()
+            .withTableServiceManagerActions("clean")
+            .build());
+
+    assertThrows(IllegalArgumentException.class, () ->
+        HoodieMetadataConfig.newBuilder()
+            .withTableServiceManagerActions("clustering")
+            .build());
+
+    assertThrows(IllegalArgumentException.class, () ->
+        HoodieMetadataConfig.newBuilder()
+            .withTableServiceManagerActions("compaction,clean")
+            .build());
+
+    assertThrows(IllegalArgumentException.class, () ->
+        HoodieMetadataConfig.newBuilder()
+            .withTableServiceManagerActions("nonexistent")
+            .build());
   }
 }

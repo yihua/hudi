@@ -126,17 +126,35 @@ public class TestHoodieMetadataWriteUtils {
             .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL).build())
         .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL)
         .withLockConfig(HoodieLockConfig.newBuilder()
-            .withLockProvider(InProcessLockProvider.class).build())
+            .withLockProvider(FileSystemBasedLockProvider.class).build())
         .build();
 
     HoodieWriteConfig metadataWriteConfig = HoodieMetadataWriteUtils.createMetadataWriteConfig(
         writeConfig, HoodieFailedWritesCleaningPolicy.EAGER, HoodieTableVersion.EIGHT);
     // HoodieWriteConfig builder auto-adjusts failed writes policy to LAZY for multi-writer modes
     validateMetadataWriteConfig(metadataWriteConfig, HoodieFailedWritesCleaningPolicy.LAZY,
-        WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL, InProcessLockProvider.class.getCanonicalName());
+        WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL, FileSystemBasedLockProvider.class.getCanonicalName());
     // MDT base path should NOT be overwritten to data table's base path
     String expectedMdtBasePath = HoodieTableMetadata.getMetadataTableBasePath(dataTableBasePath);
     assertEquals(expectedMdtBasePath, metadataWriteConfig.getBasePath());
+  }
+
+  @Test
+  public void testCreateMetadataWriteConfigRejectsInProcessLockProvider() {
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath("/tmp/base_path/")
+        .withMetadataConfig(HoodieMetadataConfig.newBuilder()
+            .withStreamingWriteEnabled(false)
+            .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL).build())
+        .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL)
+        .withLockConfig(HoodieLockConfig.newBuilder()
+            .withLockProvider(InProcessLockProvider.class).build())
+        .build();
+
+    IllegalStateException ex = assertThrows(IllegalStateException.class, () ->
+        HoodieMetadataWriteUtils.createMetadataWriteConfig(
+            writeConfig, HoodieFailedWritesCleaningPolicy.EAGER, HoodieTableVersion.EIGHT));
+    assertTrue(ex.getMessage().contains("InProcessLockProvider cannot be used"));
   }
 
   @Test

@@ -20,6 +20,7 @@ package org.apache.hudi.common.config;
 
 import org.apache.hudi.common.bloom.BloomFilterTypeCode;
 import org.apache.hudi.common.engine.EngineType;
+import org.apache.hudi.common.model.ActionType;
 import org.apache.hudi.common.model.WriteConcurrencyMode;
 import org.apache.hudi.common.table.view.FileSystemViewStorageConfig;
 import org.apache.hudi.common.util.Option;
@@ -33,10 +34,12 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.apache.hudi.common.util.ValidationUtils.checkArgument;
@@ -96,6 +99,9 @@ public final class HoodieMetadataConfig extends HoodieConfig {
       .withDocumentation("If true, delegate specified table service actions on the metadata table to the table service manager "
           + "instead of executing them inline. This prevents the current writer from executing compaction/logcompaction "
           + "on the metadata table, allowing a separate async pipeline to handle them.");
+
+  public static final Set<ActionType> SUPPORTED_TABLE_SERVICE_MANAGER_ACTIONS =
+      EnumSet.of(ActionType.compaction, ActionType.logcompaction);
 
   public static final ConfigProperty<String> TABLE_SERVICE_MANAGER_ACTIONS = ConfigProperty
       .key(METADATA_PREFIX + ".table.service.manager.actions")
@@ -1052,6 +1058,9 @@ public final class HoodieMetadataConfig extends HoodieConfig {
     }
 
     public Builder withTableServiceManagerActions(String actions) {
+      if (!actions.isEmpty()) {
+        validateTableServiceManagerActions(actions);
+      }
       metadataConfig.setValue(TABLE_SERVICE_MANAGER_ACTIONS, actions);
       return this;
     }
@@ -1395,6 +1404,23 @@ public final class HoodieMetadataConfig extends HoodieConfig {
           return false;
         default:
           throw new HoodieNotSupportedException("Unsupported engine " + engineType);
+      }
+    }
+
+    private static void validateTableServiceManagerActions(String actions) {
+      for (String action : actions.split(",")) {
+        String trimmed = action.trim();
+        ActionType actionType;
+        try {
+          actionType = ActionType.valueOf(trimmed);
+        } catch (IllegalArgumentException e) {
+          throw new IllegalArgumentException("Unknown metadata table service manager action: " + trimmed
+              + ". Supported actions are: " + SUPPORTED_TABLE_SERVICE_MANAGER_ACTIONS, e);
+        }
+        if (!SUPPORTED_TABLE_SERVICE_MANAGER_ACTIONS.contains(actionType)) {
+          throw new IllegalArgumentException("Unsupported metadata table service manager action: " + trimmed
+              + ". Supported actions are: " + SUPPORTED_TABLE_SERVICE_MANAGER_ACTIONS);
+        }
       }
     }
   }

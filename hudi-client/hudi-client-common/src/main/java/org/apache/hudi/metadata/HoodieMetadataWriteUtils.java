@@ -155,7 +155,7 @@ public class HoodieMetadataWriteUtils {
 
     WriteConcurrencyMode concurrencyMode;
     HoodieLockConfig lockConfig;
-    final boolean mergeMetdataLockConfigAtEnd;
+    final boolean deriveMetadataLockConfigsFromDataTableConfigs;
     if (metadataWriteConcurrencyMode.supportsMultiWriter()) {
       // Configuring Multi-writer directly on metadata table is intended for executing table service plans, not for writes.
       checkState(!isStreamingWritesToMetadataEnabled,
@@ -164,17 +164,22 @@ public class HoodieMetadataWriteUtils {
       checkState(metadataWriteConcurrencyMode == writeConfig.getWriteConcurrencyMode(),
           "If multiwriter is used on metadata table, its concurrency mode (" + metadataWriteConcurrencyMode
               + ") must match the data table concurrency mode (" + writeConfig.getWriteConcurrencyMode() + ")");
-      // First lets create te MDT write config with default single writer lock configs.
-      // Then, once all MDT-specific write configs are set, we can create a lock config 
-      // containing all write config raw props in data table that aren't in the raw props
-      // for MDT write config. And then, re-build the MDT write config with this merged lock config.
+      String lockProviderClass = writeConfig.getLockProviderClass();
+      checkState(lockProviderClass != null,
+          "Lock provider class must be set for data table to enable async executions of table services in metadata table");
+      checkState(!InProcessLockProvider.class.getCanonicalName().equals(lockProviderClass),
+          "InProcessLockProvider cannot be used for metadata table multi-writer mode as it does not support cross-process locking. "
+              + "Configure a distributed lock provider on the data table.");
+      // First lets create the MDT write config with default single writer lock configs.
+      // Then, once all MDT-specific write configs are set, we can derive lock configs
+      // from the data table and re-build the MDT write config with the merged lock config.
       concurrencyMode = WriteConcurrencyMode.SINGLE_WRITER;
       lockConfig = HoodieLockConfig.newBuilder().build();
       failedWritesCleaningPolicy = HoodieFailedWritesCleaningPolicy.LAZY;
-      mergeMetdataLockConfigAtEnd = true;
+      deriveMetadataLockConfigsFromDataTableConfigs = true;
 
     } else {
-      mergeMetdataLockConfigAtEnd = false;
+      deriveMetadataLockConfigsFromDataTableConfigs = false;
       if (isStreamingWritesToMetadataEnabled) {
         concurrencyMode = WriteConcurrencyMode.NON_BLOCKING_CONCURRENCY_CONTROL;
         lockConfig = HoodieLockConfig.newBuilder().withLockProvider(InProcessLockProvider.class).build();
@@ -383,7 +388,7 @@ public class HoodieMetadataWriteUtils {
     }
 
     HoodieWriteConfig metadataWriteConfig = builder.build();
-    if (mergeMetdataLockConfigAtEnd) {
+    if (deriveMetadataLockConfigsFromDataTableConfigs) {
       // We need to update the MDT write config to have the same lock related configs as the data table.
       // All data table props with the lock prefix are always copied (to override MDT defaults with
       // user-configured values). Other data table props not present in MDT config are also copied to
@@ -397,11 +402,9 @@ public class HoodieMetadataWriteUtils {
         }
       }
       lockProps.setProperty(HoodieWriteConfig.WRITE_CONCURRENCY_MODE.key(), metadataWriteConcurrencyMode.name());
-      String lockProviderClass = writeConfig.getLockProviderClass();
-      checkState(lockProviderClass != null, "Lock provider class must be set for metadata table");
-      lockProps.setProperty(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME.key(), lockProviderClass);
+      lockProps.setProperty(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME.key(), writeConfig.getLockProviderClass());
       metadataWriteConfig = HoodieWriteConfig.newBuilder()
-          .withProperties(metadataWriteConfig.getProps())
+          .withProperties(mdtProps)
           .withProperties(lockProps)
           .build();
     }
