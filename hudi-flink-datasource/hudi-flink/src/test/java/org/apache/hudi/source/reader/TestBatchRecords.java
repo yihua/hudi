@@ -50,7 +50,6 @@ public class TestBatchRecords {
     assertNotNull(batchRecords);
     assertEquals(splitId, batchRecords.nextSplit());
     assertNull(batchRecords.nextRecordFromSplit(), "Should have no records");
-    assertTrue(batchRecords.finishedSplits().contains(splitId), "Should contain finished split");
     assertNull(batchRecords.nextSplit(), "Second call to nextSplit should return null");
   }
 
@@ -136,17 +135,6 @@ public class TestBatchRecords {
     HoodieRecordWithPosition<String> record2 = batchRecords.nextRecordFromSplit();
     assertNotNull(record2);
     assertEquals(fileOffset, record2.fileOffset(), "File offset should remain constant");
-  }
-
-  @Test
-  public void testFinishedSplitsEmpty() {
-    String splitId = "test-split-6";
-    List<String> records = Arrays.asList("record1");
-    ClosableIterator<String> iterator = createClosableIterator(records);
-
-    BatchRecords<String> batchRecords = BatchRecords.forRecords(splitId, iterator, 0, 0L);
-
-    assertTrue(batchRecords.finishedSplits().isEmpty(), "Should have empty finished splits by default");
   }
 
   @Test
@@ -331,25 +319,6 @@ public class TestBatchRecords {
 
     // After exhaustion, nextRecordFromSplit should close the iterator
     assertTrue(mockIterator.isClosed(), "Iterator should be closed after exhaustion");
-  }
-
-  @Test
-  public void testFinishedSplitsAddedAfterExhaustion() {
-    String splitId = "test-split-18";
-    List<String> records = Arrays.asList("record1");
-    ClosableIterator<String> iterator = createClosableIterator(records);
-
-    BatchRecords<String> batchRecords = BatchRecords.forRecords(splitId, iterator, 0, 0L);
-    batchRecords.nextSplit();
-
-    assertTrue(batchRecords.finishedSplits().isEmpty());
-
-    // Read all records
-    batchRecords.nextRecordFromSplit();
-
-    // After exhaustion, split should be added to finished splits
-    assertNull(batchRecords.nextRecordFromSplit());
-    assertTrue(batchRecords.finishedSplits().contains(splitId));
   }
 
   /**
