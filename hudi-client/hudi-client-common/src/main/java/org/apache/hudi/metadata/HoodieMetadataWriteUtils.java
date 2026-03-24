@@ -20,7 +20,11 @@ package org.apache.hudi.metadata;
 
 import org.apache.hudi.avro.model.HoodieMetadataRecord;
 import org.apache.hudi.client.FailOnFirstErrorWriteStatus;
+import org.apache.hudi.client.transaction.lock.FileSystemBasedLockProvider;
 import org.apache.hudi.client.transaction.lock.InProcessLockProvider;
+import org.apache.hudi.client.transaction.lock.StorageBasedLockProvider;
+import org.apache.hudi.client.transaction.lock.ZookeeperBasedImplicitBasePathLockProvider;
+import org.apache.hudi.client.transaction.lock.ZookeeperBasedLockProvider;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.config.HoodieTableServiceManagerConfig;
 import org.apache.hudi.common.config.LockConfiguration;
@@ -133,6 +137,19 @@ public class HoodieMetadataWriteUtils {
   // any ways be limited by the executor counts.
   private static final int MDT_DEFAULT_PARALLELISM = 512;
 
+  // Lock provider class names from modules not directly accessible in hudi-client-common.
+  @VisibleForTesting
+  static final String HIVE_METASTORE_BASED_LOCK_PROVIDER_CLASS =
+      "org.apache.hudi.hive.transaction.lock.HiveMetastoreBasedLockProvider";
+  @VisibleForTesting
+  static final String DYNAMODB_BASED_LOCK_PROVIDER_CLASS =
+      "org.apache.hudi.aws.transaction.lock.DynamoDBBasedLockProvider";
+  @VisibleForTesting
+  static final String DYNAMODB_BASED_IMPLICIT_PARTITION_KEY_LOCK_PROVIDER_CLASS =
+      "org.apache.hudi.aws.transaction.lock.DynamoDBBasedImplicitPartitionKeyLockProvider";
+  private static final String DYNAMODB_BASED_LOCK_PROPERTY_PREFIX = LockConfiguration.LOCK_PREFIX + "dynamodb.";
+  private static final String STORAGE_BASED_LOCK_PROPERTY_PREFIX = LockConfiguration.LOCK_PREFIX + "storage.";
+
   // File groups in each partition are fixed at creation time and we do not want them to be split into multiple files
   // ever. Hence, we use a very large basefile size in metadata table. The actual size of the HFiles created will
   // eventually depend on the number of file groups selected for each partition (See estimateFileGroupCount function)
@@ -155,7 +172,6 @@ public class HoodieMetadataWriteUtils {
 
     WriteConcurrencyMode concurrencyMode;
     HoodieLockConfig lockConfig;
-    final boolean deriveMetadataLockConfigsFromDataTableConfigs;
     if (metadataWriteConcurrencyMode.supportsMultiWriter()) {
       // Configuring Multi-writer directly on metadata table is intended for executing table service plans, not for writes.
       checkState(!isStreamingWritesToMetadataEnabled,
@@ -170,16 +186,10 @@ public class HoodieMetadataWriteUtils {
       checkState(!InProcessLockProvider.class.getCanonicalName().equals(lockProviderClass),
           "InProcessLockProvider cannot be used for metadata table multi-writer mode as it does not support cross-process locking. "
               + "Configure a distributed lock provider on the data table.");
-      // First lets create the MDT write config with default single writer lock configs.
-      // Then, once all MDT-specific write configs are set, we can derive lock configs
-      // from the data table and re-build the MDT write config with the merged lock config.
-      concurrencyMode = WriteConcurrencyMode.SINGLE_WRITER;
-      lockConfig = HoodieLockConfig.newBuilder().build();
+      concurrencyMode = metadataWriteConcurrencyMode;
       failedWritesCleaningPolicy = HoodieFailedWritesCleaningPolicy.LAZY;
-      deriveMetadataLockConfigsFromDataTableConfigs = true;
-
+      lockConfig = buildMdtLockConfig(lockProviderClass, writeConfig);
     } else {
-      deriveMetadataLockConfigsFromDataTableConfigs = false;
       if (isStreamingWritesToMetadataEnabled) {
         concurrencyMode = WriteConcurrencyMode.NON_BLOCKING_CONCURRENCY_CONTROL;
         lockConfig = HoodieLockConfig.newBuilder().withLockProvider(InProcessLockProvider.class).build();
@@ -388,26 +398,6 @@ public class HoodieMetadataWriteUtils {
     }
 
     HoodieWriteConfig metadataWriteConfig = builder.build();
-    if (deriveMetadataLockConfigsFromDataTableConfigs) {
-      // We need to update the MDT write config to have the same lock related configs as the data table.
-      // All data table props with the lock prefix are always copied (to override MDT defaults with
-      // user-configured values). Other data table props not present in MDT config are also copied to
-      // support custom lock providers that may use non-standard config keys.
-      Properties lockProps = new Properties();
-      TypedProperties dataTableProps = writeConfig.getProps();
-      TypedProperties mdtProps = metadataWriteConfig.getProps();
-      for (String key : dataTableProps.stringPropertyNames()) {
-        if (key.startsWith(LockConfiguration.LOCK_PREFIX) || !mdtProps.containsKey(key)) {
-          lockProps.setProperty(key, dataTableProps.getProperty(key));
-        }
-      }
-      lockProps.setProperty(HoodieWriteConfig.WRITE_CONCURRENCY_MODE.key(), metadataWriteConcurrencyMode.name());
-      lockProps.setProperty(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME.key(), writeConfig.getLockProviderClass());
-      metadataWriteConfig = HoodieWriteConfig.newBuilder()
-          .withProperties(mdtProps)
-          .withProperties(lockProps)
-          .build();
-    }
 
     // Inline compaction and auto clean is required as we do not expose this table outside
     ValidationUtils.checkArgument(!metadataWriteConfig.isAutoClean(), "Cleaning is controlled internally for Metadata table.");
@@ -418,6 +408,62 @@ public class HoodieMetadataWriteUtils {
     ValidationUtils.checkArgument(!metadataWriteConfig.isMetadataTableEnabled(), "File listing cannot be used for Metadata Table");
 
     return metadataWriteConfig;
+  }
+
+  /**
+   * Build a {@link HoodieLockConfig} for the metadata table by copying lock-related configs
+   * from the data table's write config based on the configured lock provider.
+   * Only built-in lock providers are supported.
+   */
+  @VisibleForTesting
+  static HoodieLockConfig buildMdtLockConfig(String lockProviderClass, HoodieWriteConfig writeConfig) {
+    TypedProperties dataProps = writeConfig.getProps();
+    Properties lockProps = new Properties();
+    lockProps.put(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME.key(), lockProviderClass);
+
+    // Common lock configs used by all providers
+    lockProps.put(HoodieLockConfig.LOCK_ACQUIRE_RETRY_WAIT_TIME_IN_MILLIS.key(),
+        writeConfig.getStringOrDefault(HoodieLockConfig.LOCK_ACQUIRE_RETRY_WAIT_TIME_IN_MILLIS));
+    lockProps.put(HoodieLockConfig.LOCK_ACQUIRE_RETRY_MAX_WAIT_TIME_IN_MILLIS.key(),
+        writeConfig.getStringOrDefault(HoodieLockConfig.LOCK_ACQUIRE_RETRY_MAX_WAIT_TIME_IN_MILLIS));
+    lockProps.put(HoodieLockConfig.LOCK_ACQUIRE_CLIENT_RETRY_WAIT_TIME_IN_MILLIS.key(),
+        writeConfig.getStringOrDefault(HoodieLockConfig.LOCK_ACQUIRE_CLIENT_RETRY_WAIT_TIME_IN_MILLIS));
+    lockProps.put(HoodieLockConfig.LOCK_ACQUIRE_NUM_RETRIES.key(),
+        writeConfig.getStringOrDefault(HoodieLockConfig.LOCK_ACQUIRE_NUM_RETRIES));
+    lockProps.put(HoodieLockConfig.LOCK_ACQUIRE_CLIENT_NUM_RETRIES.key(),
+        writeConfig.getStringOrDefault(HoodieLockConfig.LOCK_ACQUIRE_CLIENT_NUM_RETRIES));
+    lockProps.put(HoodieLockConfig.LOCK_ACQUIRE_WAIT_TIMEOUT_MS.key(),
+        String.valueOf(writeConfig.getIntOrDefault(HoodieLockConfig.LOCK_ACQUIRE_WAIT_TIMEOUT_MS)));
+    lockProps.put(HoodieLockConfig.LOCK_HEARTBEAT_INTERVAL_MS.key(),
+        String.valueOf(writeConfig.getIntOrDefault(HoodieLockConfig.LOCK_HEARTBEAT_INTERVAL_MS)));
+
+    // Provider-specific configs
+    if (FileSystemBasedLockProvider.class.getCanonicalName().equals(lockProviderClass)) {
+      copyPropsWithPrefix(dataProps, lockProps, LockConfiguration.FILESYSTEM_BASED_LOCK_PROPERTY_PREFIX);
+    } else if (ZookeeperBasedLockProvider.class.getCanonicalName().equals(lockProviderClass)
+        || ZookeeperBasedImplicitBasePathLockProvider.class.getCanonicalName().equals(lockProviderClass)) {
+      copyPropsWithPrefix(dataProps, lockProps, LockConfiguration.ZOOKEEPER_BASED_LOCK_PROPERTY_PREFIX);
+    } else if (HIVE_METASTORE_BASED_LOCK_PROVIDER_CLASS.equals(lockProviderClass)) {
+      copyPropsWithPrefix(dataProps, lockProps, LockConfiguration.HIVE_METASTORE_LOCK_PROPERTY_PREFIX);
+    } else if (DYNAMODB_BASED_LOCK_PROVIDER_CLASS.equals(lockProviderClass)
+        || DYNAMODB_BASED_IMPLICIT_PARTITION_KEY_LOCK_PROVIDER_CLASS.equals(lockProviderClass)) {
+      copyPropsWithPrefix(dataProps, lockProps, DYNAMODB_BASED_LOCK_PROPERTY_PREFIX);
+    } else if (StorageBasedLockProvider.class.getCanonicalName().equals(lockProviderClass)) {
+      copyPropsWithPrefix(dataProps, lockProps, STORAGE_BASED_LOCK_PROPERTY_PREFIX);
+    } else {
+      throw new HoodieException(writeConfig.getWriteConcurrencyMode()
+          + " is only supported for built-in lock providers. Unsupported lock provider: " + lockProviderClass);
+    }
+
+    return HoodieLockConfig.newBuilder().fromProperties(lockProps).build();
+  }
+
+  private static void copyPropsWithPrefix(TypedProperties source, Properties target, String prefix) {
+    for (String key : source.stringPropertyNames()) {
+      if (key.startsWith(prefix)) {
+        target.setProperty(key, source.getProperty(key));
+      }
+    }
   }
 
   /**
