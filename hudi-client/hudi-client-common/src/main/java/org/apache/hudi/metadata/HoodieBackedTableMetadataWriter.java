@@ -266,7 +266,7 @@ public abstract class HoodieBackedTableMetadataWriter<I> implements HoodieTableM
       // If there is no commit on the dataset yet, use the SOLO_COMMIT_TIMESTAMP as the instant time for initial commit
       // Otherwise, we use the timestamp of the latest completed action.
       String initializationTime = dataMetaClient.getActiveTimeline().filterCompletedInstants().lastInstant().map(HoodieInstant::getTimestamp).orElse(SOLO_COMMIT_TIMESTAMP);
-      if(!initializeFromFilesystem(initializationTime, metadataPartitionsToInit, inflightInstantTimestamp)) {
+      if (!initializeFromFilesystem(initializationTime, metadataPartitionsToInit, inflightInstantTimestamp)) {
         LOG.error("Failed to initialize MDT from filesystem");
         return false;
       }
@@ -349,7 +349,7 @@ public abstract class HoodieBackedTableMetadataWriter<I> implements HoodieTableM
       return false;
     }
 
-    Set<String> pendingDataInstants = inflightInstantTimestamp.map(Collections::singleton).orElse(Collections.emptySet());
+    Set<String> pendingDataInstants = getPendingDataInstants(dataMetaClient);
     // FILES partition is always required and is initialized first
     boolean filesPartitionAvailable = dataMetaClient.getTableConfig().isMetadataPartitionAvailable(MetadataPartitionType.FILES);
     if (!filesPartitionAvailable) {
