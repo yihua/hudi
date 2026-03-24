@@ -41,12 +41,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
-import java.util.stream.Collectors;
 
 /**
  * Sink function to write data with continuous sorting for improved compression.
@@ -138,10 +136,7 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
     // Initialize TreeMap with comparator that uses normalized keys for fast comparison
     // and falls back to RecordComparator for full comparison when normalized keys are equal
     this.sortedRecords = new TreeMap<>((k1, k2) -> {
-      MemorySegment seg1 = MemorySegmentFactory.wrap(k1.keyBytes);
-      MemorySegment seg2 = MemorySegmentFactory.wrap(k2.keyBytes);
-
-      int cmp = normalizedKeyComputer.compareKey(seg1, 0, seg2, 0);
+      int cmp = normalizedKeyComputer.compareKey(k1.keySegment, 0, k2.keySegment, 0);
       if (cmp != 0) {
         return cmp;
       }
@@ -160,7 +155,7 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
     this.reusableKeySegment = MemorySegmentFactory.wrap(reusableKeyBuffer);
 
     // Detect object reuse mode and create serializer for copying if needed
-    this.objectReuseEnabled = getRuntimeContext().isObjectReuseEnabled();
+    this.objectReuseEnabled = getRuntimeContext().getExecutionConfig().isObjectReuseEnabled();
     if (this.objectReuseEnabled) {
       this.rowDataSerializer = new RowDataSerializer(rowType);
     }
@@ -258,9 +253,8 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
 
     } catch (IOException e) {
       throw new HoodieIOException("Failed to drain buffer during snapshot", e);
-    } finally {
-      super.snapshotState();
     }
+    super.snapshotState();
   }
 
   @Override
@@ -276,9 +270,8 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
 
     } catch (IOException e) {
       throw new HoodieIOException("Failed to drain buffer during endInput", e);
-    } finally {
-      super.endInput();
     }
+    super.endInput();
   }
 
   @Override
@@ -293,12 +286,13 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
   }
 
   /**
-   * Sort key with normalized key stored in byte array (on-heap).
+   * Sort key with normalized key stored as a pre-wrapped MemorySegment to avoid
+   * repeated allocation during TreeMap comparisons.
    * Holds a reference to the original record for full comparison fallback.
    * Comparison is done via TreeMap comparator.
    */
   private static class SortKey {
-    final byte[] keyBytes;
+    final MemorySegment keySegment;
     final RowData record;
     final long insertionOrder;
 
@@ -306,9 +300,10 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
       this.record = record;
       this.insertionOrder = insertionOrder;
 
-      // Copy normalized key from MemorySegment to on-heap byte array
-      this.keyBytes = new byte[keySize];
+      // Copy normalized key and wrap as MemorySegment once to avoid per-comparison allocation
+      byte[] keyBytes = new byte[keySize];
       sourceSegment.get(0, keyBytes, 0, keySize);
+      this.keySegment = MemorySegmentFactory.wrap(keyBytes);
     }
 
     @Override

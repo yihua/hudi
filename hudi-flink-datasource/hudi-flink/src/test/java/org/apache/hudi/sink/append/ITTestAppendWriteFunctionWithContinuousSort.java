@@ -353,6 +353,60 @@ public class ITTestAppendWriteFunctionWithContinuousSort extends TestWriteBase {
   }
 
   @Test
+  public void testObjectReuseEnabled() throws Exception {
+    // All expected records (order may vary due to file read ordering)
+    List<String> expected = Arrays.asList(
+        "uuid1,Bob,30,1970-01-01 00:00:01.123,p1",
+        "uuid2,Alice,25,1970-01-01 00:00:01.124,p1",
+        "uuid3,Bob,21,1970-01-01 00:00:31.124,p1");
+
+    // Create a reusable row to simulate Flink object reuse behavior
+    GenericRowData reusableRow = new GenericRowData(5);
+
+    // Write data using a single reused RowData instance (mimicking object reuse)
+    TestWriteBase.TestHarness harness = TestWriteBase.TestHarness.instance()
+        .preparePipelineWithObjectReuse(tempFile, conf);
+
+    // Record 1: Bob, 30
+    reusableRow.setField(0, StringData.fromString("uuid1"));
+    reusableRow.setField(1, StringData.fromString("Bob"));
+    reusableRow.setField(2, 30);
+    reusableRow.setField(3, TimestampData.fromTimestamp(Timestamp.valueOf("1970-01-01 00:00:01.123")));
+    reusableRow.setField(4, StringData.fromString("p1"));
+    harness.consume(Arrays.asList(reusableRow));
+
+    // Record 2: Alice, 25 (mutating the same row)
+    reusableRow.setField(0, StringData.fromString("uuid2"));
+    reusableRow.setField(1, StringData.fromString("Alice"));
+    reusableRow.setField(2, 25);
+    reusableRow.setField(3, TimestampData.fromTimestamp(Timestamp.valueOf("1970-01-01 00:00:01.124")));
+    reusableRow.setField(4, StringData.fromString("p1"));
+    harness.consume(Arrays.asList(reusableRow));
+
+    // Record 3: Bob, 21 (mutating the same row again)
+    reusableRow.setField(0, StringData.fromString("uuid3"));
+    reusableRow.setField(1, StringData.fromString("Bob"));
+    reusableRow.setField(2, 21);
+    reusableRow.setField(3, TimestampData.fromTimestamp(Timestamp.valueOf("1970-01-01 00:00:31.124")));
+    reusableRow.setField(4, StringData.fromString("p1"));
+    harness.consume(Arrays.asList(reusableRow));
+
+    harness.checkpoint(1).endInput();
+
+    // Verify all 3 records are distinct and not corrupted by object reuse
+    // (without object reuse safety, all records would be the same - the last mutation)
+    List<GenericRecord> result = TestData.readAllData(new File(conf.get(FlinkOptions.PATH)), rowType, 1);
+    assertEquals(3, result.size());
+
+    List<String> filteredResult =
+        result.stream().map(TestData::filterOutVariablesWithoutHudiMetadata)
+            .sorted().collect(Collectors.toList());
+    List<String> sortedExpected = expected.stream().sorted().collect(Collectors.toList());
+
+    assertArrayEquals(sortedExpected.toArray(), filteredResult.toArray());
+  }
+
+  @Test
   public void testInvalidSortKeysOnlyWhitespace() {
     this.conf.set(FlinkOptions.WRITE_BUFFER_SORT_KEYS, "   ");
 

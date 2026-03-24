@@ -99,8 +99,13 @@ public abstract class AppendWriteFunctions {
     ValidationUtils.checkArgument(StringUtils.nonEmpty(sortKeys),
         "Sort keys can't be null or empty for append write with buffer sort. "
             + "Either set write.buffer.sort.keys or ensure record key field is configured.");
-    return Arrays.stream(sortKeys.split(","))
+    List<String> sortKeyList = Arrays.stream(sortKeys.split(","))
         .map(String::trim)
+        .filter(s -> !s.isEmpty())
         .collect(Collectors.toList());
+    ValidationUtils.checkArgument(!sortKeyList.isEmpty(),
+        "Sort keys can't be empty for append write with buffer sort. "
+            + "Either set write.buffer.sort.keys or ensure record key field is configured.");
+    return sortKeyList;
   }
 }
