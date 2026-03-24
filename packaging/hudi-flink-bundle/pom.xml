@@ -21,7 +21,7 @@
   <parent>
     <artifactId>hudi</artifactId>
     <groupId>org.apache.hudi</groupId>
-    <version>0.14.1</version>
+    <version>0.14.2-SNAPSHOT</version>
     <relativePath>../../pom.xml</relativePath>
   </parent>
   <modelVersion>4.0.0</modelVersion>
@@ -192,10 +192,6 @@
                 <relocation>
                   <pattern>com.beust.jcommander.</pattern>
                   <shadedPattern>${flink.bundle.shade.prefix}com.beust.jcommander.</shadedPattern>
-                </relocation>
-                <relocation>
-                  <pattern>com.codahale.metrics.</pattern>
-                  <shadedPattern>${flink.bundle.shade.prefix}com.codahale.metrics.</shadedPattern>
                 </relocation>
                 <relocation>
                   <pattern>org.apache.commons.codec.</pattern>
