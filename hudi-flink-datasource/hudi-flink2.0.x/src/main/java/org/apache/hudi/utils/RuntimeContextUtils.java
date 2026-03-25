@@ -24,6 +24,7 @@ import org.apache.flink.api.common.functions.RuntimeContext;
 import java.util.Map;
 
 import static org.apache.flink.configuration.PipelineOptions.AUTO_WATERMARK_INTERVAL;
+import static org.apache.flink.configuration.PipelineOptions.OBJECT_REUSE;
 
 /**
  * Adapter utils for {@code RuntimeContext} to solve API compatibilities issue.
@@ -54,5 +55,11 @@ public class RuntimeContextUtils {
     Map<String, String> jobParameters = runtimeContext.getGlobalJobParameters();
     return Long.parseLong(jobParameters.getOrDefault(AUTO_WATERMARK_INTERVAL.key(),
         AUTO_WATERMARK_INTERVAL.defaultValue().toMillis() + ""));
+  }
+
+  public static boolean isObjectReuseEnabled(RuntimeContext runtimeContext) {
+    Map<String, String> jobParameters = runtimeContext.getGlobalJobParameters();
+    return Boolean.parseBoolean(jobParameters.getOrDefault(OBJECT_REUSE.key(),
+        OBJECT_REUSE.defaultValue().toString()));
   }
 }

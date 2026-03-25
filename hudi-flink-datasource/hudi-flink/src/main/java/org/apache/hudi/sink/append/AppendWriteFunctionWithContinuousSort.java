@@ -23,6 +23,7 @@ import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.sink.StreamWriteOperatorCoordinator;
 import org.apache.hudi.sink.bulk.sort.SortOperatorGen;
+import org.apache.hudi.utils.RuntimeContextUtils;
 
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.memory.MemorySegment;
@@ -155,7 +156,7 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
     this.reusableKeySegment = MemorySegmentFactory.wrap(reusableKeyBuffer);
 
     // Detect object reuse mode and create serializer for copying if needed
-    this.objectReuseEnabled = getRuntimeContext().getExecutionConfig().isObjectReuseEnabled();
+    this.objectReuseEnabled = RuntimeContextUtils.isObjectReuseEnabled(getRuntimeContext());
     if (this.objectReuseEnabled) {
       this.rowDataSerializer = new RowDataSerializer(rowType);
     }
