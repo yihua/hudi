@@ -278,6 +278,13 @@ public class HoodieStorageConfig extends HoodieConfig {
       .withDocumentation("The fully-qualified class name of the factory class to return readers and writers of files used "
           + "by Hudi. The provided class should implement `org.apache.hudi.io.storage.HoodieIOFactory`.");
 
+  public static final ConfigProperty<String> HOODIE_PARQUET_CONFIG_INJECTOR_CLASS = ConfigProperty
+      .key("hoodie.parquet.write.config.injector.class")
+      .noDefaultValue()
+      .markAdvanced()
+      .sinceVersion("1.2.0")
+      .withDocumentation("Config injector implementation for HoodieParquetConfigInjector class, for users willing to inject some custom configs to parquet writers");
+
   /**
    * @deprecated Use {@link #PARQUET_MAX_FILE_SIZE} and its methods instead
    */
@@ -472,6 +479,11 @@ public class HoodieStorageConfig extends HoodieConfig {
       return this;
     }
 
+    public Builder parquetDictionaryEnabled(boolean enable) {
+      storageConfig.setValue(PARQUET_DICTIONARY_ENABLED, String.valueOf(enable));
+      return this;
+    }
+
     public Builder parquetWriteLegacyFormat(String parquetWriteLegacyFormat) {
       storageConfig.setValue(PARQUET_WRITE_LEGACY_FORMAT_ENABLED, parquetWriteLegacyFormat);
       return this;
@@ -578,6 +590,17 @@ public class HoodieStorageConfig extends HoodieConfig {
      */
     public Builder withBloomFilterDynamicMaxEntries(int maxEntries) {
       storageConfig.setValue(BLOOM_FILTER_DYNAMIC_MAX_ENTRIES, String.valueOf(maxEntries));
+      return this;
+    }
+
+    /**
+     * Sets the parquet config injector class name.
+     *
+     * @param parquetConfigInjectorClass The fully-qualified class name of the parquet config injector
+     * @return this builder instance for method chaining
+     */
+    public Builder withParquetConfigInjectorClass(String parquetConfigInjectorClass) {
+      storageConfig.setValue(HOODIE_PARQUET_CONFIG_INJECTOR_CLASS, parquetConfigInjectorClass);
       return this;
     }
 

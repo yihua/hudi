@@ -217,10 +217,14 @@ public class HoodieRowParquetWriteSupport extends WriteSupport<InternalRow> {
   }
 
   private void writeFields(InternalRow row, StructType schema, ValueWriter[] fieldWriters) {
-    for (int i = 0; i < row.numFields(); i++) {
+    for (int i = 0; i < schema.fields().length; i++) {
       int index = i;
       if (!row.isNullAt(i)) {
-        consumeField(schema.fields()[i].name(), index, () -> fieldWriters[index].write(row, index));
+        try {
+          consumeField(schema.fields()[i].name(), index, () -> fieldWriters[index].write(row, index));
+        } catch (ClassCastException e) {
+          throw e;
+        }
       }
     }
   }

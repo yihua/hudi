@@ -25,7 +25,12 @@ import org.apache.hudi.common.engine.TaskContextSupplier;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.ReflectionUtils;
+import org.apache.hudi.common.util.StringUtils;
+import org.apache.hudi.common.util.collection.Pair;
+import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
+import org.apache.hudi.io.HoodieParquetConfigInjector;
 import org.apache.hudi.io.storage.row.HoodieRowParquetConfig;
 import org.apache.hudi.io.storage.row.HoodieRowParquetWriteSupport;
 import org.apache.hudi.storage.HoodieStorage;
@@ -57,16 +62,32 @@ public class HoodieSparkFileWriterFactory extends HoodieFileWriterFactory {
     if (compressionCodecName.isEmpty()) {
       compressionCodecName = null;
     }
-    HoodieRowParquetWriteSupport writeSupport = getHoodieRowParquetWriteSupport(storage.getConf(), schema,
-        config, enableBloomFilter(populateMetaFields, config));
+
+    String configInjectorClass = config.getStringOrDefault(HoodieStorageConfig.HOODIE_PARQUET_CONFIG_INJECTOR_CLASS, StringUtils.EMPTY_STRING);
+
+    StorageConfiguration storageConfiguration = storage.getConf();
+    HoodieConfig hoodieConfig = config;
+    if (!StringUtils.isNullOrEmpty(configInjectorClass)) {
+      try {
+        HoodieParquetConfigInjector injector = (HoodieParquetConfigInjector) ReflectionUtils.loadClass(configInjectorClass);
+        Pair<StorageConfiguration, HoodieConfig> modifiedConfigs = injector.withProps(path, storageConfiguration, hoodieConfig);
+        storageConfiguration = modifiedConfigs.getLeft();
+        hoodieConfig = modifiedConfigs.getRight();
+      } catch (Exception e) {
+        throw new HoodieException("Failed to instantiate or invoke parquet config injector class: " + configInjectorClass, e);
+      }
+    }
+
+    HoodieRowParquetWriteSupport writeSupport = getHoodieRowParquetWriteSupport(storageConfiguration, schema,
+        hoodieConfig, enableBloomFilter(populateMetaFields, hoodieConfig));
     HoodieRowParquetConfig parquetConfig = new HoodieRowParquetConfig(writeSupport,
         CompressionCodecName.fromConf(compressionCodecName),
-        config.getIntOrDefault(HoodieStorageConfig.PARQUET_BLOCK_SIZE),
-        config.getIntOrDefault(HoodieStorageConfig.PARQUET_PAGE_SIZE),
-        config.getLongOrDefault(HoodieStorageConfig.PARQUET_MAX_FILE_SIZE),
-        storage.getConf().unwrapAs(Configuration.class),
-        config.getDoubleOrDefault(HoodieStorageConfig.PARQUET_COMPRESSION_RATIO_FRACTION),
-        config.getBooleanOrDefault(HoodieStorageConfig.PARQUET_DICTIONARY_ENABLED));
+        hoodieConfig.getIntOrDefault(HoodieStorageConfig.PARQUET_BLOCK_SIZE),
+        hoodieConfig.getIntOrDefault(HoodieStorageConfig.PARQUET_PAGE_SIZE),
+        hoodieConfig.getLongOrDefault(HoodieStorageConfig.PARQUET_MAX_FILE_SIZE),
+        (Configuration) storageConfiguration.unwrapAs(Configuration.class),
+        hoodieConfig.getDoubleOrDefault(HoodieStorageConfig.PARQUET_COMPRESSION_RATIO_FRACTION),
+        hoodieConfig.getBooleanOrDefault(HoodieStorageConfig.PARQUET_DICTIONARY_ENABLED));
     parquetConfig.getHadoopConf().addResource(writeSupport.getHadoopConf());
 
     return new HoodieSparkParquetWriter(path, parquetConfig, instantTime, taskContextSupplier, populateMetaFields);
