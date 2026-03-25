@@ -19,9 +19,11 @@
 package org.apache.hudi.sink.partitioner.index;
 
 import org.apache.hudi.common.model.HoodieRecordGlobalLocation;
+import org.apache.hudi.common.serialization.CustomSerializer;
 import org.apache.hudi.common.util.collection.RocksDBDAO;
 
 import java.io.IOException;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * An implementation of {@link IndexBackend} based on RocksDB.
@@ -32,7 +34,11 @@ public class RocksDBIndexBackend implements IndexBackend {
   private final RocksDBDAO rocksDBDAO;
 
   public RocksDBIndexBackend(String rocksDbBasePath) {
-    this.rocksDBDAO = new RocksDBDAO("hudi-index-backend", rocksDbBasePath);
+    // Register custom serializer for HoodieRecordGlobalLocation to minimize storage overhead
+    ConcurrentHashMap<String, CustomSerializer<?>> serializers = new ConcurrentHashMap<>();
+    serializers.put(COLUMN_FAMILY, new RecordGlobalLocationSerializer());
+
+    this.rocksDBDAO = new RocksDBDAO("hudi-index-backend", rocksDbBasePath, serializers, true);
     this.rocksDBDAO.addColumnFamily(COLUMN_FAMILY);
   }
 
