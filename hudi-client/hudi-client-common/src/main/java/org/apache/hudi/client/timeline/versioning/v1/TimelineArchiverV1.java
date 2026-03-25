@@ -53,6 +53,7 @@ import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieCommitException;
 import org.apache.hudi.exception.HoodieException;
+import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.metadata.HoodieTableMetadata;
 import org.apache.hudi.storage.StoragePath;
 import org.apache.hudi.table.HoodieTable;
@@ -271,7 +272,31 @@ public class TimelineArchiverV1<T extends HoodieAvroPayload, I, K, O> implements
       Option<HoodieInstant> oldestInstantToRetainForClustering =
           ClusteringUtils.getEarliestInstantToRetainForClustering(table.getActiveTimeline(), table.getMetaClient(), config.getCleanerPolicy());
 
+      // If enabled, block archival based on ECTR from the last completed clean to ensure we don't archive
+      // commits that have data files that haven't been cleaned yet.
+      Option<HoodieInstant> oldestInstantToRetainForClean = Option.empty();
+      if (config.shouldBlockArchivalOnCleanECTR()) {
+        Option<HoodieInstant> lastCleanInstant = table.getCleanTimeline().filterCompletedInstants().lastInstant();
+        if (lastCleanInstant.isPresent()) {
+          try {
+            org.apache.hudi.avro.model.HoodieCleanMetadata cleanMetadata =
+                table.getActiveTimeline().readCleanMetadata(lastCleanInstant.get());
+            if (cleanMetadata.getEarliestCommitToRetain() != null
+                && !cleanMetadata.getEarliestCommitToRetain().trim().isEmpty()) {
+              oldestInstantToRetainForClean = commitTimeline.findInstantsAfterOrEquals(
+                  cleanMetadata.getEarliestCommitToRetain()).firstInstant();
+              log.info("Blocking archival based on ECTR {} from last clean {}",
+                  cleanMetadata.getEarliestCommitToRetain(), lastCleanInstant.get().requestedTime());
+            }
+          } catch (IOException e) {
+            log.warn("Failed to read clean metadata for {}, skipping ECTR check", lastCleanInstant.get(), e);
+            throw new HoodieIOException("Failed to read clean metadata for " + lastCleanInstant.get() + ", skipping ECTR check", e);
+          }
+        }
+      }
+
       // Actually do the commits
+      Option<HoodieInstant> finalOldestInstantToRetainForClean = oldestInstantToRetainForClean;
       Stream<HoodieInstant> instantToArchiveStream = commitTimeline.getInstantsAsStream()
           .filter(s -> {
             if (config.shouldArchiveBeyondSavepoint()) {
@@ -295,6 +320,10 @@ public class TimelineArchiverV1<T extends HoodieAvroPayload, I, K, O> implements
                   .orElse(true)
           ).filter(s ->
               oldestInstantToRetainForClustering.map(instantToRetain ->
+                      compareTimestamps(s.requestedTime(), LESSER_THAN, instantToRetain.requestedTime()))
+                  .orElse(true)
+          ).filter(s ->
+              finalOldestInstantToRetainForClean.map(instantToRetain ->
                       compareTimestamps(s.requestedTime(), LESSER_THAN, instantToRetain.requestedTime()))
                   .orElse(true)
           );
