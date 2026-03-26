@@ -62,6 +62,7 @@ import static org.apache.hudi.common.testutils.HoodieTestUtils.createMetaClient;
 import static org.apache.hudi.common.util.CompactionUtils.COMPACTION_METADATA_VERSION_1;
 import static org.apache.hudi.common.util.CompactionUtils.LATEST_COMPACTION_METADATA_VERSION;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -434,6 +435,208 @@ public class TestCompactionUtils extends HoodieCommonTestHarness {
     HoodieActiveTimeline timeline = new MockHoodieActiveTimeline();
     assertEquals(Option.empty(), CompactionUtils.getDeltaCommitsSinceLatestCompletedLogCompaction(
         timeline.getDeltaCommitTimeline(), timeline));
+  }
+
+  @Test
+  public void testGetLastLogCompactionWithCompletedLogCompaction() {
+    // Raw timeline: completed delta commit at "05" + inflight log compaction at "05"
+    HoodieActiveTimeline rawActiveTimeline = new MockHoodieActiveTimeline(
+        Stream.of(
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "01"),
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "03"),
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "05"),
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.LOG_COMPACTION_ACTION, "05"),
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "07"))
+            .collect(Collectors.toList()));
+
+    Option<HoodieInstant> result = CompactionUtils.getLastLogCompaction(rawActiveTimeline);
+    assertTrue(result.isPresent());
+    assertTrue(result.get().isCompleted());
+    assertEquals("05", result.get().requestedTime());
+  }
+
+  @Test
+  public void testGetLastLogCompactionWithPendingLogCompaction() {
+    // Raw timeline: inflight log compaction at "05" with no corresponding completed delta commit at "05"
+    HoodieActiveTimeline rawActiveTimeline = new MockHoodieActiveTimeline(
+        Stream.of(
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "01"),
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "03"),
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.LOG_COMPACTION_ACTION, "05"))
+            .collect(Collectors.toList()));
+
+    Option<HoodieInstant> result = CompactionUtils.getLastLogCompaction(rawActiveTimeline);
+    assertTrue(result.isPresent());
+    assertFalse(result.get().isCompleted());
+    assertEquals(HoodieTimeline.LOG_COMPACTION_ACTION, result.get().getAction());
+    assertEquals("05", result.get().requestedTime());
+  }
+
+  @Test
+  public void testGetLastLogCompactionWithNoLogCompaction() {
+    HoodieActiveTimeline rawActiveTimeline = new MockHoodieActiveTimeline(
+        Stream.of(
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "01"),
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "03"))
+            .collect(Collectors.toList()));
+
+    assertEquals(Option.empty(), CompactionUtils.getLastLogCompaction(rawActiveTimeline));
+  }
+
+  @Test
+  public void testGetLastLogCompactionWithEmptyTimeline() {
+    HoodieActiveTimeline rawActiveTimeline = new MockHoodieActiveTimeline();
+    assertEquals(Option.empty(), CompactionUtils.getLastLogCompaction(rawActiveTimeline));
+  }
+
+  @Test
+  public void testGetDeltaCommitsSinceLatestCompletedLogCompactionWithPendingLogCompaction() {
+    // Delta commit timeline: completed delta commits 01-03, plus inflight 05
+    HoodieActiveTimeline deltaCommitTimeline = new MockHoodieActiveTimeline(
+        Stream.of(
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "01"),
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "02"),
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "03"),
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.DELTA_COMMIT_ACTION, "05"))
+            .collect(Collectors.toList()));
+
+    // Raw timeline: log compaction at "04" is pending (no completed delta commit at "04")
+    HoodieActiveTimeline rawActiveTimeline = new MockHoodieActiveTimeline(
+        Stream.of(
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "01"),
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "02"),
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "03"),
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.LOG_COMPACTION_ACTION, "04"),
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.DELTA_COMMIT_ACTION, "05"))
+            .collect(Collectors.toList()));
+
+    assertEquals(Option.empty(), CompactionUtils.getDeltaCommitsSinceLatestCompletedLogCompaction(
+        deltaCommitTimeline.getDeltaCommitTimeline(), rawActiveTimeline));
+  }
+
+  /**
+   * Simulates the scheduling decision in needLogCompact: given the number of delta commits
+   * since the last compaction and the last completed log compaction, log compaction should
+   * only be scheduled when min(deltasSinceCompaction, deltasSinceLogCompaction) >= threshold.
+   */
+  @Test
+  public void testLogCompactionSchedulingThresholdWithMockTimelines() {
+    int logCompactionBlocksThreshold = 3;
+
+    // Scenario 1: Below threshold — 2 delta commits since compaction at "05", no prior log compaction
+    {
+      HoodieActiveTimeline activeTimeline = new MockHoodieActiveTimeline(
+          Stream.of(
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.COMMIT_ACTION, "05"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "06"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "07"))
+              .collect(Collectors.toList()));
+      HoodieActiveTimeline rawActiveTimeline = activeTimeline;
+
+      int deltasSinceCompaction = CompactionUtils.getCompletedDeltaCommitsSinceLatestCompaction(activeTimeline)
+          .get().getLeft().countInstants();
+      Option<Pair<HoodieTimeline, HoodieInstant>> logCompactionInfo =
+          CompactionUtils.getDeltaCommitsSinceLatestCompletedLogCompaction(
+              activeTimeline.getDeltaCommitTimeline(), rawActiveTimeline);
+      int deltasSinceLogCompaction = logCompactionInfo.isPresent() ? logCompactionInfo.get().getLeft().countInstants() : 0;
+
+      int numDeltaCommitsSince = Math.min(deltasSinceCompaction, deltasSinceLogCompaction);
+      assertFalse(numDeltaCommitsSince >= logCompactionBlocksThreshold,
+          "Log compaction should not be scheduled when delta commits < threshold");
+    }
+
+    // Scenario 2: At threshold — 3 delta commits since compaction, no prior log compaction
+    {
+      HoodieActiveTimeline activeTimeline = new MockHoodieActiveTimeline(
+          Stream.of(
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.COMMIT_ACTION, "05"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "06"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "07"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "08"))
+              .collect(Collectors.toList()));
+      HoodieActiveTimeline rawActiveTimeline = activeTimeline;
+
+      int deltasSinceCompaction = CompactionUtils.getCompletedDeltaCommitsSinceLatestCompaction(activeTimeline)
+          .get().getLeft().countInstants();
+      Option<Pair<HoodieTimeline, HoodieInstant>> logCompactionInfo =
+          CompactionUtils.getDeltaCommitsSinceLatestCompletedLogCompaction(
+              activeTimeline.getDeltaCommitTimeline(), rawActiveTimeline);
+      int deltasSinceLogCompaction = logCompactionInfo.isPresent() ? logCompactionInfo.get().getLeft().countInstants() : 0;
+
+      int numDeltaCommitsSince = Math.min(deltasSinceCompaction, deltasSinceLogCompaction);
+      assertTrue(numDeltaCommitsSince >= logCompactionBlocksThreshold,
+          "Log compaction should be scheduled when delta commits >= threshold");
+    }
+
+    // Scenario 3: After completed log compaction, counter resets — 1 delta commit since log compaction
+    {
+      HoodieActiveTimeline activeTimeline = new MockHoodieActiveTimeline(
+          Stream.of(
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.COMMIT_ACTION, "05"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "06"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "07"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "08"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "09"))
+              .collect(Collectors.toList()));
+      // Raw timeline includes the log compaction marker at "08" (completed)
+      HoodieActiveTimeline rawActiveTimeline = new MockHoodieActiveTimeline(
+          Stream.of(
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.COMMIT_ACTION, "05"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "06"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "07"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "08"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.LOG_COMPACTION_ACTION, "08"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "09"))
+              .collect(Collectors.toList()));
+
+      int deltasSinceCompaction = CompactionUtils.getCompletedDeltaCommitsSinceLatestCompaction(activeTimeline)
+          .get().getLeft().countInstants();
+      Option<Pair<HoodieTimeline, HoodieInstant>> logCompactionInfo =
+          CompactionUtils.getDeltaCommitsSinceLatestCompletedLogCompaction(
+              activeTimeline.getDeltaCommitTimeline(), rawActiveTimeline);
+      int deltasSinceLogCompaction = logCompactionInfo.isPresent() ? logCompactionInfo.get().getLeft().countInstants() : 0;
+
+      int numDeltaCommitsSince = Math.min(deltasSinceCompaction, deltasSinceLogCompaction);
+      assertFalse(numDeltaCommitsSince >= logCompactionBlocksThreshold,
+          "Log compaction should not be scheduled after reset when delta commits < threshold");
+    }
+
+    // Scenario 4: Pending log compaction — threshold not met because pending log compaction returns empty
+    {
+      HoodieActiveTimeline activeTimeline = new MockHoodieActiveTimeline(
+          Stream.of(
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.COMMIT_ACTION, "05"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "06"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "07"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "08"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "09"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "10"))
+              .collect(Collectors.toList()));
+      // Raw timeline has a pending (not completed) log compaction at "08"
+      HoodieActiveTimeline rawActiveTimeline = new MockHoodieActiveTimeline(
+          Stream.of(
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.COMMIT_ACTION, "05"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "06"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "07"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.LOG_COMPACTION_ACTION, "08"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "09"),
+              INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "10"))
+              .collect(Collectors.toList()));
+
+      int deltasSinceCompaction = CompactionUtils.getCompletedDeltaCommitsSinceLatestCompaction(activeTimeline)
+          .get().getLeft().countInstants();
+      Option<Pair<HoodieTimeline, HoodieInstant>> logCompactionInfo =
+          CompactionUtils.getDeltaCommitsSinceLatestCompletedLogCompaction(
+              activeTimeline.getDeltaCommitTimeline(), rawActiveTimeline);
+      int deltasSinceLogCompaction = logCompactionInfo.isPresent() ? logCompactionInfo.get().getLeft().countInstants() : 0;
+
+      assertEquals(5, deltasSinceCompaction);
+      assertFalse(logCompactionInfo.isPresent(),
+          "Pending log compaction should return empty");
+      int numDeltaCommitsSince = Math.min(deltasSinceCompaction, deltasSinceLogCompaction);
+      assertFalse(numDeltaCommitsSince >= logCompactionBlocksThreshold,
+          "Log compaction should not be scheduled when there is a pending log compaction");
+    }
   }
 
   @ParameterizedTest

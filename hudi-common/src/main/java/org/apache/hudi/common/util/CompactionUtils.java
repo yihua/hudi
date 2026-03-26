@@ -374,24 +374,24 @@ public class CompactionUtils {
    * @return The latest log compaction instant, or empty if no log compaction is present.
    */
   public static Option<HoodieInstant> getLastLogCompaction(final HoodieActiveTimeline rawActiveTimeline) {
-    Option<HoodieInstant> lastLogCompactionInstantOption = Option.fromJavaOptional(
+    Option<HoodieInstant> lastLogCompactionInstantOpt = Option.fromJavaOptional(
         rawActiveTimeline
             .filterPendingLogCompactionTimeline()
             .getReverseOrderedInstants()
             .findFirst()
     );
-    if (!lastLogCompactionInstantOption.isPresent()) {
+    if (!lastLogCompactionInstantOpt.isPresent()) {
       return Option.empty();
     }
-    String logCompactionTimestamp = lastLogCompactionInstantOption.get().requestedTime();
-    Option<HoodieInstant> completedInstant = Option.fromJavaOptional(
+    String logCompactionTimestamp = lastLogCompactionInstantOpt.get().requestedTime();
+    Option<HoodieInstant> completedInstantOpt = Option.fromJavaOptional(
         rawActiveTimeline
             .findInstantsInClosedRange(logCompactionTimestamp, logCompactionTimestamp)
             .getInstantsAsStream()
             .filter(HoodieInstant::isCompleted)
             .findFirst()
     );
-    return completedInstant.isPresent() ? completedInstant : lastLogCompactionInstantOption;
+    return completedInstantOpt.isPresent() ? completedInstantOpt : lastLogCompactionInstantOpt;
   }
 
   /**
@@ -407,10 +407,10 @@ public class CompactionUtils {
   public static Option<Pair<HoodieTimeline, HoodieInstant>> getDeltaCommitsSinceLatestCompletedLogCompaction(
       final HoodieTimeline deltaCommitTimeline,
       final HoodieActiveTimeline rawActiveTimeline) {
-    Option<HoodieInstant> lastLogCompactionOption = getLastLogCompaction(rawActiveTimeline);
+    Option<HoodieInstant> lastLogCompactionOpt = getLastLogCompaction(rawActiveTimeline);
 
-    if (lastLogCompactionOption.isPresent()) {
-      HoodieInstant lastLogCompaction = lastLogCompactionOption.get();
+    if (lastLogCompactionOpt.isPresent()) {
+      HoodieInstant lastLogCompaction = lastLogCompactionOpt.get();
       if (lastLogCompaction.isCompleted()) {
         return Option.of(Pair.of(deltaCommitTimeline.findInstantsModifiedAfterByCompletionTime(
             lastLogCompaction.requestedTime()), lastLogCompaction));
