@@ -2,7 +2,7 @@
 title: "Notebooks"
 keywords: [ hudi, notebooks ]
 toc: true
-last_modified_at: 2025-10-09T19:13:57+08:00
+last_modified_at: 2025-01-29T12:00:00+00:00
 ---
 
 Get hands-on with Apache Hudi using interactive notebooks!
@@ -90,3 +90,24 @@ These procedures enable you to perform advanced table maintenance, auditing, and
 **What you will learn:**
 
 In this guide, we will explore how to use various Hudi SQL procedures through practical, real-world examples. You will learn how to invoke these operations using Spark SQL and understand when and why to use each one.
+
+#### 6 - Querying Apache Hudi Tables using Trino
+
+Apache Hudi integrates seamlessly with modern query engines such as Trino, enabling fast interactive SQL analytics on lakehouse data. With trino-hudi connector, you can query Hudi tables stored in your data lake while leveraging Trino’s distributed query capabilities.
+
+This notebook demonstrates how to create a Hudi dataset using Spark and query it using Trino through the Hive Metastore catalog. By the end of this guide, you will understand how to set up the environment, register Hudi tables, and run analytical queries using Trino SQL.
+
+**What you will learn:**
+
+Learn how to generate sample data with Apache Spark, create and register a Hudi table with Hive Metastore, and run interactive SQL queries on the dataset using Trino.
+
+#### 7 - Querying Apache Hudi Tables using Presto
+
+Presto provides a powerful distributed SQL engine for querying large-scale datasets stored in data lakes. With presto-hudi connector, you can efficiently read Hudi tables and enable interactive SQL queries on lakehouse data.
+
+This notebook introduces querying Apache Hudi tables with Presto, enabling high-performance, interactive SQL analytics on your Hudi datasets. You will run SQL directly against Hudi tables stored in object storage and explore Presto’s integration with Hudi’s table formats.
+
+**What you will learn:**
+
+Learn how to ingest sample data into a Hudi table using Apache Spark, synchronize it with Hive Metastore, and query the dataset using Presto for interactive SQL analytics.
+
