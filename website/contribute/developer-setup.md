@@ -36,7 +36,7 @@ Listing out some of the maven commands that could be useful for developers.
 - Compile/build entire project
 
 ```shell
-mvn clean package -DskipTests
+mvn clean package -DskipTests -Dspark3.5 -Dflink1.20
 ```
 Default profile is Spark 3.5 and Scala 2.12
 
@@ -196,7 +196,7 @@ We have embraced the code style largely based on [google format](https://google.
 When submitting a PR please make sure to NOT commit the changes mentioned in these steps, instead once testing is done make sure to revert the changes and then submit a pr.
 :::
 
-0. Build the project with the intended profiles via the `mvn` cli, for example for spark 3.5 use `mvn clean package -Dspark3.5 -Dscala-2.12 -DskipTests`.
+0. Build the project with the intended profiles via the `mvn` cli, for example for spark 3.5 use `mvn clean package -Dspark3.5 -Dscala-2.12 -Dflink1.20 -DskipTests`.
 1. Install the "Maven Helper" plugin from the Intellij IDE.
 2. Make sure IDEA uses Maven to build/run tests:
    * You need to select the intended Maven profiles (using Maven tool pane in IDEA): select profiles you are targeting for example `spark3.5`, `scala-2.12` etc.
