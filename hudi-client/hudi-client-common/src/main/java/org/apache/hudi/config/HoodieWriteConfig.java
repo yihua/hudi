@@ -2040,6 +2040,10 @@ public class HoodieWriteConfig extends HoodieConfig {
     return getString(HoodieClusteringConfig.PARTITION_REGEX_PATTERN);
   }
 
+  public String getClusteringEarliestCommitToCluster() {
+    return getString(HoodieClusteringConfig.PLAN_STRATEGY_EARLIEST_COMMIT_TO_CLUSTER);
+  }
+
   public int getClusteringMaxNumGroups() {
     return getInt(HoodieClusteringConfig.PLAN_STRATEGY_MAX_GROUPS);
   }
