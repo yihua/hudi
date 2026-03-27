@@ -38,6 +38,7 @@ import org.apache.hudi.hive.HiveSyncTool;
 import org.apache.hudi.sink.common.AbstractStreamWriteFunction;
 import org.apache.hudi.sink.event.Correspondent;
 import org.apache.hudi.sink.event.WriteMetadataEvent;
+import org.apache.hudi.sink.validator.FlinkValidatorUtils;
 import org.apache.hudi.sink.utils.CoordinationResponseSerDe;
 import org.apache.hudi.sink.utils.EventBuffers;
 import org.apache.hudi.sink.utils.EventBuffers.EventBuffer;
@@ -640,6 +641,11 @@ public class StreamWriteOperatorCoordinator
         ? writeClient.getPartitionToReplacedFileIds(tableState.operationType, dataWriteResults)
         : Collections.emptyMap();
     List<WriteStatus> allWriteStatus = Stream.concat(dataWriteResults.stream(), indexWriteResults.stream()).collect(Collectors.toList());
+
+    // Run pre-commit validators (if configured) before finalizing the commit
+    FlinkValidatorUtils.runValidators(conf, instant, allWriteStatus,
+        checkpointCommitMetadata, () -> StreamerUtil.getPreviousCommitMetadata(this.metaClient));
+
     boolean success = writeClient.commit(instant, allWriteStatus, Option.of(checkpointCommitMetadata),
         tableState.commitAction, partitionToReplacedFileIds);
     if (success) {
