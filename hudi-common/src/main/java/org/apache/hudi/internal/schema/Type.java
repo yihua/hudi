@@ -73,7 +73,12 @@ public interface Type extends Serializable {
     TIME_MILLIS(Integer.class),
     TIMESTAMP_MILLIS(Long.class),
     LOCAL_TIMESTAMP_MILLIS(Long.class),
-    LOCAL_TIMESTAMP_MICROS(Long.class);
+    LOCAL_TIMESTAMP_MICROS(Long.class),
+    // ByteBuffer.class is a placeholder — classTag is currently unused in the codebase.
+    // The actual storage format is determined by VectorType.storageBacking (e.g.,
+    // PARQUET_FIXED_LEN_BYTE_ARRAY). If new backing types are added, this class tag
+    // may need to become backing-dependent or remain unused.
+    VECTOR(ByteBuffer.class);
 
     private final String name;
     private final Class<?> classTag;

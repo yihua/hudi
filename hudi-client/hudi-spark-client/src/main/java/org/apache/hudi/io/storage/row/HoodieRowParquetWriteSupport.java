@@ -68,6 +68,7 @@ import org.apache.spark.sql.types.YearMonthIntervalType;
 import org.apache.spark.unsafe.types.UTF8String;
 import org.apache.spark.util.VersionUtils;
 
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -162,6 +163,10 @@ public class HoodieRowParquetWriteSupport extends WriteSupport<InternalRow> {
     if (SparkAdapterSupport$.MODULE$.sparkAdapter().isLegacyBehaviorPolicy(datetimeRebaseMode)) {
       metadata.put("org.apache.spark.legacyDateTime", "");
       metadata.put("org.apache.spark.timeZone", SQLConf.get().sessionLocalTimeZone());
+    }
+    String vectorMeta = HoodieSchema.buildVectorColumnsMetadataValue(schema);
+    if (!vectorMeta.isEmpty()) {
+      metadata.put(HoodieSchema.PARQUET_VECTOR_COLUMNS_METADATA_KEY, vectorMeta);
     }
     Configuration configurationCopy = new Configuration(configuration);
     configurationCopy.set(AvroWriteSupport.WRITE_OLD_LIST_STRUCTURE, Boolean.toString(writeLegacyListFormat));
@@ -303,6 +308,43 @@ public class HoodieRowParquetWriteSupport extends WriteSupport<InternalRow> {
           fixedLengthBytes = decimalBuffer;
         }
         recordConsumer.addBinary(Binary.fromReusedByteArray(fixedLengthBytes, 0, numBytes));
+      };
+    } else if (dataType instanceof ArrayType
+            && resolvedSchema != null
+            && resolvedSchema.getType() == HoodieSchemaType.VECTOR) {
+      HoodieSchema.Vector vectorSchema = (HoodieSchema.Vector) resolvedSchema;
+      int dimension = vectorSchema.getDimension();
+      HoodieSchema.Vector.VectorElementType elemType = vectorSchema.getVectorElementType();
+      int bufferSize = Math.multiplyExact(dimension, elemType.getElementSize());
+      // Buffer is reused across rows without copying. Binary.fromReusedByteArray wraps the
+      // same backing array. This is safe because Parquet's ColumnWriteStoreV2 consumes the
+      // bytes before the next write call (same pattern as the decimal path with decimalBuffer).
+      ByteBuffer buffer = ByteBuffer.allocate(bufferSize).order(HoodieSchema.VectorLogicalType.VECTOR_BYTE_ORDER);
+      return (row, ordinal) -> {
+        ArrayData array = row.getArray(ordinal);
+        ValidationUtils.checkArgument(array.numElements() == dimension,
+            () -> String.format("Vector dimension mismatch: schema expects %d elements but got %d", dimension, array.numElements()));
+        buffer.clear();
+        switch (elemType) {
+          case FLOAT:
+            for (int i = 0; i < dimension; i++) {
+              buffer.putFloat(array.getFloat(i));
+            }
+            break;
+          case DOUBLE:
+            for (int i = 0; i < dimension; i++) {
+              buffer.putDouble(array.getDouble(i));
+            }
+            break;
+          case INT8:
+            for (int i = 0; i < dimension; i++) {
+              buffer.put(array.getByte(i));
+            }
+            break;
+          default:
+            throw new UnsupportedOperationException("Unsupported vector element type: " + elemType);
+        }
+        recordConsumer.addBinary(Binary.fromReusedByteArray(buffer.array()));
       };
     } else if (dataType instanceof ArrayType) {
       ValueWriter elementWriter = makeWriter(resolvedSchema == null ? null : resolvedSchema.getElementType(), ((ArrayType) dataType).elementType());
@@ -489,6 +531,14 @@ public class HoodieRowParquetWriteSupport extends WriteSupport<InternalRow> {
           .as(LogicalTypeAnnotation.decimalType(scale, precision))
           .length(Decimal.minBytesForPrecision()[precision])
           .named(structField.name());
+    } else if (dataType instanceof ArrayType
+            && resolvedSchema != null
+            && resolvedSchema.getType() == HoodieSchemaType.VECTOR) {
+      HoodieSchema.Vector vectorSchema = (HoodieSchema.Vector) resolvedSchema;
+      int fixedSize = Math.multiplyExact(vectorSchema.getDimension(),
+              vectorSchema.getVectorElementType().getElementSize());
+      return Types.primitive(FIXED_LEN_BYTE_ARRAY, repetition)
+              .length(fixedSize).named(structField.name());
     } else if (dataType instanceof ArrayType) {
       ArrayType arrayType = (ArrayType) dataType;
       DataType elementType = arrayType.elementType();
