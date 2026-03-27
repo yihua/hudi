@@ -382,7 +382,7 @@ public class TestHoodieMetadataWriteUtils {
   public void testCreateMetadataWriteConfigForOCCWithDynamoDBLockProvider() {
     Properties lockProps = new Properties();
     lockProps.put(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME.key(),
-        HoodieMetadataWriteUtils.DYNAMODB_BASED_LOCK_PROVIDER_CLASS);
+        HoodieLockConfig.DYNAMODB_BASED_LOCK_PROVIDER_CLASS);
     lockProps.put("hoodie.write.lock.dynamodb.table", "my_lock_table");
     lockProps.put("hoodie.write.lock.dynamodb.region", "us-west-2");
     lockProps.put("hoodie.write.lock.dynamodb.partition_key", "test_table");
@@ -402,7 +402,7 @@ public class TestHoodieMetadataWriteUtils {
         writeConfig, HoodieFailedWritesCleaningPolicy.EAGER, HoodieTableVersion.EIGHT);
     validateMetadataWriteConfig(metadataWriteConfig, HoodieFailedWritesCleaningPolicy.LAZY,
         WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL,
-        HoodieMetadataWriteUtils.DYNAMODB_BASED_LOCK_PROVIDER_CLASS);
+        HoodieLockConfig.DYNAMODB_BASED_LOCK_PROVIDER_CLASS);
     assertEquals("my_lock_table", metadataWriteConfig.getProps().getString("hoodie.write.lock.dynamodb.table"));
     assertEquals("us-west-2", metadataWriteConfig.getProps().getString("hoodie.write.lock.dynamodb.region"));
     assertEquals("test_table", metadataWriteConfig.getProps().getString("hoodie.write.lock.dynamodb.partition_key"));

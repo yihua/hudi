@@ -20,12 +20,19 @@ package org.apache.hudi.config;
 import org.apache.hudi.client.transaction.BucketIndexConcurrentFileWritesConflictResolutionStrategy;
 import org.apache.hudi.client.transaction.ConflictResolutionStrategy;
 import org.apache.hudi.client.transaction.SimpleConcurrentFileWritesConflictResolutionStrategy;
+import org.apache.hudi.client.transaction.lock.FileSystemBasedLockProvider;
+import org.apache.hudi.client.transaction.lock.StorageBasedLockProvider;
+import org.apache.hudi.client.transaction.lock.ZookeeperBasedImplicitBasePathLockProvider;
+import org.apache.hudi.client.transaction.lock.ZookeeperBasedLockProvider;
 import org.apache.hudi.common.config.ConfigClassProperty;
 import org.apache.hudi.common.config.ConfigGroups;
 import org.apache.hudi.common.config.ConfigProperty;
 import org.apache.hudi.common.config.HoodieConfig;
+import org.apache.hudi.common.config.LockConfiguration;
+import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.lock.LockProvider;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.index.HoodieIndex;
 
 import java.io.File;
@@ -241,12 +248,81 @@ public class HoodieLockConfig extends HoodieConfig {
   @Deprecated
   public static final String LOCK_PROVIDER_CLASS_PROP = LOCK_PROVIDER_CLASS_NAME.key();
 
+  // Lock provider class names from modules not directly accessible in hudi-client-common.
+  public static final String HIVE_METASTORE_BASED_LOCK_PROVIDER_CLASS =
+      "org.apache.hudi.hive.transaction.lock.HiveMetastoreBasedLockProvider";
+  public static final String DYNAMODB_BASED_LOCK_PROVIDER_CLASS =
+      "org.apache.hudi.aws.transaction.lock.DynamoDBBasedLockProvider";
+  public static final String DYNAMODB_BASED_IMPLICIT_PARTITION_KEY_LOCK_PROVIDER_CLASS =
+      "org.apache.hudi.aws.transaction.lock.DynamoDBBasedImplicitPartitionKeyLockProvider";
+  private static final String DYNAMODB_BASED_LOCK_PROPERTY_PREFIX = LOCK_PREFIX + "dynamodb.";
+  private static final String STORAGE_BASED_LOCK_PROPERTY_PREFIX = LOCK_PREFIX + "storage.";
+
   private HoodieLockConfig() {
     super();
   }
 
   public static HoodieLockConfig.Builder newBuilder() {
     return new HoodieLockConfig.Builder();
+  }
+
+  /**
+   * Build a {@link HoodieLockConfig} by copying lock-related configs from the given write config
+   * based on the configured lock provider. Only built-in lock providers are supported.
+   *
+   * @param lockProviderClass the lock provider class name
+   * @param writeConfig       the write config to copy lock properties from
+   * @return a new HoodieLockConfig with the relevant lock properties
+   * @throws HoodieException if the lock provider is not a built-in provider
+   */
+  public static HoodieLockConfig getLockConfigForBuiltInLockProvider(String lockProviderClass, HoodieWriteConfig writeConfig) {
+    TypedProperties dataProps = writeConfig.getProps();
+    Properties lockProps = new Properties();
+    lockProps.put(LOCK_PROVIDER_CLASS_NAME.key(), lockProviderClass);
+
+    // Common lock configs used by all providers
+    lockProps.put(LOCK_ACQUIRE_RETRY_WAIT_TIME_IN_MILLIS.key(),
+        writeConfig.getStringOrDefault(LOCK_ACQUIRE_RETRY_WAIT_TIME_IN_MILLIS));
+    lockProps.put(LOCK_ACQUIRE_RETRY_MAX_WAIT_TIME_IN_MILLIS.key(),
+        writeConfig.getStringOrDefault(LOCK_ACQUIRE_RETRY_MAX_WAIT_TIME_IN_MILLIS));
+    lockProps.put(LOCK_ACQUIRE_CLIENT_RETRY_WAIT_TIME_IN_MILLIS.key(),
+        writeConfig.getStringOrDefault(LOCK_ACQUIRE_CLIENT_RETRY_WAIT_TIME_IN_MILLIS));
+    lockProps.put(LOCK_ACQUIRE_NUM_RETRIES.key(),
+        writeConfig.getStringOrDefault(LOCK_ACQUIRE_NUM_RETRIES));
+    lockProps.put(LOCK_ACQUIRE_CLIENT_NUM_RETRIES.key(),
+        writeConfig.getStringOrDefault(LOCK_ACQUIRE_CLIENT_NUM_RETRIES));
+    lockProps.put(LOCK_ACQUIRE_WAIT_TIMEOUT_MS.key(),
+        String.valueOf(writeConfig.getIntOrDefault(LOCK_ACQUIRE_WAIT_TIMEOUT_MS)));
+    lockProps.put(LOCK_HEARTBEAT_INTERVAL_MS.key(),
+        String.valueOf(writeConfig.getIntOrDefault(LOCK_HEARTBEAT_INTERVAL_MS)));
+
+    // Provider-specific configs
+    if (FileSystemBasedLockProvider.class.getCanonicalName().equals(lockProviderClass)) {
+      copyPropsWithPrefix(dataProps, lockProps, LockConfiguration.FILESYSTEM_BASED_LOCK_PROPERTY_PREFIX);
+    } else if (ZookeeperBasedLockProvider.class.getCanonicalName().equals(lockProviderClass)
+        || ZookeeperBasedImplicitBasePathLockProvider.class.getCanonicalName().equals(lockProviderClass)) {
+      copyPropsWithPrefix(dataProps, lockProps, LockConfiguration.ZOOKEEPER_BASED_LOCK_PROPERTY_PREFIX);
+    } else if (HIVE_METASTORE_BASED_LOCK_PROVIDER_CLASS.equals(lockProviderClass)) {
+      copyPropsWithPrefix(dataProps, lockProps, LockConfiguration.HIVE_METASTORE_LOCK_PROPERTY_PREFIX);
+    } else if (DYNAMODB_BASED_LOCK_PROVIDER_CLASS.equals(lockProviderClass)
+        || DYNAMODB_BASED_IMPLICIT_PARTITION_KEY_LOCK_PROVIDER_CLASS.equals(lockProviderClass)) {
+      copyPropsWithPrefix(dataProps, lockProps, DYNAMODB_BASED_LOCK_PROPERTY_PREFIX);
+    } else if (StorageBasedLockProvider.class.getCanonicalName().equals(lockProviderClass)) {
+      copyPropsWithPrefix(dataProps, lockProps, STORAGE_BASED_LOCK_PROPERTY_PREFIX);
+    } else {
+      throw new HoodieException(writeConfig.getWriteConcurrencyMode()
+          + " is only supported for built-in lock providers. Unsupported lock provider: " + lockProviderClass);
+    }
+
+    return newBuilder().fromProperties(lockProps).build();
+  }
+
+  private static void copyPropsWithPrefix(TypedProperties source, Properties target, String prefix) {
+    for (String key : source.stringPropertyNames()) {
+      if (key.startsWith(prefix)) {
+        target.setProperty(key, source.getProperty(key));
+      }
+    }
   }
 
   public static class Builder {
