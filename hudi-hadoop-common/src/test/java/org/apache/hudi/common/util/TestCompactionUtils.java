@@ -633,6 +633,37 @@ public class TestCompactionUtils extends HoodieCommonTestHarness {
         "Log compaction should not be scheduled when there is a pending log compaction");
   }
 
+  @Test
+  public void testLogCompactionSchedulingWithPendingCompactionAndThresholdNotMet() {
+    int logCompactionBlocksThreshold = 5;
+    // Completed compaction at "03", pending (inflight) compaction at "06",
+    // 2 delta commits ("04", "05") between completed and pending compaction,
+    // plus 2 more ("07", "08") after pending compaction. No prior log compaction.
+    // Delta commits since last *completed* compaction = 4, which is below threshold of 5.
+    HoodieActiveTimeline activeTimeline = new MockHoodieActiveTimeline(
+        Stream.of(
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.COMMIT_ACTION, "03"),
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "04"),
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "05"),
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.COMPACTION_ACTION, "06"),
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "07"),
+            INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.COMPLETED, HoodieTimeline.DELTA_COMMIT_ACTION, "08"))
+            .collect(Collectors.toList()));
+    HoodieActiveTimeline rawActiveTimeline = activeTimeline;
+
+    int deltasSinceCompaction = CompactionUtils.getCompletedDeltaCommitsSinceLatestCompaction(activeTimeline)
+        .get().getLeft().countInstants();
+    Option<Pair<HoodieTimeline, HoodieInstant>> logCompactionInfo =
+        CompactionUtils.getDeltaCommitsSinceLatestCompletedLogCompaction(
+            activeTimeline.getDeltaCommitTimeline(), rawActiveTimeline);
+    int deltasSinceLogCompaction = logCompactionInfo.isPresent() ? logCompactionInfo.get().getLeft().countInstants() : 0;
+
+    assertEquals(4, deltasSinceCompaction);
+    int numDeltaCommitsSince = Math.min(deltasSinceCompaction, deltasSinceLogCompaction);
+    assertFalse(numDeltaCommitsSince >= logCompactionBlocksThreshold,
+        "Log compaction should not be scheduled with pending compaction and delta commits < threshold");
+  }
+
   @ParameterizedTest
   @ValueSource(booleans = {true, false})
   public void testGetOldestInstantToKeepForCompaction(boolean hasCompletedCompaction) {
