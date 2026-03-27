@@ -53,7 +53,10 @@ import org.apache.hudi.source.prune.PartitionBucketIdFunc;
 import org.apache.hudi.source.prune.PartitionPruners;
 import org.apache.hudi.source.prune.PrimaryKeyPruners;
 import org.apache.hudi.source.reader.HoodieRecordEmitter;
+import org.apache.hudi.source.reader.function.HoodieCdcSplitReaderFunction;
 import org.apache.hudi.source.reader.function.HoodieSplitReaderFunction;
+import org.apache.hudi.source.reader.function.SplitReaderFunction;
+import org.apache.hudi.source.split.HoodieSourceSplit;
 import org.apache.hudi.source.split.HoodieSourceSplitComparator;
 import org.apache.hudi.source.rebalance.partitioner.StreamReadAppendPartitioner;
 import org.apache.hudi.source.rebalance.partitioner.StreamReadBucketIndexPartitioner;
@@ -300,16 +303,33 @@ public class HoodieTableSource extends FileIndexReader implements
 
     HoodieScanContext context = createHoodieScanContext(rowType);
     final HoodieTableType tableType = HoodieTableType.valueOf(this.conf.get(FlinkOptions.TABLE_TYPE));
+    final SplitReaderFunction<RowData> splitReaderFunction;
+    final MergeOnReadTableState<HoodieSourceSplit> hoodieTableState = new MergeOnReadTableState(
+            rowType,
+            requiredRowType,
+            tableSchema.toString(),
+            HoodieSchemaConverter.convertToSchema(requiredRowType).toString(),
+            new ArrayList());
     boolean emitDelete = tableType == HoodieTableType.MERGE_ON_READ;
-    HoodieSplitReaderFunction splitReaderFunction = new HoodieSplitReaderFunction(
-        conf,
-        tableSchema,
-        HoodieSchemaConverter.convertToSchema(requiredRowType),
-        internalSchemaManager,
-        conf.get(FlinkOptions.MERGE_TYPE),
-        predicates,
-        emitDelete
-        );
+    if (conf.get(FlinkOptions.CDC_ENABLED)) {
+      List<DataType> fieldTypes = rowDataType.getChildren();
+      splitReaderFunction = new HoodieCdcSplitReaderFunction(
+          conf,
+          hoodieTableState,
+          internalSchemaManager,
+          fieldTypes,
+          predicates,
+          emitDelete);
+    } else {
+      splitReaderFunction = new HoodieSplitReaderFunction(
+          conf,
+          tableSchema,
+          HoodieSchemaConverter.convertToSchema(requiredRowType),
+          internalSchemaManager,
+          conf.get(FlinkOptions.MERGE_TYPE),
+          predicates,
+          emitDelete);
+    }
     return new HoodieSource<>(context, splitReaderFunction, new HoodieSourceSplitComparator(), metaClient, new HoodieRecordEmitter<>());
   }
 
@@ -585,7 +605,7 @@ public class HoodieTableSource extends FileIndexReader implements
       HoodieSchema tableSchema,
       DataType rowDataType,
       List<MergeOnReadInputSplit> inputSplits) {
-    final MergeOnReadTableState hoodieTableState = new MergeOnReadTableState(
+    final MergeOnReadTableState<MergeOnReadInputSplit> hoodieTableState = new MergeOnReadTableState(
         rowType,
         requiredRowType,
         tableSchema.toString(),
@@ -610,7 +630,7 @@ public class HoodieTableSource extends FileIndexReader implements
       DataType rowDataType,
       List<MergeOnReadInputSplit> inputSplits,
       boolean emitDelete) {
-    final MergeOnReadTableState hoodieTableState = new MergeOnReadTableState(
+    final MergeOnReadTableState<MergeOnReadInputSplit> hoodieTableState = new MergeOnReadTableState(
         rowType,
         requiredRowType,
         tableAvroSchema.toString(),
