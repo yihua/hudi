@@ -177,9 +177,9 @@ public class CleanPlanner<T, I, K, O> implements Serializable {
     }
 
     if (config.incrementalCleanerModeEnabled()) {
-      Option<HoodieInstant> lastClean = lastCompletedClean.or(Option.of(hoodieTable.getCleanTimeline().filterCompletedInstants().lastInstant().get()));
+      Option<HoodieInstant> lastClean = lastCompletedClean.or(hoodieTable.getCleanTimeline().filterCompletedInstants().lastInstant());
       if (lastClean.isPresent()) {
-        HoodieCleanMetadata cleanMetadata = (lastCompletedClean.isPresent() && lastCleanMetadata.isPresent()) ? lastCleanMetadata.get()
+        HoodieCleanMetadata cleanMetadata = lastCleanMetadata.isPresent() ? lastCleanMetadata.get()
             : hoodieTable.getActiveTimeline().readCleanMetadata(lastClean.get());
         if ((cleanMetadata.getEarliestCommitToRetain() != null)
                 && !cleanMetadata.getEarliestCommitToRetain().trim().isEmpty()
