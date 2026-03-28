@@ -40,6 +40,7 @@ public class AzureStorageLockConfig extends HoodieConfig {
       .key(AZURE_BASED_LOCK_PROPERTY_PREFIX + "connection.string")
       .noDefaultValue()
       .markAdvanced()
+      .sinceVersion("1.2.0")
       .withDocumentation("For Azure based lock provider, optional Azure Storage connection string used "
           + "for authenticating BlobServiceClient.");
 
@@ -47,6 +48,7 @@ public class AzureStorageLockConfig extends HoodieConfig {
       .key(AZURE_BASED_LOCK_PROPERTY_PREFIX + "sas.token")
       .noDefaultValue()
       .markAdvanced()
+      .sinceVersion("1.2.0")
       .withDocumentation("For Azure based lock provider, optional SAS token used for "
           + "authenticating BlobServiceClient when connection string is not provided. SAS token is not recommended for production use by Azure.");
 
@@ -54,6 +56,7 @@ public class AzureStorageLockConfig extends HoodieConfig {
       .key(AZURE_BASED_LOCK_PROPERTY_PREFIX + "managed.identity.client.id")
       .noDefaultValue()
       .markAdvanced()
+      .sinceVersion("1.2.0")
       .withDocumentation("For Azure based lock provider, client ID of a user-assigned managed identity to authenticate "
           + "BlobServiceClient with ManagedIdentityCredential.");
 
@@ -61,6 +64,7 @@ public class AzureStorageLockConfig extends HoodieConfig {
       .key(AZURE_BASED_LOCK_PROPERTY_PREFIX + "client.tenant.id")
       .noDefaultValue()
       .markAdvanced()
+      .sinceVersion("1.2.0")
       .withDocumentation("For Azure based lock provider, Azure AD tenant ID used together with "
           + "'" + AZURE_BASED_LOCK_PROPERTY_PREFIX + "client.id' and "
           + "'" + AZURE_BASED_LOCK_PROPERTY_PREFIX + "client.secret' to authenticate via service principal "
@@ -70,6 +74,7 @@ public class AzureStorageLockConfig extends HoodieConfig {
       .key(AZURE_BASED_LOCK_PROPERTY_PREFIX + "client.id")
       .noDefaultValue()
       .markAdvanced()
+      .sinceVersion("1.2.0")
       .withDocumentation("For Azure based lock provider, Azure AD application (client) ID used together with "
           + "'" + AZURE_BASED_LOCK_PROPERTY_PREFIX + "client.tenant.id' and "
           + "'" + AZURE_BASED_LOCK_PROPERTY_PREFIX + "client.secret' to authenticate via service principal "
@@ -79,6 +84,7 @@ public class AzureStorageLockConfig extends HoodieConfig {
       .key(AZURE_BASED_LOCK_PROPERTY_PREFIX + "client.secret")
       .noDefaultValue()
       .markAdvanced()
+      .sinceVersion("1.2.0")
       .withDocumentation("For Azure based lock provider, Azure AD client secret used together with "
           + "'" + AZURE_BASED_LOCK_PROPERTY_PREFIX + "client.tenant.id' and "
           + "'" + AZURE_BASED_LOCK_PROPERTY_PREFIX + "client.id' to authenticate via service principal "

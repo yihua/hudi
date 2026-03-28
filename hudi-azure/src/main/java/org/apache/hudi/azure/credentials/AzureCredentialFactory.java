@@ -48,10 +48,12 @@ import java.util.Properties;
  */
 public class AzureCredentialFactory {
 
-  // Shared instance so the token cache and IMDS probe are reused across all clients
-  // that fall through to the default chain.
-  private static final TokenCredential DEFAULT_AZURE_CREDENTIAL =
-      new DefaultAzureCredentialBuilder().build();
+  /**
+   * Lazily initializes {@code DefaultAzureCredential} on first use of the default chain only.
+   */
+  private static final class DefaultAzureCredentialHolder {
+    static final TokenCredential INSTANCE = new DefaultAzureCredentialBuilder().build();
+  }
 
   private AzureCredentialFactory() {
   }
@@ -85,6 +87,6 @@ public class AzureCredentialFactory {
       }
     }
 
-    return DEFAULT_AZURE_CREDENTIAL;
+    return DefaultAzureCredentialHolder.INSTANCE;
   }
 }
