@@ -18,25 +18,20 @@
 
 package org.apache.hudi.execution;
 
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.common.model.HoodieWriteStat;
+import org.apache.hudi.common.util.ParquetUtils;
 import org.apache.hudi.common.util.ReflectionUtils;
 import org.apache.hudi.config.HoodieWriteConfig;
+import org.apache.hudi.storage.HoodieStorage;
+import org.apache.hudi.storage.StoragePath;
 import org.apache.hudi.table.HoodieTable;
-import org.apache.parquet.format.converter.ParquetMetadataConverter;
-import org.apache.parquet.hadoop.ParquetFileReader;
-import org.apache.parquet.hadoop.metadata.BlockMetaData;
-import org.apache.parquet.hadoop.metadata.ParquetMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -47,14 +42,16 @@ public class ParquetFileMetaToWriteStatusConvertor<T extends HoodieRecordPayload
   private static final Logger LOG = LoggerFactory.getLogger(ParquetFileMetaToWriteStatusConvertor.class);
   private final HoodieTable<T, I, K, O> hoodieTable;
   private final HoodieWriteConfig writeConfig;
-  private final FileSystem fs;
+  private final HoodieStorage storage;
+  private final ParquetUtils parquetUtils;
   public static final String PREV_COMMIT = "prevCommit";
   public static final String TIME_TAKEN = "timeTaken";
 
   public ParquetFileMetaToWriteStatusConvertor(HoodieTable<T, I, K, O> hoodieTable, HoodieWriteConfig writeConfig) {
     this.hoodieTable = hoodieTable;
     this.writeConfig = writeConfig;
-    this.fs = this.hoodieTable.getMetaClient().getFs();
+    this.storage = this.hoodieTable.getStorage();
+    this.parquetUtils = new ParquetUtils();
   }
 
   /**
@@ -65,7 +62,7 @@ public class ParquetFileMetaToWriteStatusConvertor<T extends HoodieRecordPayload
     LOG.info("Creating write status for parquet file " + parquetFile);
     WriteStatus writeStatus = (WriteStatus) ReflectionUtils.loadClass(this.writeConfig.getWriteStatusClassName(),
         !this.hoodieTable.getIndex().isImplicitWithStorage(), this.writeConfig.getWriteStatusFailureFraction());
-    Path parquetFilePath = new Path(parquetFile);
+    StoragePath parquetFilePath = new StoragePath(parquetFile);
     writeStatus.setFileId(FSUtils.getFileId(parquetFilePath.getName()));
     writeStatus.setPartitionPath(partitionPath);
     generateHoodieWriteStat(writeStatus, parquetFilePath, executionConfigs);
@@ -76,31 +73,27 @@ public class ParquetFileMetaToWriteStatusConvertor<T extends HoodieRecordPayload
    * This method generates HoodieWriteStat object and set it as part of WriteStatus object.
    */
   private void generateHoodieWriteStat(
-      WriteStatus writeStatus, Path parquetFilePath, Map<String, Object> executionConfigs) throws IOException {
+      WriteStatus writeStatus, StoragePath parquetFilePath, Map<String, Object> executionConfigs) throws IOException {
     HoodieWriteStat stat = new HoodieWriteStat();
 
     // Set row count
-    ParquetMetadata parquetMetadata = ParquetFileReader.readFooter(this.fs.getConf(), parquetFilePath,
-        ParquetMetadataConverter.NO_FILTER);
-    List<BlockMetaData> blockMetaDataList = parquetMetadata.getBlocks();
-    long rowCount = blockMetaDataList.stream().mapToLong(BlockMetaData::getRowCount).sum();
+    long rowCount = parquetUtils.getRowCount(storage, parquetFilePath);
     stat.setNumWrites(rowCount);
     stat.setNumInserts(rowCount);
 
     // Set runtime stats
     HoodieWriteStat.RuntimeStats runtimeStats = new HoodieWriteStat.RuntimeStats();
-    runtimeStats.setTotalCreateTime((long) executionConfigs.get(TIME_TAKEN));
+    runtimeStats.setTotalCreateTime(((Number) executionConfigs.get(TIME_TAKEN)).longValue());
     stat.setRuntimeStats(runtimeStats);
 
     // File size
-    FileStatus parquetFileStatus = this.fs.getFileStatus(parquetFilePath);
-    long fileSize = parquetFileStatus.getLen();
+    long fileSize = storage.getPathInfo(parquetFilePath).getLength();
     stat.setFileSizeInBytes(fileSize);
     stat.setTotalWriteBytes(fileSize);
 
     stat.setFileId(writeStatus.getFileId());
     stat.setPartitionPath(writeStatus.getPartitionPath());
-    stat.setPath(new Path(writeConfig.getBasePath()), parquetFilePath);
+    stat.setPath(new StoragePath(writeConfig.getBasePath()), parquetFilePath);
     stat.setTotalWriteErrors(writeStatus.getTotalErrorRecords());
     stat.setPrevCommit(String.valueOf(executionConfigs.get(PREV_COMMIT)));
 

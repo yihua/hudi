@@ -18,6 +18,7 @@
 
 package org.apache.hudi.client;
 
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
@@ -44,8 +45,9 @@ public class ParquetToolsTestExecutionStrategy<T extends HoodieRecordPayload<T>>
 
   @Override
   protected void executeTools(Path oldFilePath, Path newFilePath) {
-    FileSystem fs = getHoodieTable().getMetaClient().getFs();
     try {
+      Configuration hadoopConf = getHoodieTable().getStorageConf().unwrapAs(Configuration.class);
+      FileSystem fs = oldFilePath.getFileSystem(hadoopConf);
       FileUtil.copy(fs, oldFilePath, fs, newFilePath, false, false, fs.getConf());
     } catch (IOException e) {
       throw new HoodieIOException("Exception in copying files.", e);

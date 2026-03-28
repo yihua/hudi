@@ -18,7 +18,6 @@
 
 package org.apache.hudi.io;
 
-import org.apache.hadoop.fs.Path;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.common.engine.TaskContextSupplier;
 import org.apache.hudi.common.fs.FSUtils;
@@ -27,6 +26,7 @@ import org.apache.hudi.common.model.IOType;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieInsertException;
 import org.apache.hudi.execution.ParquetFileMetaToWriteStatusConvertor;
+import org.apache.hudi.storage.StoragePath;
 import org.apache.hudi.table.HoodieTable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,23 +46,21 @@ import static org.apache.hudi.execution.ParquetFileMetaToWriteStatusConvertor.TI
 public class HoodieFileWriteHandle<T extends HoodieRecordPayload, I, K, O> extends HoodieWriteHandle<T, I, K, O> {
 
   private static final Logger LOG = LoggerFactory.getLogger(HoodieFileWriteHandle.class);
-  private final Path path;
-  private String prevCommit;
+  private final StoragePath path;
+  private final String prevCommit;
 
   public HoodieFileWriteHandle(HoodieWriteConfig config, String instantTime, HoodieTable<T, I, K, O> hoodieTable,
                                String partitionPath, String fileId, TaskContextSupplier taskContextSupplier,
-                               Path oldFilePath) {
-    super(config, instantTime, partitionPath, fileId, hoodieTable, taskContextSupplier);
+                               StoragePath oldFilePath) {
+    super(config, instantTime, partitionPath, fileId, hoodieTable, taskContextSupplier, true);
 
     // Output file path.
     this.path = makeNewPath(partitionPath);
     // Get the prev commit from existing or old file.
-    this.prevCommit = oldFilePath.getName().split("_")[2].split("\\.")[0];
+    this.prevCommit = FSUtils.getCommitTime(oldFilePath.getName());
 
     // Create inProgress marker file
-    createMarkerFile(partitionPath, FSUtils.makeBaseFileName(this.instantTime, this.writeToken, this.fileId, hoodieTable.getBaseFileExtension()));
-    // TODO: HUDI-6416 Create inprogress marker here and remove above marker file creation, once the marker PR is landed.
-    // createInProgressMarkerFile(partitionPath,FSUtils.makeDataFileName(this.instantTime, this.writeToken, this.fileId, hoodieTable.getBaseFileExtension()));
+    createMarkerFile(partitionPath, path.getName());
     LOG.info("New HoodieFileWriteHandle for partition :" + partitionPath + " with fileId " + fileId);
   }
 
@@ -79,10 +77,6 @@ public class HoodieFileWriteHandle<T extends HoodieRecordPayload, I, K, O> exten
       executionConfigs.put(TIME_TAKEN, timer.endTimer());
 
       this.writeStatus = generateWriteStatus(path.toString(), partitionPath, executionConfigs);
-
-      // TODO: HUDI-6416 Create completed marker file here once the marker PR is landed.
-      // createCompleteMarkerFile throws hoodieException, if marker directory is not present.
-      // createCompletedMarkerFile(partitionPath);
       LOG.info(String.format("HoodieFileWriteHandle for partitionPath %s fileID %s, took %d ms.",
           writeStatus.getStat().getPartitionPath(), writeStatus.getStat().getFileId(),
           writeStatus.getStat().getRuntimeStats().getTotalCreateTime()));
@@ -113,7 +107,7 @@ public class HoodieFileWriteHandle<T extends HoodieRecordPayload, I, K, O> exten
     return IOType.CREATE;
   }
 
-  public Path getPath() {
+  public StoragePath getPath() {
     return path;
   }
 }

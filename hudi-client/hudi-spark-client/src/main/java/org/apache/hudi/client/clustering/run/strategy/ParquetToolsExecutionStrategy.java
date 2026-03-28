@@ -22,6 +22,7 @@ import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.engine.ReaderContextFactory;
 import org.apache.hudi.common.engine.TaskContextSupplier;
+import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.ClusteringGroupInfo;
 import org.apache.hudi.common.model.ClusteringOperation;
 import org.apache.hudi.common.model.HoodieRecordPayload;
@@ -29,9 +30,9 @@ import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieClusteringException;
 import org.apache.hudi.io.HoodieFileWriteHandle;
+import org.apache.hudi.storage.StoragePath;
 import org.apache.hudi.table.HoodieTable;
 
-import org.apache.avro.Schema;
 import org.apache.hadoop.fs.Path;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,15 +69,15 @@ public abstract class ParquetToolsExecutionStrategy<T extends HoodieRecordPayloa
     }
 
     ClusteringOperation clusteringOperation = clusteringOperations.get(0);
-    String fileId = clusteringOperation.getFileId();
+    String fileId = FSUtils.createNewFileIdPfx();
     String partitionPath = clusteringOperation.getPartitionPath();
     String dataFilePathStr = clusteringOperation.getDataFilePath();
-    Path oldFilePath = new Path(dataFilePathStr);
+    StoragePath oldFilePath = new StoragePath(dataFilePathStr);
     HoodieFileWriteHandle writeHandler = new HoodieFileWriteHandle(getWriteConfig(), instantTime, getHoodieTable(),
         partitionPath, fileId, taskContextSupplier, oldFilePath);
 
     // Executes the parquet-tools command.
-    executeTools(oldFilePath, writeHandler.getPath());
+    executeTools(new Path(oldFilePath.toUri()), new Path(writeHandler.getPath().toUri()));
     return writeHandler.close();
   }
 
