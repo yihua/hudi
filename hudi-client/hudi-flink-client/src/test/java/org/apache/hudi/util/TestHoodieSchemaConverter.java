@@ -638,6 +638,46 @@ public class TestHoodieSchemaConverter {
   }
 
   @Test
+  public void testVariantTypeConversion() {
+    // Test direct Variant conversion
+    HoodieSchema variantSchema = HoodieSchema.createVariant();
+    DataType dataType = HoodieSchemaConverter.convertToDataType(variantSchema);
+    assertNotNull(dataType);
+
+    // Verify it's a ROW with metadata and value binary fields
+    RowType rowType = (RowType) dataType.getLogicalType();
+    assertEquals(2, rowType.getFieldCount());
+    assertEquals("metadata", rowType.getFieldNames().get(0));
+    assertEquals("value", rowType.getFieldNames().get(1));
+    assertInstanceOf(VarBinaryType.class, rowType.getTypeAt(0));
+    assertInstanceOf(VarBinaryType.class, rowType.getTypeAt(1));
+  }
+
+  @Test
+  public void testVariantInRecordConversion() {
+    // Test Variant field within a record
+    HoodieSchema recordWithVariant = HoodieSchema.createRecord(
+        "test_record",
+        null,
+        null,
+        Arrays.asList(
+            HoodieSchemaField.of("id", HoodieSchema.create(HoodieSchemaType.INT)),
+            HoodieSchemaField.of("data", HoodieSchema.createVariant())
+        )
+    );
+
+    RowType result = HoodieSchemaConverter.convertToRowType(recordWithVariant);
+    assertEquals(2, result.getFieldCount());
+    assertEquals("data", result.getFieldNames().get(1));
+
+    // Verify variant field is a ROW<metadata BYTES, value BYTES>
+    RowType variantRowType = (RowType) result.getTypeAt(1);
+    assertEquals(2, variantRowType.getFieldCount());
+    assertEquals("metadata", variantRowType.getFieldNames().get(0));
+    assertEquals("value", variantRowType.getFieldNames().get(1));
+  }
+
+  @Test
   public void testBlobStructureValidation() {
     // Positive case: Create ROW matching BLOB structure
     DataType blobLikeRow = DataTypes.ROW(
