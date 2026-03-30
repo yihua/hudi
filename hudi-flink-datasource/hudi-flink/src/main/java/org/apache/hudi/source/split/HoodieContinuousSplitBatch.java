@@ -18,13 +18,10 @@
 
 package org.apache.hudi.source.split;
 
-import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.table.cdc.HoodieCDCFileSplit;
 import org.apache.hudi.common.util.ValidationUtils;
 import org.apache.hudi.source.IncrementalInputSplits;
-import org.apache.hudi.storage.StoragePath;
 import org.apache.hudi.table.format.cdc.CdcInputSplit;
-import org.apache.hudi.table.format.mor.MergeOnReadInputSplit;
 
 import lombok.Getter;
 
@@ -32,8 +29,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
-
-import static org.apache.hudi.util.StreamerUtil.EMPTY_PARTITION_PATH;
 
 /**
  * Result from continuous enumerator. It has the same semantic to the {@link org.apache.hudi.source.IncrementalInputSplits.Result}.
@@ -77,6 +72,7 @@ public class HoodieContinuousSplitBatch {
             cdcSplit.getTablePath(),
             cdcSplit.getMaxCompactionMemoryInBytes(),
             cdcSplit.getFileId(),
+            cdcSplit.getPartitionPath(),
             changes,
             split.getMergeType(),
             latestCommit);
@@ -84,8 +80,10 @@ public class HoodieContinuousSplitBatch {
       return new HoodieSourceSplit(
           HoodieSourceSplit.SPLIT_ID_GEN.incrementAndGet(),
           split.getBasePath().orElse(null),
-          split.getLogPaths(), split.getTablePath(),
-          resolvePartitionPath(split), split.getMergeType(),
+          split.getLogPaths(),
+          split.getTablePath(),
+          split.getPartitionPath(),
+          split.getMergeType(),
           split.getLatestCommit(),
           split.getFileId(),
           split.getInstantRange()
@@ -93,22 +91,5 @@ public class HoodieContinuousSplitBatch {
     }).collect(Collectors.toList());
 
     return new HoodieContinuousSplitBatch(splits, result.getEndInstant(), result.getOffset());
-  }
-
-  /**
-   * Derives partition path from file paths in the split relative to the table path.
-   * Falls back to empty partition path for splits without file paths (e.g., CdcInputSplit).
-   */
-  private static String resolvePartitionPath(MergeOnReadInputSplit split) {
-    String filePath;
-    if (split.getBasePath().isPresent()) {
-      filePath = split.getBasePath().get();
-    } else if (split.getLogPaths().isPresent() && !split.getLogPaths().get().isEmpty()) {
-      filePath = split.getLogPaths().get().get(0);
-    } else {
-      return EMPTY_PARTITION_PATH;
-    }
-    StoragePath parent = new StoragePath(filePath).getParent();
-    return FSUtils.getRelativePartitionPath(new StoragePath(split.getTablePath()), parent);
   }
 }

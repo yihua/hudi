@@ -32,6 +32,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
+import static org.apache.hudi.util.StreamerUtil.EMPTY_PARTITION_PATH;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
@@ -69,7 +70,7 @@ public class TestHoodieContinuousSplitBatch {
     HoodieCDCFileSplit[] changes = {
         new HoodieCDCFileSplit("20230101000000000", HoodieCDCInferenceCase.BASE_FILE_INSERT, "insert.parquet")
     };
-    CdcInputSplit cdcInputSplit = new CdcInputSplit(1, TABLE_PATH, MAX_MEMORY, "file-cdc", changes);
+    CdcInputSplit cdcInputSplit = new CdcInputSplit(1, TABLE_PATH, MAX_MEMORY, "file-cdc", EMPTY_PARTITION_PATH, changes);
 
     IncrementalInputSplits.Result result = IncrementalInputSplits.Result.instance(
         Collections.<MergeOnReadInputSplit>singletonList(cdcInputSplit), "20230101000000000");
@@ -99,7 +100,8 @@ public class TestHoodieContinuousSplitBatch {
         MAX_MEMORY,
         "payload_combine",
         null,
-        "file-mor");
+        "file-mor",
+        EMPTY_PARTITION_PATH);
 
     IncrementalInputSplits.Result result = IncrementalInputSplits.Result.instance(
         Collections.singletonList(morSplit), "20230101000000000");
@@ -121,7 +123,7 @@ public class TestHoodieContinuousSplitBatch {
     HoodieCDCFileSplit[] changes = {
         new HoodieCDCFileSplit("20230101000000000", HoodieCDCInferenceCase.LOG_FILE, "cdc.log")
     };
-    CdcInputSplit cdcInputSplit = new CdcInputSplit(1, TABLE_PATH, MAX_MEMORY, "file-cdc", changes);
+    CdcInputSplit cdcInputSplit = new CdcInputSplit(1, TABLE_PATH, MAX_MEMORY, "file-cdc", EMPTY_PARTITION_PATH, changes);
 
     MergeOnReadInputSplit morSplit = new MergeOnReadInputSplit(
         2,
@@ -132,7 +134,8 @@ public class TestHoodieContinuousSplitBatch {
         MAX_MEMORY,
         "payload_combine",
         null,
-        "file-mor");
+        "file-mor",
+        EMPTY_PARTITION_PATH);
 
     IncrementalInputSplits.Result result = IncrementalInputSplits.Result.instance(
         Arrays.asList(cdcInputSplit, morSplit), "20230101000000000");
@@ -187,7 +190,7 @@ public class TestHoodieContinuousSplitBatch {
         "20230102000000000", HoodieCDCInferenceCase.BASE_FILE_DELETE, "delete.log");
     HoodieCDCFileSplit[] changes = {split1, split2};
 
-    CdcInputSplit cdcInputSplit = new CdcInputSplit(1, TABLE_PATH, MAX_MEMORY, "file-cdc", changes);
+    CdcInputSplit cdcInputSplit = new CdcInputSplit(1, TABLE_PATH, MAX_MEMORY, "file-cdc", EMPTY_PARTITION_PATH, changes);
 
     IncrementalInputSplits.Result result = IncrementalInputSplits.Result.instance(
         Collections.<MergeOnReadInputSplit>singletonList(cdcInputSplit), "20230102000000000");
@@ -209,8 +212,8 @@ public class TestHoodieContinuousSplitBatch {
         new HoodieCDCFileSplit("20230101000000000", HoodieCDCInferenceCase.REPLACE_COMMIT, "replace.parquet")
     };
 
-    CdcInputSplit cdc1 = new CdcInputSplit(1, TABLE_PATH, MAX_MEMORY, "file-cdc-1", changes1);
-    CdcInputSplit cdc2 = new CdcInputSplit(2, TABLE_PATH, MAX_MEMORY, "file-cdc-2", changes2);
+    CdcInputSplit cdc1 = new CdcInputSplit(1, TABLE_PATH, MAX_MEMORY, "file-cdc-1", EMPTY_PARTITION_PATH, changes1);
+    CdcInputSplit cdc2 = new CdcInputSplit(2, TABLE_PATH, MAX_MEMORY, "file-cdc-2", EMPTY_PARTITION_PATH, changes2);
 
     IncrementalInputSplits.Result result = IncrementalInputSplits.Result.instance(
         Arrays.<MergeOnReadInputSplit>asList(cdc1, cdc2), "20230101000000000");
@@ -281,7 +284,8 @@ public class TestHoodieContinuousSplitBatch {
         MAX_MEMORY,
         "payload_combine",
         null,
-        "file-log-only");
+        "file-log-only",
+        "2023/01");
 
     IncrementalInputSplits.Result result = IncrementalInputSplits.Result.instance(
         Collections.singletonList(logOnlySplit), "20230101000000000");
@@ -306,7 +310,8 @@ public class TestHoodieContinuousSplitBatch {
         MAX_MEMORY,
         "read_optimized",
         null,
-        "file-no-paths");
+        "file-no-paths",
+        EMPTY_PARTITION_PATH);
 
     IncrementalInputSplits.Result result = IncrementalInputSplits.Result.instance(
         Collections.singletonList(emptyPathSplit), "20230101000000000");
@@ -321,8 +326,8 @@ public class TestHoodieContinuousSplitBatch {
   @Test
   public void testFromResultCdcSplitWithEmptyChangesUsesEndInstantAsLatestCommit() {
     // When a CDC split has no changes, the batch end instant is used as the latest commit
-    CdcInputSplit cdcWithNoChanges = new CdcInputSplit(1, TABLE_PATH, MAX_MEMORY, "file-cdc-empty",
-        new HoodieCDCFileSplit[0]);
+    CdcInputSplit cdcWithNoChanges = new CdcInputSplit(1, TABLE_PATH, MAX_MEMORY,
+        "file-cdc-empty", EMPTY_PARTITION_PATH, new HoodieCDCFileSplit[0]);
     String endInstant = "20230301000000000";
 
     IncrementalInputSplits.Result result = IncrementalInputSplits.Result.instance(
@@ -349,7 +354,8 @@ public class TestHoodieContinuousSplitBatch {
         MAX_MEMORY,
         "read_optimized",
         null,
-        "file-partitioned");
+        "file-partitioned",
+        "year=2023/month=01/day=15");
 
     IncrementalInputSplits.Result result = IncrementalInputSplits.Result.instance(
         Collections.singletonList(partitionedSplit), "20230115000000000");

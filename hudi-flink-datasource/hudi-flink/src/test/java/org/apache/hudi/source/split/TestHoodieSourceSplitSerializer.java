@@ -36,6 +36,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import static org.apache.hudi.util.StreamerUtil.EMPTY_PARTITION_PATH;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -1187,7 +1188,7 @@ public class TestHoodieSourceSplitSerializer {
     HoodieCDCFileSplit change = new HoodieCDCFileSplit(
         "20230101000000000", HoodieCDCInferenceCase.BASE_FILE_INSERT, "insert.parquet");
     HoodieCdcSourceSplit original = new HoodieCdcSourceSplit(
-        10, "/table/path", 128 * 1024 * 1024L, "file-cdc",
+        10, "/table/path", 128 * 1024 * 1024L, "file-cdc", EMPTY_PARTITION_PATH,
         new HoodieCDCFileSplit[]{change}, "read_optimized", "20230101000000000");
 
     byte[] serialized = serializer.serialize(original);
@@ -1212,7 +1213,7 @@ public class TestHoodieSourceSplitSerializer {
   @Test
   public void testSerializeAndDeserializeCdcSplitWithEmptyChanges() throws IOException {
     HoodieCdcSourceSplit original = new HoodieCdcSourceSplit(
-        11, "/warehouse/table", 256 * 1024 * 1024L, "file-empty-cdc",
+        11, "/warehouse/table", 256 * 1024 * 1024L, "file-empty-cdc", EMPTY_PARTITION_PATH,
         new HoodieCDCFileSplit[0], "payload_combine", "20230201000000000");
 
     byte[] serialized = serializer.serialize(original);
@@ -1237,7 +1238,7 @@ public class TestHoodieSourceSplitSerializer {
         "20230104000000000", HoodieCDCInferenceCase.REPLACE_COMMIT, "replace.parquet");
 
     HoodieCdcSourceSplit original = new HoodieCdcSourceSplit(
-        12, "/table", 64 * 1024 * 1024L, "file-multi-cdc",
+        12, "/table", 64 * 1024 * 1024L, "file-multi-cdc", EMPTY_PARTITION_PATH,
         new HoodieCDCFileSplit[]{insert, delete, logFile, replace},
         "read_optimized", "20230104000000000");
 
@@ -1262,7 +1263,7 @@ public class TestHoodieSourceSplitSerializer {
     HoodieCDCFileSplit change = new HoodieCDCFileSplit(
         "20230101000000000", HoodieCDCInferenceCase.LOG_FILE, "cdc.log");
     HoodieCdcSourceSplit original = new HoodieCdcSourceSplit(
-        13, "/table", 128 * 1024 * 1024L, "file-cdc-consumed",
+        13, "/table", 128 * 1024 * 1024L, "file-cdc-consumed",  EMPTY_PARTITION_PATH,
         new HoodieCDCFileSplit[]{change}, "read_optimized", "20230101000000000");
 
     original.updatePosition(5, 200L);
@@ -1286,7 +1287,7 @@ public class TestHoodieSourceSplitSerializer {
 
     HoodieCdcSourceSplit original = new HoodieCdcSourceSplit(
         14, "/roundtrip/table", 128 * 1024 * 1024L, "file-roundtrip-cdc",
-        new HoodieCDCFileSplit[]{change1, change2},
+        EMPTY_PARTITION_PATH, new HoodieCDCFileSplit[]{change1, change2},
         "read_optimized", "20230102000000000");
 
     original.updatePosition(3, 50L);

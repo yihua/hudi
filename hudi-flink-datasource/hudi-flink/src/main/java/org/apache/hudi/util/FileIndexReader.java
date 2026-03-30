@@ -186,7 +186,8 @@ public abstract class FileIndexReader implements Serializable {
               StreamerUtil.getMaxCompactionMemoryInBytes(conf),
               mergeType,
               null,
-              fileSlice.getFileId());
+              fileSlice.getFileId(),
+              fileSlice.getPartitionPath());
         })
         .collect(Collectors.toList());
   }

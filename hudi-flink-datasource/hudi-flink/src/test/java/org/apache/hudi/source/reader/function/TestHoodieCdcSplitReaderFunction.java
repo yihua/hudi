@@ -39,6 +39,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 
+import static org.apache.hudi.util.StreamerUtil.EMPTY_PARTITION_PATH;
 import static org.apache.hudi.utils.TestConfigurations.ROW_DATA_TYPE;
 import static org.apache.hudi.utils.TestConfigurations.ROW_TYPE;
 import static org.apache.hudi.utils.TestConfigurations.TABLE_SCHEMA;
@@ -181,7 +182,7 @@ public class TestHoodieCdcSplitReaderFunction {
     };
     HoodieCdcSourceSplit cdcSplit = new HoodieCdcSourceSplit(
         1, tempDir.getAbsolutePath(), 128 * 1024 * 1024L, "file-cdc",
-            changes, "read_optimized", "20230101000000000");
+        EMPTY_PARTITION_PATH, changes, "read_optimized", "20230101000000000");
 
     // The call should NOT throw IllegalArgumentException (type guard passes).
     // It will throw some other exception when trying to do real I/O.

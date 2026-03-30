@@ -48,10 +48,11 @@ public class HoodieCdcSourceSplit extends HoodieSourceSplit {
       String tablePath,
       long maxCompactionMemoryInBytes,
       String fileId,
+      String partitionPath,
       HoodieCDCFileSplit[] changes,
       String mergeType,
       String lastCommit) {
-    super(splitNum, null, Option.empty(), tablePath, "", mergeType, lastCommit, fileId, Option.empty());
+    super(splitNum, null, Option.empty(), tablePath, partitionPath, mergeType, lastCommit, fileId, Option.empty());
     this.changes = changes;
     this.maxCompactionMemoryInBytes = maxCompactionMemoryInBytes;
   }

@@ -241,8 +241,8 @@ public class HoodieSourceSplitSerializer implements SimpleVersionedSerializer<Ho
             throw new IOException("Failed to deserialize HoodieCDCFileSplit", e);
           }
         }
-        HoodieCdcSourceSplit cdcSplit = new HoodieCdcSourceSplit(
-            splitNum, tablePath, maxCompactionMemoryInBytes, fileId, changes, mergeType, latestCommit);
+        HoodieCdcSourceSplit cdcSplit = new HoodieCdcSourceSplit(splitNum, tablePath,
+            maxCompactionMemoryInBytes, fileId, partitionPath, changes, mergeType, latestCommit);
         cdcSplit.updatePosition(fileOffset, consumed);
         return cdcSplit;
       }

@@ -46,6 +46,7 @@ public class MergeOnReadInputSplit implements InputSplit {
   private final long maxCompactionMemoryInBytes;
   private final String mergeType;
   private final Option<InstantRange> instantRange;
+  private final String partitionPath;
   @Setter
   protected String fileId;
 
@@ -62,7 +63,8 @@ public class MergeOnReadInputSplit implements InputSplit {
       long maxCompactionMemoryInBytes,
       String mergeType,
       @Nullable InstantRange instantRange,
-      String fileId) {
+      String fileId,
+      String partitionPath) {
     this.splitNum = splitNum;
     this.basePath = Option.ofNullable(basePath);
     this.logPaths = logPaths;
@@ -72,6 +74,7 @@ public class MergeOnReadInputSplit implements InputSplit {
     this.mergeType = mergeType;
     this.instantRange = Option.ofNullable(instantRange);
     this.fileId = fileId;
+    this.partitionPath = partitionPath;
   }
 
   @Override
@@ -98,6 +101,7 @@ public class MergeOnReadInputSplit implements InputSplit {
         + ", maxCompactionMemoryInBytes=" + maxCompactionMemoryInBytes
         + ", mergeType='" + mergeType + '\''
         + ", instantRange=" + instantRange
+        + ", partitionPath='" + partitionPath + '\''
         + '}';
   }
 }

@@ -23,6 +23,7 @@ import org.apache.hudi.common.table.cdc.HoodieCDCInferenceCase;
 
 import org.junit.jupiter.api.Test;
 
+import static org.apache.hudi.util.StreamerUtil.EMPTY_PARTITION_PATH;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -43,7 +44,7 @@ public class TestHoodieCdcSourceSplit {
   public void testGetChangesReturnsConstructorValue() {
     HoodieCDCFileSplit[] changes = {makeFileSplit("20230101000000000"), makeFileSplit("20230102000000000")};
     HoodieCdcSourceSplit split = new HoodieCdcSourceSplit(1, "/table", 1024L, "file-1",
-            changes, "read_optimized", "20230101000000000");
+            EMPTY_PARTITION_PATH, changes, "read_optimized", "20230101000000000");
 
     assertArrayEquals(changes, split.getChanges());
     assertSame(changes, split.getChanges());
@@ -52,8 +53,8 @@ public class TestHoodieCdcSourceSplit {
   @Test
   public void testGetMaxCompactionMemoryInBytes() {
     long memory = 256 * 1024 * 1024L;
-    HoodieCdcSourceSplit split = new HoodieCdcSourceSplit(1, "/table", memory, "file-1", new HoodieCDCFileSplit[0],
-            "read_optimized", "20230101000000000");
+    HoodieCdcSourceSplit split = new HoodieCdcSourceSplit(1, "/table", memory, "file-1",
+        EMPTY_PARTITION_PATH, new HoodieCDCFileSplit[0], "read_optimized", "20230101000000000");
 
     assertEquals(memory, split.getMaxCompactionMemoryInBytes());
   }
@@ -61,8 +62,8 @@ public class TestHoodieCdcSourceSplit {
   @Test
   public void testGetTablePath() {
     String tablePath = "/warehouse/hudi/my_table";
-    HoodieCdcSourceSplit split = new HoodieCdcSourceSplit(1, tablePath, 1024L,
-            "file-1", new HoodieCDCFileSplit[0], "read_optimized", "20230101000000000");
+    HoodieCdcSourceSplit split = new HoodieCdcSourceSplit(1, tablePath, 1024L, "file-1",
+        EMPTY_PARTITION_PATH, new HoodieCDCFileSplit[0], "read_optimized", "20230101000000000");
 
     assertEquals(tablePath, split.getTablePath());
   }
@@ -70,8 +71,8 @@ public class TestHoodieCdcSourceSplit {
   @Test
   public void testGetFileId() {
     String fileId = "my-file-id-abc-123";
-    HoodieCdcSourceSplit split = new HoodieCdcSourceSplit(1, "/table", 1024L,
-            fileId, new HoodieCDCFileSplit[0], "read_optimized", "20230101000000000");
+    HoodieCdcSourceSplit split = new HoodieCdcSourceSplit(1, "/table", 1024L, fileId,
+        EMPTY_PARTITION_PATH, new HoodieCDCFileSplit[0], "read_optimized", "20230101000000000");
 
     assertEquals(fileId, split.getFileId());
   }
@@ -79,7 +80,7 @@ public class TestHoodieCdcSourceSplit {
   @Test
   public void testSplitIdFormat() {
     HoodieCdcSourceSplit split = new HoodieCdcSourceSplit(1, "/table", 1024L, "file-1",
-            new HoodieCDCFileSplit[0], "read_optimized", "20230101000000000");
+        EMPTY_PARTITION_PATH, new HoodieCDCFileSplit[0], "read_optimized", "20230101000000000");
 
     // splitId() is inherited from HoodieSourceSplit and returns "splitNum:fileId"
     assertEquals("1:file-1", split.splitId());
@@ -89,7 +90,7 @@ public class TestHoodieCdcSourceSplit {
   public void testToStringContainsExpectedFields() {
     HoodieCDCFileSplit[] changes = {makeFileSplit("20230101000000000")};
     HoodieCdcSourceSplit split = new HoodieCdcSourceSplit(1, "/table", 1024L, "file-xyz",
-            changes, "read_optimized", "20230101000000000");
+        EMPTY_PARTITION_PATH, changes, "read_optimized", "20230101000000000");
 
     String str = split.toString();
     assertNotNull(str);
@@ -104,7 +105,7 @@ public class TestHoodieCdcSourceSplit {
   public void testEmptyChangesArray() {
     HoodieCDCFileSplit[] changes = new HoodieCDCFileSplit[0];
     HoodieCdcSourceSplit split = new HoodieCdcSourceSplit(5, "/table", 512L, "file-empty",
-            changes, "read_optimized", "20230101000000000");
+        EMPTY_PARTITION_PATH, changes, "read_optimized", "20230101000000000");
 
     assertNotNull(split.getChanges());
     assertEquals(0, split.getChanges().length);
@@ -113,7 +114,7 @@ public class TestHoodieCdcSourceSplit {
   @Test
   public void testIsInstanceOfHoodieSourceSplit() {
     HoodieCdcSourceSplit split = new HoodieCdcSourceSplit(1, "/table", 1024L, "file-1",
-            new HoodieCDCFileSplit[0], "read_optimized", "20230101000000000");
+        EMPTY_PARTITION_PATH, new HoodieCDCFileSplit[0], "read_optimized", "20230101000000000");
 
     assertTrue(split instanceof HoodieSourceSplit);
   }
@@ -122,7 +123,7 @@ public class TestHoodieCdcSourceSplit {
   public void testLargeCompactionMemory() {
     long largeMemory = Long.MAX_VALUE;
     HoodieCdcSourceSplit split = new HoodieCdcSourceSplit(1, "/table", largeMemory, "file-1",
-            new HoodieCDCFileSplit[0], "read_optimized", "20230101000000000");
+        EMPTY_PARTITION_PATH, new HoodieCDCFileSplit[0], "read_optimized", "20230101000000000");
 
     assertEquals(largeMemory, split.getMaxCompactionMemoryInBytes());
   }
@@ -130,7 +131,7 @@ public class TestHoodieCdcSourceSplit {
   @Test
   public void testDefaultConsumedAndFileOffset() {
     HoodieCdcSourceSplit split = new HoodieCdcSourceSplit(1, "/table", 1024L, "file-1",
-            new HoodieCDCFileSplit[0], "read_optimized", "20230101000000000");
+        EMPTY_PARTITION_PATH, new HoodieCDCFileSplit[0], "read_optimized", "20230101000000000");
 
     assertEquals(0L, split.getConsumed());
     assertEquals(0, split.getFileOffset());
@@ -140,7 +141,7 @@ public class TestHoodieCdcSourceSplit {
   @Test
   public void testConsumeIncrementsConsumed() {
     HoodieCdcSourceSplit split = new HoodieCdcSourceSplit(1, "/table", 1024L, "file-1",
-            new HoodieCDCFileSplit[0], "read_optimized", "20230101000000000");
+        EMPTY_PARTITION_PATH, new HoodieCDCFileSplit[0], "read_optimized", "20230101000000000");
 
     assertFalse(split.isConsumed());
     split.consume();
@@ -154,7 +155,7 @@ public class TestHoodieCdcSourceSplit {
   @Test
   public void testUpdatePositionSetsConsumedAndFileOffset() {
     HoodieCdcSourceSplit split = new HoodieCdcSourceSplit(1, "/table", 1024L, "file-1",
-            new HoodieCDCFileSplit[0], "read_optimized", "20230101000000000");
+        EMPTY_PARTITION_PATH, new HoodieCDCFileSplit[0], "read_optimized", "20230101000000000");
 
     split.updatePosition(7, 42L);
     assertEquals(7, split.getFileOffset());
@@ -171,7 +172,7 @@ public class TestHoodieCdcSourceSplit {
 
     HoodieCDCFileSplit[] changes = {insert, delete, logFile, replace};
     HoodieCdcSourceSplit split = new HoodieCdcSourceSplit(1, "/table", 1024L, "file-multi",
-            changes, "read_optimized", "20230101000000000");
+        EMPTY_PARTITION_PATH, changes, "read_optimized", "20230101000000000");
 
     assertEquals(4, split.getChanges().length);
     assertSame(insert, split.getChanges()[0]);
