@@ -25,6 +25,7 @@ import org.apache.hudi.client.transaction.lock.models.StorageLockData;
 import org.apache.hudi.client.transaction.lock.models.StorageLockFile;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.Pair;
+import org.apache.hudi.config.AzureStorageLockConfig;
 
 import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobServiceClient;
@@ -98,9 +99,9 @@ public class ITAzureStorageLockClientAzurite {
 
     // NOTE: lockFileUri only needs to be parseable for container/blobPath extraction.
     // The actual endpoint comes from the connection string.
-    String lockFileUri = "https://localhost:10000/" + container + "/" + blobPath;
+    String lockFileUri = "https://localhost:10000/" + ACCOUNT_NAME + "/" + container + "/" + blobPath;
     Properties props = new Properties();
-    props.setProperty(AzureStorageLockClient.AZURE_CONNECTION_STRING, connectionString());
+    props.setProperty(AzureStorageLockConfig.AZURE_CONNECTION_STRING.key(), connectionString());
 
     AzureStorageLockClient owner1 = new AzureStorageLockClient("owner1", lockFileUri, props);
     StorageLockData lockData1 = new StorageLockData(false, System.currentTimeMillis() + 60_000, "owner1");

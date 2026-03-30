@@ -53,6 +53,7 @@ import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.models.BlockBlobItem;
 import com.azure.storage.blob.options.BlobParallelUploadOptions;
 import lombok.AllArgsConstructor;
+import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -67,6 +68,7 @@ import java.util.concurrent.ConcurrentMap;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.apache.hudi.common.util.ConfigUtils.getLongWithAltKeys;
+import static org.apache.hudi.common.util.ConfigUtils.getStringWithAltKeys;
 
 /**
  * Azure Storage implementation of {@link StorageLockClient} using Azure Blob conditional requests.
@@ -113,7 +115,6 @@ public class AzureStorageLockClient implements StorageLockClient {
   private static final int RATE_LIMIT_ERROR_CODE = 429;
   private static final int INTERNAL_SERVER_ERROR_CODE_MIN = 500;
 
-  public static final String AZURE_CONNECTION_STRING = AzureStorageLockConfig.AZURE_CONNECTION_STRING.key();
   public static final String AZURE_SAS_TOKEN = AzureStorageLockConfig.AZURE_SAS_TOKEN.key();
 
   private final Logger logger;
@@ -165,7 +166,7 @@ public class AzureStorageLockClient implements StorageLockClient {
       configureAzureClientOptions(builder, props);
 
       // 1. Connection string (includes shared-key auth).
-      String connectionString = props == null ? null : props.getProperty(AZURE_CONNECTION_STRING);
+      String connectionString = getStringWithAltKeys(props, AzureStorageLockConfig.AZURE_CONNECTION_STRING, true);
       if (connectionString != null && !connectionString.trim().isEmpty()) {
         return builder.connectionString(connectionString).buildClient();
       }
@@ -173,7 +174,7 @@ public class AzureStorageLockClient implements StorageLockClient {
       builder.endpoint(location.blobEndpoint);
 
       // 2. SAS token.
-      String sasToken = props == null ? null : props.getProperty(AZURE_SAS_TOKEN);
+      String sasToken = getStringWithAltKeys(props, AzureStorageLockConfig.AZURE_SAS_TOKEN, true);
       if (sasToken != null && !sasToken.trim().isEmpty()) {
         String cleaned = sasToken.startsWith("?") ? sasToken.substring(1) : sasToken;
         return builder.credential(new AzureSasCredential(cleaned)).buildClient();
@@ -213,7 +214,9 @@ public class AzureStorageLockClient implements StorageLockClient {
   public Pair<LockUpsertResult, Option<StorageLockFile>> tryUpsertLockFile(
       StorageLockData newLockData,
       Option<StorageLockFile> previousLockFile) {
-    String expectedEtag = previousLockFile.isPresent() ? previousLockFile.get().getVersionId() : null;
+    String expectedEtag = previousLockFile.isPresent()
+        ? previousLockFile.get().getVersionId()
+        : null;
     try {
       StorageLockFile updated = createOrUpdateLockFileInternal(newLockData, expectedEtag);
       return Pair.of(LockUpsertResult.SUCCESS, Option.of(updated));
@@ -237,7 +240,10 @@ public class AzureStorageLockClient implements StorageLockClient {
   public Pair<LockGetResult, Option<StorageLockFile>> readCurrentLockFile() {
     try {
       Response<BinaryData> response = lockBlobClient.downloadContentWithResponse(null, null, null, Context.NONE);
-      String eTag = response.getHeaders() != null ? response.getHeaders().getValue("ETag") : null;
+      //Check for null or empty ETag and inconsistent quotes
+      String eTag = canonicalizeEtag(
+          response.getHeaders() != null ? response.getHeaders().getValue("ETag") : null,
+          "download");
       StorageLockFile lockFile = StorageLockFile.createFromStream(response.getValue().toStream(), eTag);
       return Pair.of(LockGetResult.SUCCESS, Option.of(lockFile));
     } catch (BlobStorageException e) {
@@ -276,10 +282,31 @@ public class AzureStorageLockClient implements StorageLockClient {
     if (newEtag == null && response.getValue() != null) {
       newEtag = response.getValue().getETag();
     }
-    if (newEtag == null || newEtag.isEmpty()) {
-      throw new HoodieLockException("Missing ETag in Azure upload response for lock file: " + lockFileUri);
-    }
+    //Check for null or empty ETag and inconsistent quotes
+    newEtag = canonicalizeEtag(newEtag, "upload");
     return new StorageLockFile(lockData, newEtag);
+  }
+
+  private String canonicalizeEtag(String eTag, String operation) {
+    if (eTag == null) {
+      throw new HoodieLockException("Missing ETag in Azure " + operation + " response for lock file: " + lockFileUri);
+    }
+
+    String normalized = eTag.trim();
+    if (normalized.isEmpty()) {
+      throw new HoodieLockException("Missing ETag in Azure " + operation + " response for lock file: " + lockFileUri);
+    }
+
+    boolean startsWithQuote = normalized.startsWith("\"");
+    boolean endsWithQuote = normalized.endsWith("\"");
+    if (startsWithQuote && endsWithQuote) {
+      return normalized;
+    }
+    if (!startsWithQuote && !endsWithQuote) {
+      return "\"" + normalized + "\"";
+    }
+
+    throw new HoodieLockException("Malformed ETag in Azure " + operation + " response for lock file: " + lockFileUri);
   }
 
   private LockUpsertResult handleUpsertBlobStorageException(BlobStorageException e) {
@@ -425,8 +452,9 @@ public class AzureStorageLockClient implements StorageLockClient {
     }
     return host;
   }
-
+ 
   @VisibleForTesting
+  @Getter
   @AllArgsConstructor
   static final class AzureLocation {
     final String blobEndpoint;

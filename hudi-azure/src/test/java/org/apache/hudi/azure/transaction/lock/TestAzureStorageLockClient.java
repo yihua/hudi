@@ -20,6 +20,7 @@
 package org.apache.hudi.azure.transaction.lock;
 
 import org.apache.hudi.client.transaction.lock.models.LockGetResult;
+import org.apache.hudi.exception.HoodieLockException;
 import org.apache.hudi.client.transaction.lock.models.LockUpsertResult;
 import org.apache.hudi.client.transaction.lock.models.StorageLockData;
 import org.apache.hudi.client.transaction.lock.models.StorageLockFile;
@@ -153,6 +154,25 @@ public class TestAzureStorageLockClient {
   }
 
   @Test
+  void testTryUpsertLockFile_fallsBackToBlockBlobItemEtag() {
+    StorageLockData lockData = new StorageLockData(false, 123L, "test-owner");
+    @SuppressWarnings("unchecked")
+    Response<BlockBlobItem> response = (Response<BlockBlobItem>) mock(Response.class);
+    BlockBlobItem blockBlobItem = mock(BlockBlobItem.class);
+    when(response.getHeaders()).thenReturn(null);
+    when(response.getValue()).thenReturn(blockBlobItem);
+    when(blockBlobItem.getETag()).thenReturn("0x8DABC123");
+    when(mockBlobClient.uploadWithResponse(any(BlobParallelUploadOptions.class), isNull(), eq(Context.NONE)))
+        .thenReturn(response);
+
+    Pair<LockUpsertResult, Option<StorageLockFile>> result = lockClient.tryUpsertLockFile(lockData, Option.empty());
+
+    assertEquals(LockUpsertResult.SUCCESS, result.getLeft());
+    assertTrue(result.getRight().isPresent());
+    assertEquals("\"0x8DABC123\"", result.getRight().get().getVersionId());
+  }
+
+  @Test
   void testTryUpsertLockFile_preconditionFailed_returnsAcquiredByOthers() {
     StorageLockData lockData = new StorageLockData(false, 999L, "owner");
     BlobStorageException ex = mock(BlobStorageException.class);
@@ -198,13 +218,16 @@ public class TestAzureStorageLockClient {
   }
 
   @Test
-  void testTryUpsertLockFile_unexpectedError_rethrows() {
+  void testTryUpsertLockFile_unexpectedError_returnsUnknownError() {
     StorageLockData lockData = new StorageLockData(false, 999L, "owner");
     BlobStorageException ex = mock(BlobStorageException.class);
     when(ex.getStatusCode()).thenReturn(400);
     when(mockBlobClient.uploadWithResponse(any(BlobParallelUploadOptions.class), isNull(), eq(Context.NONE))).thenThrow(ex);
 
-    assertThrows(BlobStorageException.class, () -> lockClient.tryUpsertLockFile(lockData, Option.empty()));
+    Pair<LockUpsertResult, Option<StorageLockFile>> result = lockClient.tryUpsertLockFile(lockData, Option.empty());
+
+    assertEquals(LockUpsertResult.UNKNOWN_ERROR, result.getLeft());
+    assertTrue(result.getRight().isEmpty());
   }
 
   @Test
@@ -239,6 +262,46 @@ public class TestAzureStorageLockClient {
   }
 
   @Test
+  void testReadCurrentLockFile_missingEtag_throwsHoodieLockException() {
+    StorageLockData data = new StorageLockData(false, 1700000000000L, "testOwner");
+    byte[] json = StorageLockFile.toByteArray(data);
+    BlobDownloadContentResponse response = mock(BlobDownloadContentResponse.class);
+    when(response.getHeaders()).thenReturn(null);
+    when(mockBlobClient.downloadContentWithResponse(isNull(), isNull(), isNull(), eq(Context.NONE))).thenReturn(response);
+
+    HoodieLockException exception =
+        assertThrows(HoodieLockException.class, () -> lockClient.readCurrentLockFile());
+
+    assertTrue(exception.getMessage().contains("Missing ETag in Azure download response for lock file"));
+  }
+
+  @Test
+  void testReadCurrentLockFile_emptyEtag_throwsHoodieLockException() {
+    StorageLockData data = new StorageLockData(false, 1700000000000L, "testOwner");
+    byte[] json = StorageLockFile.toByteArray(data);
+    BlobDownloadContentResponse response = mock(BlobDownloadContentResponse.class);
+    when(response.getHeaders()).thenReturn(new HttpHeaders().set("ETag", ""));
+    when(mockBlobClient.downloadContentWithResponse(isNull(), isNull(), isNull(), eq(Context.NONE))).thenReturn(response);
+
+    HoodieLockException exception =
+        assertThrows(HoodieLockException.class, () -> lockClient.readCurrentLockFile());
+
+    assertTrue(exception.getMessage().contains("Missing ETag in Azure download response for lock file"));
+  }
+
+  @Test
+  void testReadCurrentLockFile_malformedQuotedEtag_throwsHoodieLockException() {
+    BlobDownloadContentResponse response = mock(BlobDownloadContentResponse.class);
+    when(response.getHeaders()).thenReturn(new HttpHeaders().set("ETag", "\"etag-123"));
+    when(mockBlobClient.downloadContentWithResponse(isNull(), isNull(), isNull(), eq(Context.NONE))).thenReturn(response);
+
+    HoodieLockException exception =
+        assertThrows(HoodieLockException.class, () -> lockClient.readCurrentLockFile());
+
+    assertTrue(exception.getMessage().contains("Malformed ETag in Azure download response for lock file"));
+  }
+
+  @Test
   void testReadCurrentLockFile_download404_returnsNotExists() {
     BlobStorageException ex404 = mock(BlobStorageException.class);
     when(ex404.getStatusCode()).thenReturn(404);
@@ -261,7 +324,6 @@ public class TestAzureStorageLockClient {
     BlobClient primaryBlobClient = mock(BlobClient.class);
     when(primaryServiceClient.getBlobContainerClient(any(String.class))).thenReturn(primaryContainerClient);
     when(primaryContainerClient.getBlobClient(any(String.class))).thenReturn(primaryBlobClient);
-    when(primaryBlobClient.exists()).thenReturn(false);
 
     BlobServiceClient secondaryServiceClient = mock(BlobServiceClient.class);
     BlobContainerClient secondaryContainerClient = mock(BlobContainerClient.class);
@@ -276,7 +338,7 @@ public class TestAzureStorageLockClient {
         LOCK_FILE_URI,
         new Properties(),
         location -> {
-          if ("https://secondary.blob.core.windows.net".equals(location.blobEndpoint)) {
+          if ("https://secondary.blob.core.windows.net".equals(location.getBlobEndpoint())) {
             secondarySupplierInvocations.incrementAndGet();
             return secondaryServiceClient;
           }

@@ -30,9 +30,9 @@ public class TestAzureStorageLockClientUriParsing {
 
     AzureStorageLockClient.AzureLocation l = AzureStorageLockClient.parseAzureLocation(uri);
 
-    assertEquals("https://account.blob.core.windows.net", l.blobEndpoint);
-    assertEquals("container", l.container);
-    assertEquals("table/.hoodie/.locks/table_lock.json", l.blobPath);
+    assertEquals("https://account.blob.core.windows.net", l.getBlobEndpoint());
+    assertEquals("container", l.getContainer());
+    assertEquals("table/.hoodie/.locks/table_lock.json", l.getBlobPath());
   }
 
   @Test
@@ -41,9 +41,9 @@ public class TestAzureStorageLockClientUriParsing {
 
     AzureStorageLockClient.AzureLocation l = AzureStorageLockClient.parseAzureLocation(uri);
 
-    assertEquals("https://account.blob.core.windows.net", l.blobEndpoint);
-    assertEquals("container", l.container);
-    assertEquals("lake/db/tbl/.hoodie/.locks/table_lock.json", l.blobPath);
+    assertEquals("https://account.blob.core.windows.net", l.getBlobEndpoint());
+    assertEquals("container", l.getContainer());
+    assertEquals("lake/db/tbl/.hoodie/.locks/table_lock.json", l.getBlobPath());
   }
 
   @Test
@@ -52,9 +52,9 @@ public class TestAzureStorageLockClientUriParsing {
 
     AzureStorageLockClient.AzureLocation l = AzureStorageLockClient.parseAzureLocation(uri);
 
-    assertEquals("https://account.blob.core.windows.net", l.blobEndpoint);
-    assertEquals("container", l.container);
-    assertEquals("table/.hoodie/.locks/table_lock.json", l.blobPath);
+    assertEquals("https://account.blob.core.windows.net", l.getBlobEndpoint());
+    assertEquals("container", l.getContainer());
+    assertEquals("table/.hoodie/.locks/table_lock.json", l.getBlobPath());
   }
 
   @Test
@@ -63,9 +63,9 @@ public class TestAzureStorageLockClientUriParsing {
 
     AzureStorageLockClient.AzureLocation l = AzureStorageLockClient.parseAzureLocation(uri);
 
-    assertEquals("https://account.blob.core.windows.net", l.blobEndpoint);
-    assertEquals("container", l.container);
-    assertEquals("lake/db/tbl/.hoodie/.locks/table_lock.json", l.blobPath);
+    assertEquals("https://account.blob.core.windows.net", l.getBlobEndpoint());
+    assertEquals("container", l.getContainer());
+    assertEquals("lake/db/tbl/.hoodie/.locks/table_lock.json", l.getBlobPath());
   }
 
   @Test
@@ -74,9 +74,9 @@ public class TestAzureStorageLockClientUriParsing {
 
     AzureStorageLockClient.AzureLocation l = AzureStorageLockClient.parseAzureLocation(uri);
 
-    assertEquals("https://account.blob.core.windows.net", l.blobEndpoint);
-    assertEquals("container", l.container);
-    assertEquals("table/.hoodie/.locks/table_lock.json", l.blobPath);
+    assertEquals("https://account.blob.core.windows.net", l.getBlobEndpoint());
+    assertEquals("container", l.getContainer());
+    assertEquals("table/.hoodie/.locks/table_lock.json", l.getBlobPath());
   }
 
   @Test
@@ -85,8 +85,8 @@ public class TestAzureStorageLockClientUriParsing {
 
     AzureStorageLockClient.AzureLocation l = AzureStorageLockClient.parseAzureLocation(uri);
 
-    assertEquals("http://127.0.0.1:10000", l.blobEndpoint);
-    assertEquals("container", l.container);
-    assertEquals("table/.hoodie/.locks/table_lock.json", l.blobPath);
+    assertEquals("http://127.0.0.1:10000", l.getBlobEndpoint());
+    assertEquals("table", l.getContainer());
+    assertEquals(".hoodie/.locks/table_lock.json", l.getBlobPath());
   }
 }
