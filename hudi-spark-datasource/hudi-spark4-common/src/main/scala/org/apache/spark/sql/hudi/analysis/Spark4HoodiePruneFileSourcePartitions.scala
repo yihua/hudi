@@ -48,7 +48,7 @@ case class Spark4HoodiePruneFileSourcePartitions(spark: SparkSession) extends Ru
       val normalizedFilters = exprUtils.normalizeExprs(deterministicFilters, lr.output)
 
       val (partitionPruningFilters, dataFilters) =
-        getPartitionFiltersAndDataFilters(fileIndex.partitionSchema, normalizedFilters)
+        getPartitionFiltersAndDataFilters(fileIndex.partitionSchemaForSpark, normalizedFilters)
 
       // [[HudiFileIndex]] is a caching one, therefore we don't need to reconstruct new relation,
       // instead we simply just refresh the index and update the stats
