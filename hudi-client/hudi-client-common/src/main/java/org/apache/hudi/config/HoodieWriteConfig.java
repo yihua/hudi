@@ -753,6 +753,28 @@ public class HoodieWriteConfig extends HoodieConfig {
       .withDocumentation("Whether to allow generation of empty commits, even if no data was written in the commit. "
           + "It's useful in cases where extra metadata needs to be published regardless e.g tracking source offsets when ingesting data");
 
+  public static final ConfigProperty<String> ROLLING_METADATA_KEYS = ConfigProperty
+      .key("hoodie.write.rolling.metadata.keys")
+      .defaultValue("")
+      .markAdvanced()
+      .sinceVersion("1.1.0")
+      .withDocumentation("Comma-separated list of extra metadata keys that should be automatically carried forward "
+          + "to every new commit. These keys will be read from recent commit metadata and included in new commits, "
+          + "ensuring they remain accessible without walking the timeline or worrying about archival. "
+          + "This is useful for tracking checkpoint information (e.g., Kafka offsets, Flink checkpoints) or any metadata "
+          + "that needs to persist across commits. New values override old ones. Only applies to data table commits.");
+
+  public static final ConfigProperty<Integer> ROLLING_METADATA_TIMELINE_LOOKBACK_COMMITS = ConfigProperty
+      .key("hoodie.write.rolling.metadata.timeline.lookback.commits")
+      .defaultValue(10)
+      .markAdvanced()
+      .sinceVersion("1.1.0")
+      .withDocumentation("Maximum number of completed commits to walk back in the timeline when searching for "
+          + "rolling metadata keys. If a rolling metadata key is not found in the latest commit, the system will "
+          + "walk back up to this many commits to find the most recent value. This ensures rolling metadata is "
+          + "preserved even if some commits don't update all keys. Higher values provide more resilience but may "
+          + "impact performance. Only applies when hoodie.write.rolling.metadata.keys is configured.");
+
   public static final ConfigProperty<Boolean> ALLOW_OPERATION_METADATA_FIELD = ConfigProperty
       .key("hoodie.allow.operation.metadata.field")
       .defaultValue(false)
@@ -2870,6 +2892,21 @@ public class HoodieWriteConfig extends HoodieConfig {
     return getBooleanOrDefault(ALLOW_OPERATION_METADATA_FIELD);
   }
 
+  public java.util.Set<String> getRollingMetadataKeys() {
+    String keys = getString(ROLLING_METADATA_KEYS);
+    if (keys == null || keys.trim().isEmpty()) {
+      return java.util.Collections.emptySet();
+    }
+    return java.util.Arrays.stream(keys.split(","))
+        .map(String::trim)
+        .filter(s -> !s.isEmpty())
+        .collect(java.util.stream.Collectors.toSet());
+  }
+
+  public int getRollingMetadataTimelineLookbackCommits() {
+    return getInt(ROLLING_METADATA_TIMELINE_LOOKBACK_COMMITS);
+  }
+
   public String getFileIdPrefixProviderClassName() {
     return getString(FILEID_PREFIX_PROVIDER_CLASS);
   }
@@ -3521,6 +3558,16 @@ public class HoodieWriteConfig extends HoodieConfig {
 
     public Builder withReleaseResourceEnabled(boolean enabled) {
       writeConfig.setValue(RELEASE_RESOURCE_ENABLE, Boolean.toString(enabled));
+      return this;
+    }
+
+    public Builder withRollingMetadataKeys(String keys) {
+      writeConfig.setValue(ROLLING_METADATA_KEYS, keys);
+      return this;
+    }
+
+    public Builder withRollingMetadataTimelineLookbackCommits(int lookbackCommits) {
+      writeConfig.setValue(ROLLING_METADATA_TIMELINE_LOOKBACK_COMMITS, String.valueOf(lookbackCommits));
       return this;
     }
 
