@@ -46,7 +46,7 @@ import org.apache.spark.api.java.JavaSparkContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.{expressions, InternalRow}
-import org.apache.spark.sql.catalyst.expressions.{AttributeReference, BasePredicate, BoundReference, EmptyRow, EqualTo, Expression, GetStructField, InterpretedPredicate, Literal}
+import org.apache.spark.sql.catalyst.expressions.{AttributeReference, BasePredicate, BoundReference, EmptyRow, EqualTo, Expression, GetStructField, InterpretedPredicate, IsNotNull, IsNull, Literal}
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.execution.datasources.{FileStatusCache, NoopCache}
 import org.apache.spark.sql.internal.SQLConf
@@ -205,6 +205,25 @@ class SparkHoodieTableFileIndex(spark: SparkSession,
   }
 
   /**
+   * Spark-facing partition schema that preserves nested structure for nested partition columns.
+   *
+   * NOTE: Hudi's [[partitionSchema]] intentionally returns a *flat* schema where field names use full
+   * dot-paths (for example, "a.b.c") to avoid collisions with top-level data columns. Some Spark
+   * planner/analyzer paths, however, reason about nested columns as nested [[StructType]]s and
+   * require a nested schema shape to properly resolve [[GetStructField]] chains.
+   *
+   * This method reconstructs a nested [[StructType]] from the flat partition schema, using the same
+   * leaf data-types, and preserving deterministic field ordering based on the original flat schema.
+   */
+  def partitionSchemaForSpark: StructType = {
+    if (!shouldReadAsPartitionedTable) {
+      new StructType()
+    } else {
+      SparkHoodieTableFileIndex.buildNestedPartitionSchema(_partitionSchemaFromProperties)
+    }
+  }
+
+  /**
    * Fetch list of latest base files w/ corresponding log files, after performing
    * partition pruning
    *
@@ -293,6 +312,26 @@ class SparkHoodieTableFileIndex(spark: SparkSession,
               if (idx >= 0) Some(BoundReference(idx, partitionSchema(idx).dataType, nullable = true))
               else None
             }.getOrElse(g)
+          // NOTE: Spark's optimizer auto-adds IsNotNull(struct_attr) when a nested field is
+          // filtered (e.g. IsNotNull(nested_record) for filter nested_record.level = 'INFO').
+          // The struct attribute cannot be directly bound to a flat partition value.
+          // Since partition rows are parsed from partition paths they are never null, so
+          // IsNotNull for any expression whose references are all struct-parents of nested
+          // partition columns is always true (and IsNull always false).
+          // We match on the expression's references rather than requiring the child to be a
+          // plain AttributeReference, because the optimizer may wrap it in casts or other nodes.
+          case n @ IsNotNull(_)
+            if n.references.map(_.name).nonEmpty &&
+               n.references.map(_.name).forall { ref =>
+                 val logicalName = ref.replaceAll("#\\d+$", "")
+                 partitionFieldNames.exists(_.startsWith(logicalName + "."))
+               } => Literal(true)
+          case n @ IsNull(_)
+            if n.references.map(_.name).nonEmpty &&
+               n.references.map(_.name).forall { ref =>
+                 val logicalName = ref.replaceAll("#\\d+$", "")
+                 partitionFieldNames.exists(_.startsWith(logicalName + "."))
+               } => Literal(false)
           case a: AttributeReference =>
             val logicalName = a.name.replaceAll("#\\d+$", "")
             val index = partitionSchema.indexWhere(sf => resolve(logicalName, sf.name))
@@ -512,6 +551,76 @@ class SparkHoodieTableFileIndex(spark: SparkSession,
 object SparkHoodieTableFileIndex extends SparkAdapterSupport {
   private val LOG = LoggerFactory.getLogger(classOf[SparkHoodieTableFileIndex])
   private val PUT_LEAF_FILES_METHOD_NAME = "putLeafFiles"
+
+  private case class NestedFieldNode(
+      leafType: Option[org.apache.spark.sql.types.DataType],
+      children: scala.collection.mutable.LinkedHashMap[String, NestedFieldNode]
+  )
+
+  /**
+   * Reconstruct nested partition schema from a flat partition schema containing dot-path field names.
+   *
+   * For example, flat fields ["a.b": int, "a.c": string, "d": long] becomes:
+   *
+   *   StructType(
+   *     StructField("a", StructType(StructField("b", int), StructField("c", string))),
+   *     StructField("d", long)
+   *   )
+   */
+  private[hudi] def buildNestedPartitionSchema(flatPartitionSchema: StructType): StructType = {
+    if (flatPartitionSchema.isEmpty) {
+      new StructType()
+    } else {
+      val root = NestedFieldNode(None, scala.collection.mutable.LinkedHashMap.empty)
+
+      def getOrCreateChild(parent: NestedFieldNode, name: String): NestedFieldNode = {
+        parent.children.getOrElseUpdate(name, NestedFieldNode(None, scala.collection.mutable.LinkedHashMap.empty))
+      }
+
+      flatPartitionSchema.fields.foreach { field =>
+        val parts = field.name.split("\\.", -1)
+        checkState(parts.forall(p => p.nonEmpty),
+          s"Invalid partition field path '${field.name}' in partition schema")
+
+        var node = root
+        var i = 0
+        while (i < parts.length) {
+          val part = parts(i)
+          val isLeaf = i == parts.length - 1
+
+          if (isLeaf) {
+            val child = getOrCreateChild(node, part)
+            checkState(child.children.isEmpty,
+              s"Conflicting partition schema: '${field.name}' collides with nested fields under '${parts.take(i + 1).mkString(".")}'")
+            checkState(child.leafType.isEmpty || child.leafType.contains(field.dataType),
+              s"Conflicting partition schema: '${field.name}' has inconsistent types (${child.leafType.orNull} vs ${field.dataType})")
+            node.children.update(part, child.copy(leafType = Some(field.dataType)))
+          } else {
+            val child = getOrCreateChild(node, part)
+            checkState(child.leafType.isEmpty,
+              s"Conflicting partition schema: '${field.name}' requires struct at '${parts.take(i + 1).mkString(".")}', but a leaf is defined")
+            node = child
+          }
+
+          i += 1
+        }
+      }
+
+      def toStructType(node: NestedFieldNode): StructType = {
+        val fields = node.children.map { case (name, child) =>
+          child.leafType match {
+            case Some(dt) if child.children.isEmpty =>
+              StructField(name, dt, nullable = true)
+            case _ =>
+              StructField(name, toStructType(child), nullable = true)
+          }
+        }.toArray
+        StructType(fields)
+      }
+
+      toStructType(root)
+    }
+  }
 
   private def haveProperPartitionValues(partitionPaths: Seq[PartitionPath]) = {
     partitionPaths.forall(_.getValues.length > 0)
