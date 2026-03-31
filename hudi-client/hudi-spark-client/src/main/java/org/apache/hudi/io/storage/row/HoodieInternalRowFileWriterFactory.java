@@ -105,7 +105,7 @@ public class HoodieInternalRowFileWriterFactory {
         .storage(table.getStorage())
         .populateMetaFields(writeConfig.populateMetaFields())
         .maxFileSize(writeConfig.getLongOrDefault(HoodieStorageConfig.LANCE_MAX_FILE_SIZE))
-        .bloomFilter(tryInstantiateBloomFilter(writeConfig))
+        .bloomFilterOpt(tryInstantiateBloomFilter(writeConfig))
         .build();
   }
 
