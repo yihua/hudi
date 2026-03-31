@@ -49,6 +49,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledIfSystemProperty;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.lance.file.LanceFileReader;
 
 import java.io.File;
@@ -67,6 +69,7 @@ import static org.apache.hudi.io.storage.LanceTestUtils.createRowWithMetaFields;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -104,8 +107,9 @@ public class TestHoodieSparkLanceWriter {
     StructType schema = createSchemaWithMetaFields();
 
     StoragePath path = new StoragePath(tempDir.getAbsolutePath() + "/test_with_metadata.lance");
-    try (HoodieSparkLanceWriter writer = new HoodieSparkLanceWriter(
-        path, schema, instantTime, taskContextSupplier, storage, true, Option.of(simpleBloomFilter))) {
+    try (HoodieSparkLanceWriter writer = HoodieSparkLanceWriter.builder()
+        .file(path).sparkSchema(schema).instantTime(instantTime).taskContextSupplier(taskContextSupplier)
+        .storage(storage).populateMetaFields(true).bloomFilterOpt(Option.of(simpleBloomFilter)).build()) {
       // Write multiple records to test metadata population and sequence ID generation
       for (int i = 0; i < 3; i++) {
         InternalRow row = createRowWithMetaFields(i, "User" + i, 20L + i);
@@ -173,8 +177,9 @@ public class TestHoodieSparkLanceWriter {
     StructType schema = createSchemaWithoutMetaFields();
 
     StoragePath path = new StoragePath(tempDir.getAbsolutePath() + "/test_without_metadata.lance");
-    try (HoodieSparkLanceWriter writer = new HoodieSparkLanceWriter(
-        path, schema, instantTime, taskContextSupplier, storage, false, Option.of(simpleBloomFilter))) {
+    try (HoodieSparkLanceWriter writer = HoodieSparkLanceWriter.builder()
+        .file(path).sparkSchema(schema).instantTime(instantTime).taskContextSupplier(taskContextSupplier)
+        .storage(storage).bloomFilterOpt(Option.of(simpleBloomFilter)).build()) {
       // Create row with just user data (no meta fields)
       InternalRow row = createRow(1, "Bob", 25L);
       HoodieKey key = new HoodieKey("key2", "partition2");
@@ -217,8 +222,9 @@ public class TestHoodieSparkLanceWriter {
     StructType schema = createSchemaWithoutMetaFields();
 
     StoragePath path = new StoragePath(tempDir.getAbsolutePath() + "/test_simple_write.lance");
-    try (HoodieSparkLanceWriter writer = new HoodieSparkLanceWriter(
-        path, schema, instantTime, taskContextSupplier, storage, false, Option.of(simpleBloomFilter))) {
+    try (HoodieSparkLanceWriter writer = HoodieSparkLanceWriter.builder()
+        .file(path).sparkSchema(schema).instantTime(instantTime).taskContextSupplier(taskContextSupplier)
+        .storage(storage).bloomFilterOpt(Option.of(simpleBloomFilter)).build()) {
       InternalRow row = createRow(1, "Charlie", 35L);
       writer.writeRow("key3", row);
     }
@@ -238,8 +244,9 @@ public class TestHoodieSparkLanceWriter {
     StoragePath path = new StoragePath(tempDir.getAbsolutePath() + "/test_batch_flush.lance");
     // Write more than DEFAULT_BATCH_SIZE (1000) records
     int recordCount = 2500;
-    try (HoodieSparkLanceWriter writer = new HoodieSparkLanceWriter(
-        path, schema, instantTime, taskContextSupplier, storage, false, Option.of(simpleBloomFilter))) {
+    try (HoodieSparkLanceWriter writer = HoodieSparkLanceWriter.builder()
+        .file(path).sparkSchema(schema).instantTime(instantTime).taskContextSupplier(taskContextSupplier)
+        .storage(storage).bloomFilterOpt(Option.of(simpleBloomFilter)).build()) {
       for (int i = 0; i < recordCount; i++) {
         InternalRow row = createRow(i, "User" + i, 20L + i);
         writer.writeRow("key" + i, row);
@@ -266,8 +273,9 @@ public class TestHoodieSparkLanceWriter {
         .add("binary_field", DataTypes.BinaryType, false);
 
     StoragePath path = new StoragePath(tempDir.getAbsolutePath() + "/test_primitives.lance");
-    try (HoodieSparkLanceWriter writer = new HoodieSparkLanceWriter(
-        path, schema, instantTime, taskContextSupplier, storage, false, Option.of(simpleBloomFilter))) {
+    try (HoodieSparkLanceWriter writer = HoodieSparkLanceWriter.builder()
+        .file(path).sparkSchema(schema).instantTime(instantTime).taskContextSupplier(taskContextSupplier)
+        .storage(storage).bloomFilterOpt(Option.of(simpleBloomFilter)).build()) {
       GenericInternalRow row = new GenericInternalRow(new Object[]{
           42,                                    // int
           123456789L,                           // long
@@ -313,8 +321,9 @@ public class TestHoodieSparkLanceWriter {
         .add("age", DataTypes.LongType, true);
 
     StoragePath path = new StoragePath(tempDir.getAbsolutePath() + "/test_nulls.lance");
-    try (HoodieSparkLanceWriter writer = new HoodieSparkLanceWriter(
-        path, schema, instantTime, taskContextSupplier, storage, false, Option.of(simpleBloomFilter))) {
+    try (HoodieSparkLanceWriter writer = HoodieSparkLanceWriter.builder()
+        .file(path).sparkSchema(schema).instantTime(instantTime).taskContextSupplier(taskContextSupplier)
+        .storage(storage).bloomFilterOpt(Option.of(simpleBloomFilter)).build()) {
       // Write rows with null values
       writer.writeRow("key1", createRow(1, "Alice", 30L));
       writer.writeRow("key2", createRow(2, null, 25L));  // null name
@@ -350,8 +359,9 @@ public class TestHoodieSparkLanceWriter {
         .add("id", DataTypes.IntegerType, false);
 
     StoragePath path = new StoragePath(tempDir.getAbsolutePath() + "/test_empty.lance");
-    try (HoodieSparkLanceWriter writer = new HoodieSparkLanceWriter(
-        path, schema, instantTime, taskContextSupplier, storage, false, Option.of(simpleBloomFilter))) {
+    try (HoodieSparkLanceWriter writer = HoodieSparkLanceWriter.builder()
+        .file(path).sparkSchema(schema).instantTime(instantTime).taskContextSupplier(taskContextSupplier)
+        .storage(storage).bloomFilterOpt(Option.of(simpleBloomFilter)).build()) {
       // Close without writing any rows
     }
 
@@ -398,8 +408,9 @@ public class TestHoodieSparkLanceWriter {
     rows.add(new GenericInternalRow(new Object[]{2, UTF8String.fromString("Bob"), address2}));
 
     StoragePath path = new StoragePath(tempDir.getAbsolutePath() + "/test_struct.lance");
-    try (HoodieSparkLanceWriter writer = new HoodieSparkLanceWriter(
-        path, schema, instantTime, taskContextSupplier, storage, false, Option.of(simpleBloomFilter))) {
+    try (HoodieSparkLanceWriter writer = HoodieSparkLanceWriter.builder()
+        .file(path).sparkSchema(schema).instantTime(instantTime).taskContextSupplier(taskContextSupplier)
+        .storage(storage).bloomFilterOpt(Option.of(simpleBloomFilter)).build()) {
       for (int i = 0; i < rows.size(); i++) {
         writer.writeRow("key" + i, rows.get(i));
       }
@@ -412,6 +423,116 @@ public class TestHoodieSparkLanceWriter {
       assertEquals(rows.size(), reader.numRows(), "Row count should match");
       assertEquals(3, reader.schema().getFields().size(), "Should have 3 top-level fields (id, name, address)");
     }
+  }
+
+  /**
+   * HoodieSparkLanceWriter constructor must throw IllegalArgumentException if maxFileSize <= 0
+   */
+  @Test
+  public void testMaxFileSizeValidation() {
+    StructType schema = createSchemaWithoutMetaFields();
+    StoragePath path = new StoragePath(tempDir.getAbsolutePath() + "/test_validation.lance");
+    IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+        () -> HoodieSparkLanceWriter.builder()
+            .file(path).sparkSchema(schema).instantTime(instantTime).taskContextSupplier(taskContextSupplier)
+            .storage(storage).maxFileSize(0).build());
+    assertEquals("maxFileSize must be a positive number", ex.getMessage());
+  }
+
+  /**
+   * canWrite() must return true before any records are written (written count is 0,
+   * below the initial check threshold of MIN_RECORDS_FOR_SIZE_CHECK=100).
+   */
+  @Test
+  public void testCanWriteTrueBeforeAnyWrite() throws Exception {
+    StructType schema = createSchemaWithoutMetaFields();
+    StoragePath path = new StoragePath(tempDir.getAbsolutePath() + "/test_canwrite_initial.lance");
+    try (HoodieSparkLanceWriter writer = HoodieSparkLanceWriter.builder()
+        .file(path).sparkSchema(schema).instantTime(instantTime).taskContextSupplier(taskContextSupplier)
+        .storage(storage).maxFileSize(Long.MAX_VALUE).build()) {
+      assertTrue(writer.canWrite(), "canWrite() must return true before any records are written");
+    }
+  }
+
+  /**
+   * canWrite() must always return true when maxFileSize is Long.MAX_VALUE,
+   * regardless of how many records are written and how many batch flushes occur.
+   */
+  @Test
+  public void testCanWriteAlwaysTrueWithNoLimit() throws Exception {
+    StructType schema = createSchemaWithoutMetaFields();
+    StoragePath path = new StoragePath(tempDir.getAbsolutePath() + "/test_canwrite_no_limit.lance");
+    // Write more than DEFAULT_BATCH_SIZE (1000) to trigger at least one batch flush
+    int recordCount = 1500;
+    try (HoodieSparkLanceWriter writer = HoodieSparkLanceWriter.builder()
+        .file(path).sparkSchema(schema).instantTime(instantTime).taskContextSupplier(taskContextSupplier)
+        .storage(storage).maxFileSize(Long.MAX_VALUE).build()) {
+      for (int i = 0; i < recordCount; i++) {
+        assertTrue(writer.canWrite(), "canWrite() should always be true when maxFileSize is unlimited");
+        writer.writeRow("key" + i, createRow(i, "User" + i, 20L + i));
+      }
+    }
+  }
+
+  /**
+   * canWrite() must return false once the cumulative Arrow buffer size of flushed batches
+   * exceeds maxFileSize. A tiny maxFileSize (100 bytes) is used so that a single flushed
+   * batch of 1000 records (≫ 100 bytes) is guaranteed to exceed the limit.
+   */
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  public void testCanWriteReturnsFalseAfterFileSizeLimitExceeded(boolean populateMetaFields) throws Exception {
+    StructType schema = populateMetaFields ? createSchemaWithMetaFields() : createSchemaWithoutMetaFields();
+    StoragePath path = new StoragePath(tempDir.getAbsolutePath() + "/test_canwrite_exceeded.lance");
+    // 100 bytes is far smaller than a single flushed batch of 1000 records
+    long tinyMaxFileSize = 100L;
+
+    try (HoodieSparkLanceWriter writer = HoodieSparkLanceWriter.builder()
+        .file(path).sparkSchema(schema).instantTime(instantTime).taskContextSupplier(taskContextSupplier)
+        .storage(storage).populateMetaFields(populateMetaFields).maxFileSize(tinyMaxFileSize).build()) {
+
+      assertTrue(writer.canWrite(), "canWrite() must be true before writing any records");
+
+      // Write exactly DEFAULT_BATCH_SIZE records to force the first batch flush
+      for (int i = 0; i < 1000; i++) {
+        if (populateMetaFields) {
+          HoodieKey key = new HoodieKey("key" + i, "partition1");
+          writer.writeRowWithMetadata(key, createRowWithMetaFields(i, "User" + i, 20L + i));
+        } else {
+          writer.writeRow("key" + i, createRow(i, "User" + i, 20L + i));
+        }
+      }
+
+      // After the flush the accumulated data size >> tinyMaxFileSize, so canWrite() must be false
+      assertFalse(writer.canWrite(),
+          "canWrite() must return false after flushed data size exceeds maxFileSize");
+    }
+  }
+
+  /**
+   * A write loop that respects canWrite() must stop well before the artificial upper bound
+   * when maxFileSize is tiny, demonstrating that canWrite() correctly gates record writes.
+   */
+  @Test
+  public void testCanWriteStopsWriteLoop() throws Exception {
+    StructType schema = createSchemaWithoutMetaFields();
+    StoragePath path = new StoragePath(tempDir.getAbsolutePath() + "/test_canwrite_loop.lance");
+    long tinyMaxFileSize = 100L;
+    int maxAllowed = 5000;
+    int writtenCount = 0;
+
+    try (HoodieSparkLanceWriter writer = HoodieSparkLanceWriter.builder()
+        .file(path).sparkSchema(schema).instantTime(instantTime).taskContextSupplier(taskContextSupplier)
+        .storage(storage).maxFileSize(tinyMaxFileSize).build()) {
+      while (writer.canWrite() && writtenCount < maxAllowed) {
+        writer.writeRow("key" + writtenCount, createRow(writtenCount, "User" + writtenCount, 20L));
+        writtenCount++;
+      }
+    }
+
+    assertTrue(writtenCount > 0, "At least one record should have been written");
+    assertTrue(writtenCount < maxAllowed,
+        "Write loop must have been stopped by canWrite() before reaching the artificial ceiling");
   }
 
   // Helper methods

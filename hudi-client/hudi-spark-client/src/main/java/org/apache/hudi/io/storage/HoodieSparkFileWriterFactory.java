@@ -111,8 +111,18 @@ public class HoodieSparkFileWriterFactory extends HoodieFileWriterFactory {
     StructType structType = HoodieInternalRowUtils.getCachedSchema(schema);
     boolean enableBloomFilter = enableBloomFilter(populateMetaFields, config);
     Option<BloomFilter> bloomFilter = enableBloomFilter ? Option.of(createBloomFilter(config)) : Option.empty();
+    long maxFileSize = config.getLongOrDefault(HoodieStorageConfig.LANCE_MAX_FILE_SIZE);
 
-    return new HoodieSparkLanceWriter(path, structType, instantTime, taskContextSupplier, storage, populateMetaFields, bloomFilter);
+    return HoodieSparkLanceWriter.builder()
+        .file(path)
+        .sparkSchema(structType)
+        .instantTime(instantTime)
+        .taskContextSupplier(taskContextSupplier)
+        .storage(storage)
+        .populateMetaFields(populateMetaFields)
+        .bloomFilterOpt(bloomFilter)
+        .maxFileSize(maxFileSize)
+        .build();
   }
 
   private static HoodieRowParquetWriteSupport getHoodieRowParquetWriteSupport(StorageConfiguration<?> conf, HoodieSchema schema,
