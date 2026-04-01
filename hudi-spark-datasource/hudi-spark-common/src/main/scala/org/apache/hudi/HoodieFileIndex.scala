@@ -185,12 +185,28 @@ case class HoodieFileIndex(spark: SparkSession,
    * `partitionFilters` here — which would cause all partitions to be scanned.
    */
   override def listFiles(partitionFilters: Seq[Expression], dataFilters: Seq[Expression]): Seq[PartitionDirectory] = {
-    val usedCache = hasPushedDownPartitionPredicates && cachedPrunedSlices.isDefined
+    // Use the cached result from HoodiePruneFileSourcePartitions ONLY when FileSourceScanExec
+    // passes empty partitionFilters.  This is the signature of the nested-partition-column case:
+    // because HadoopFsRelation exposes a flat dot-path partition schema, FileSourceScanExec
+    // cannot match GetStructField-based filter references and therefore passes partitionFilters=[]
+    // here, which would cause all partitions to be scanned without the cache.
+    //
+    // For regular partition columns FileSourceScanExec always passes non-empty partitionFilters,
+    // so we call filterFileSlices fresh regardless of the cache.  This is critical for correctness:
+    // the cache may have been populated by a *different* query's HoodiePruneFileSourcePartitions
+    // run (e.g. from a .executedPlan.toString() call that triggers planning but not execution,
+    // leaving hasPushedDownPartitionPredicates=true with stale slices), and using it would return
+    // wrong rows for a query with different filters.
+    val usedCache = partitionFilters.isEmpty && cachedPrunedSlices.isDefined
     val slices = if (usedCache) {
       cachedPrunedSlices.get.flatMap { case (partitionOpt, fileSlices) =>
         fileSlices.filter(!_.isEmpty).map(fs => (InternalRow.fromSeq(partitionOpt.get.getValues), fs))
       }
     } else {
+      // A non-empty partitionFilters means we are on the regular-partition path and must compute
+      // fresh results.  Discard any stale cache so it cannot be picked up by a later
+      // nested-partition query on the same file-index instance.
+      cachedPrunedSlices = None
       filterFileSlices(dataFilters, partitionFilters).flatMap(
         { case (partitionOpt, fileSlices) =>
           fileSlices.filter(!_.isEmpty).map(fs => (InternalRow.fromSeq(partitionOpt.get.getValues), fs))
