@@ -106,7 +106,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     // Query vector [1, 0, 0] should be closest to doc_1, then doc_4, then doc_5
     val result = spark.sql(
       s"""
-         |SELECT id, label, _distance
+         |SELECT id, label, _hudi_distance
          |FROM hudi_vector_search(
          |  '$corpusViewName',
          |  'embedding',
@@ -114,7 +114,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
          |  3,
          |  'cosine'
          |)
-         |ORDER BY _distance
+         |ORDER BY _hudi_distance
          |""".stripMargin
     ).collect()
 
@@ -122,15 +122,15 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
     // doc_1 [1,0,0]: cosine distance to [1,0,0] = 1 - 1.0 = 0.0
     assertEquals("doc_1", result(0).getAs[String]("id"))
-    assertEquals(0.0, result(0).getAs[Double]("_distance"), 1e-5)
+    assertEquals(0.0, result(0).getAs[Double]("_hudi_distance"), 1e-5)
 
     // doc_4 [0.707,0.707,0]: cosine distance to [1,0,0] = 1 - 0.707 ~= 0.293
     assertEquals("doc_4", result(1).getAs[String]("id"))
-    assertEquals(1.0 - 0.70710678, result(1).getAs[Double]("_distance"), 1e-4)
+    assertEquals(1.0 - 0.70710678, result(1).getAs[Double]("_hudi_distance"), 1e-4)
 
     // doc_5 [0.577,0.577,0.577]: cosine distance to [1,0,0] = 1 - 0.577 ~= 0.423
     assertEquals("doc_5", result(2).getAs[String]("id"))
-    assertEquals(1.0 - 0.57735027, result(2).getAs[Double]("_distance"), 1e-4)
+    assertEquals(1.0 - 0.57735027, result(2).getAs[Double]("_hudi_distance"), 1e-4)
   }
 
   @Test
@@ -138,7 +138,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     // Query [1, 0, 0] with L2
     val result = spark.sql(
       s"""
-         |SELECT id, _distance
+         |SELECT id, _hudi_distance
          |FROM hudi_vector_search(
          |  '$corpusViewName',
          |  'embedding',
@@ -146,7 +146,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
          |  3,
          |  'l2'
          |)
-         |ORDER BY _distance
+         |ORDER BY _hudi_distance
          |""".stripMargin
     ).collect()
 
@@ -154,13 +154,13 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
     // doc_1: L2 = 0.0
     assertEquals("doc_1", result(0).getAs[String]("id"))
-    assertEquals(0.0, result(0).getAs[Double]("_distance"), 1e-5)
+    assertEquals(0.0, result(0).getAs[Double]("_hudi_distance"), 1e-5)
 
     // doc_4: L2 = sqrt((1-0.707)^2 + (0-0.707)^2 + 0) = sqrt(0.086 + 0.5) ~= 0.765
     assertEquals("doc_4", result(1).getAs[String]("id"))
     val expectedL2Doc4 = math.sqrt(
       math.pow(1.0 - 0.70710678, 2) + math.pow(0.70710678, 2))
-    assertEquals(expectedL2Doc4, result(1).getAs[Double]("_distance"), 1e-4)
+    assertEquals(expectedL2Doc4, result(1).getAs[Double]("_hudi_distance"), 1e-4)
   }
 
   @Test
@@ -168,7 +168,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     // Query [1, 0, 0] with dot_product (negated: lower = more similar)
     val result = spark.sql(
       s"""
-         |SELECT id, _distance
+         |SELECT id, _hudi_distance
          |FROM hudi_vector_search(
          |  '$corpusViewName',
          |  'embedding',
@@ -176,7 +176,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
          |  3,
          |  'dot_product'
          |)
-         |ORDER BY _distance
+         |ORDER BY _hudi_distance
          |""".stripMargin
     ).collect()
 
@@ -184,11 +184,11 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
     // doc_1: -dot = -1.0 (most similar)
     assertEquals("doc_1", result(0).getAs[String]("id"))
-    assertEquals(-1.0, result(0).getAs[Double]("_distance"), 1e-5)
+    assertEquals(-1.0, result(0).getAs[Double]("_hudi_distance"), 1e-5)
 
     // doc_4: -dot = -0.707
     assertEquals("doc_4", result(1).getAs[String]("id"))
-    assertEquals(-0.70710678, result(1).getAs[Double]("_distance"), 1e-4)
+    assertEquals(-0.70710678, result(1).getAs[Double]("_hudi_distance"), 1e-4)
   }
 
   @Test
@@ -196,21 +196,21 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     // Omit metric arg, should default to cosine
     val result = spark.sql(
       s"""
-         |SELECT id, _distance
+         |SELECT id, _hudi_distance
          |FROM hudi_vector_search(
          |  '$corpusViewName',
          |  'embedding',
          |  ARRAY(1.0, 0.0, 0.0),
          |  3
          |)
-         |ORDER BY _distance
+         |ORDER BY _hudi_distance
          |""".stripMargin
     ).collect()
 
     assertEquals(3, result.length)
     // Should match cosine: doc_1 first with distance ~0
     assertEquals("doc_1", result(0).getAs[String]("id"))
-    assertEquals(0.0, result(0).getAs[Double]("_distance"), 1e-5)
+    assertEquals(0.0, result(0).getAs[Double]("_hudi_distance"), 1e-5)
   }
 
   @Test
@@ -227,8 +227,8 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
          |""".stripMargin
     )
 
-    // Should have the _distance column plus original corpus columns (embedding is dropped)
-    assertTrue(result.columns.contains("_distance"))
+    // Should have the _hudi_distance column plus original corpus columns (embedding is dropped)
+    assertTrue(result.columns.contains("_hudi_distance"))
     assertTrue(result.columns.contains("id"))
     assertTrue(result.columns.contains("label"))
     assertFalse(result.columns.contains("embedding"))
@@ -240,7 +240,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     // k=100, corpus has 5 rows -> should return all 5
     val result = spark.sql(
       s"""
-         |SELECT id, _distance
+         |SELECT id, _hudi_distance
          |FROM hudi_vector_search(
          |  '$corpusViewName',
          |  'embedding',
@@ -253,13 +253,11 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     assertEquals(5, result.length)
   }
 
-  // ==================== Single Query Mode: Composability ====================
-
   @Test
   def testVectorSearchWithWhereClause(): Unit = {
     val result = spark.sql(
       s"""
-         |SELECT id, _distance
+         |SELECT id, _hudi_distance
          |FROM hudi_vector_search(
          |  '$corpusViewName',
          |  'embedding',
@@ -267,22 +265,22 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
          |  5,
          |  'cosine'
          |)
-         |WHERE _distance < 0.5
-         |ORDER BY _distance
+         |WHERE _hudi_distance < 0.5
+         |ORDER BY _hudi_distance
          |""".stripMargin
     ).collect()
 
     // doc_1 (distance ~0) and doc_4 (distance ~0.29) should pass; doc_5 (~0.42) should pass too
     // doc_2 and doc_3 have distance = 1.0 and should be filtered out
     assertTrue(result.length >= 2)
-    assertTrue(result.forall(_.getAs[Double]("_distance") < 0.5))
+    assertTrue(result.forall(_.getAs[Double]("_hudi_distance") < 0.5))
   }
 
   @Test
   def testVectorSearchAsSubquery(): Unit = {
     val result = spark.sql(
       s"""
-         |SELECT sub.id, sub.label, sub._distance
+         |SELECT sub.id, sub.label, sub._hudi_distance
          |FROM (
          |  SELECT *
          |  FROM hudi_vector_search(
@@ -293,7 +291,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
          |  )
          |) sub
          |WHERE sub.label != 'y-axis'
-         |ORDER BY sub._distance
+         |ORDER BY sub._hudi_distance
          |""".stripMargin
     ).collect()
 
@@ -337,10 +335,10 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     // 2 queries x 2 results each = 4 rows
     assertEquals(4, result.length)
 
-    // Check that _distance column exists
+    // Check that _hudi_distance column exists
     val columns = result.head.schema.fieldNames
-    assertTrue(columns.contains("_distance"))
-    assertTrue(columns.contains("_query_id"))
+    assertTrue(columns.contains("_hudi_distance"))
+    assertTrue(columns.contains("_hudi_qid"))
 
     spark.catalog.dropTempView("queries_view")
   }
@@ -376,7 +374,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     )
 
     // Each query should get 2 results
-    val resultsByQuery = resultDf.groupBy("_query_id").count().collect()
+    val resultsByQuery = resultDf.groupBy("_hudi_qid").count().collect()
     assertEquals(2, resultsByQuery.length)
     resultsByQuery.foreach { row =>
       assertEquals(2, row.getLong(1))
@@ -416,18 +414,16 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
     // 2 queries x 2 results each = 4 rows; should not throw AnalysisException
     assertEquals(4, result.length)
-    assertTrue(result.head.schema.fieldNames.contains("_distance"))
+    assertTrue(result.head.schema.fieldNames.contains("_hudi_distance"))
 
     spark.catalog.dropTempView("same_col_queries")
   }
-
-  // ==================== DataFrame API ====================
 
   @Test
   def testSingleQueryViaDataFrameApi(): Unit = {
     val resultDf = spark.sql(
       s"""
-         |SELECT id, label, _distance
+         |SELECT id, label, _hudi_distance
          |FROM hudi_vector_search(
          |  '$corpusViewName',
          |  'embedding',
@@ -443,10 +439,10 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
     // doc_3 [0,0,1] should be the closest to query [0,0,1]
     assertEquals("doc_3", results(0).getAs[String]("id"))
-    assertEquals(0.0, results(0).getAs[Double]("_distance"), 1e-5)
+    assertEquals(0.0, results(0).getAs[Double]("_hudi_distance"), 1e-5)
 
     // Verify we can do DataFrame operations on the result
-    val filtered = resultDf.filter("_distance < 0.5")
+    val filtered = resultDf.filter("_hudi_distance < 0.5")
     assertTrue(filtered.count() >= 1)
   }
 
@@ -483,8 +479,8 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
     // Can apply DataFrame operations
     val topResults = resultDf
-      .filter("_distance < 0.5")
-      .select("id", "_distance", "_query_id")
+      .filter("_hudi_distance < 0.5")
+      .select("id", "_hudi_distance", "_hudi_qid")
     assertTrue(topResults.count() > 0)
 
     spark.catalog.dropTempView("df_queries")
@@ -497,14 +493,14 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     val tablePath = basePath + "/" + corpusPath
     val result = spark.sql(
       s"""
-         |SELECT id, _distance
+         |SELECT id, _hudi_distance
          |FROM hudi_vector_search(
          |  '$tablePath',
          |  'embedding',
          |  ARRAY(1.0, 0.0, 0.0),
          |  2
          |)
-         |ORDER BY _distance
+         |ORDER BY _hudi_distance
          |""".stripMargin
     ).collect()
 
@@ -546,20 +542,20 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
     val result = spark.sql(
       """
-        |SELECT id, _distance
+        |SELECT id, _hudi_distance
         |FROM hudi_vector_search(
         |  'double_corpus',
         |  'embedding',
         |  ARRAY(1.0, 0.0, 0.0),
         |  2
         |)
-        |ORDER BY _distance
+        |ORDER BY _hudi_distance
         |""".stripMargin
     ).collect()
 
     assertEquals(2, result.length)
     assertEquals("d1", result(0).getAs[String]("id"))
-    assertEquals(0.0, result(0).getAs[Double]("_distance"), 1e-10)
+    assertEquals(0.0, result(0).getAs[Double]("_hudi_distance"), 1e-10)
 
     spark.catalog.dropTempView("double_corpus")
   }
@@ -629,7 +625,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     // Query [0, 1, 0], verify all distances against manually computed values
     val result = spark.sql(
       s"""
-         |SELECT id, _distance
+         |SELECT id, _hudi_distance
          |FROM hudi_vector_search(
          |  '$corpusViewName',
          |  'embedding',
@@ -637,12 +633,12 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
          |  5,
          |  'cosine'
          |)
-         |ORDER BY _distance
+         |ORDER BY _hudi_distance
          |""".stripMargin
     ).collect()
 
     assertEquals(5, result.length)
-    val distanceMap = result.map(r => r.getAs[String]("id") -> r.getAs[Double]("_distance")).toMap
+    val distanceMap = result.map(r => r.getAs[String]("id") -> r.getAs[Double]("_hudi_distance")).toMap
 
     // doc_2 [0,1,0]: cos_dist = 1 - 1.0 = 0.0
     assertEquals(0.0, distanceMap("doc_2"), 1e-5)
@@ -665,7 +661,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     // Query [0, 0, 0] with L2 - distance is just the norm of each vector
     val result = spark.sql(
       s"""
-         |SELECT id, _distance
+         |SELECT id, _hudi_distance
          |FROM hudi_vector_search(
          |  '$corpusViewName',
          |  'embedding',
@@ -673,12 +669,12 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
          |  5,
          |  'l2'
          |)
-         |ORDER BY _distance
+         |ORDER BY _hudi_distance
          |""".stripMargin
     ).collect()
 
     assertEquals(5, result.length)
-    val distanceMap = result.map(r => r.getAs[String]("id") -> r.getAs[Double]("_distance")).toMap
+    val distanceMap = result.map(r => r.getAs[String]("id") -> r.getAs[Double]("_hudi_distance")).toMap
 
     // All corpus vectors are unit vectors, so L2 from origin = 1.0 for each
     assertEquals(1.0, distanceMap("doc_1"), 1e-4)
@@ -722,7 +718,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     // Should not throw NPE — null rows are filtered out
     val result = spark.sql(
       """
-        |SELECT id, _distance
+        |SELECT id, _hudi_distance
         |FROM hudi_vector_search(
         |  'null_corpus',
         |  'embedding',
@@ -730,14 +726,14 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
         |  5,
         |  'cosine'
         |)
-        |ORDER BY _distance
+        |ORDER BY _hudi_distance
         |""".stripMargin
     ).collect()
 
     // Only non-null rows returned
     assertEquals(2, result.length)
     assertEquals("n1", result(0).getAs[String]("id"))
-    assertEquals(0.0, result(0).getAs[Double]("_distance"), 1e-5)
+    assertEquals(0.0, result(0).getAs[Double]("_hudi_distance"), 1e-5)
 
     spark.catalog.dropTempView("null_corpus")
   }
@@ -772,7 +768,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
     val result = spark.sql(
       """
-        |SELECT id, _distance
+        |SELECT id, _hudi_distance
         |FROM hudi_vector_search(
         |  'empty_corpus',
         |  'embedding',
@@ -865,7 +861,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
     val result = spark.sql(
       """
-        |SELECT id, _distance
+        |SELECT id, _hudi_distance
         |FROM hudi_vector_search(
         |  'byte_corpus',
         |  'embedding',
@@ -873,13 +869,13 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
         |  2,
         |  'cosine'
         |)
-        |ORDER BY _distance
+        |ORDER BY _hudi_distance
         |""".stripMargin
     ).collect()
 
     assertEquals(2, result.length)
     assertEquals("b1", result(0).getAs[String]("id"))
-    assertEquals(0.0, result(0).getAs[Double]("_distance"), 1e-5)
+    assertEquals(0.0, result(0).getAs[Double]("_hudi_distance"), 1e-5)
 
     spark.catalog.dropTempView("byte_corpus")
   }
@@ -901,7 +897,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
     val result = spark.sql(
       """
-        |SELECT id, _distance
+        |SELECT id, _hudi_distance
         |FROM hudi_vector_search(
         |  'byte_l2_corpus',
         |  'embedding',
@@ -909,15 +905,15 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
         |  2,
         |  'l2'
         |)
-        |ORDER BY _distance
+        |ORDER BY _hudi_distance
         |""".stripMargin
     ).collect()
 
     assertEquals(2, result.length)
     assertEquals("b1", result(0).getAs[String]("id"))
-    assertEquals(0.0, result(0).getAs[Double]("_distance"), 1e-5)
+    assertEquals(0.0, result(0).getAs[Double]("_hudi_distance"), 1e-5)
     // b2: sqrt(10^2 + 10^2) = sqrt(200) ~= 14.14
-    assertEquals(math.sqrt(200.0), result(1).getAs[Double]("_distance"), 1e-4)
+    assertEquals(math.sqrt(200.0), result(1).getAs[Double]("_hudi_distance"), 1e-4)
 
     spark.catalog.dropTempView("byte_l2_corpus")
   }
@@ -939,7 +935,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
     val result = spark.sql(
       """
-        |SELECT id, _distance
+        |SELECT id, _hudi_distance
         |FROM hudi_vector_search(
         |  'byte_dot_corpus',
         |  'embedding',
@@ -947,17 +943,17 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
         |  2,
         |  'dot_product'
         |)
-        |ORDER BY _distance
+        |ORDER BY _hudi_distance
         |""".stripMargin
     ).collect()
 
     assertEquals(2, result.length)
     // b1: -dot = -(10*10 + 5*0 + 0*0) = -100
     assertEquals("b1", result(0).getAs[String]("id"))
-    assertEquals(-100.0, result(0).getAs[Double]("_distance"), 1e-5)
+    assertEquals(-100.0, result(0).getAs[Double]("_hudi_distance"), 1e-5)
     // b2: -dot = -(0*10 + 5*0 + 0*0) = 0
     assertEquals("b2", result(1).getAs[String]("id"))
-    assertEquals(0.0, result(1).getAs[Double]("_distance"), 1e-5)
+    assertEquals(0.0, result(1).getAs[Double]("_hudi_distance"), 1e-5)
 
     spark.catalog.dropTempView("byte_dot_corpus")
   }
@@ -982,7 +978,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
     val result = spark.sql(
       s"""
-         |SELECT id, _distance, query_name
+         |SELECT id, _hudi_distance, query_name
          |FROM hudi_vector_search(
          |  '$corpusViewName',
          |  'embedding',
@@ -1115,15 +1111,14 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
          |""".stripMargin
     )
 
-    // Should have renamed query columns with _query_ prefix.
-    // "id" -> "_query_user_id" (not "_query_id" which would clash with the internal query ID)
-    // "label" -> "_query_label"
+    // Query columns that clash with corpus columns get the _hudi_query_ prefix.
+    // "id" -> "_hudi_query_id", "label" -> "_hudi_query_label"
     val columns = result.columns
-    assertTrue(columns.contains("id"))             // corpus id
-    assertTrue(columns.contains("label"))          // corpus label
-    assertTrue(columns.contains("_query_user_id")) // query id renamed (avoids internal _query_id clash)
-    assertTrue(columns.contains("_query_label"))   // query label renamed
-    assertTrue(columns.contains("_distance"))
+    assertTrue(columns.contains("id"))                // corpus id (unchanged)
+    assertTrue(columns.contains("label"))             // corpus label (unchanged)
+    assertTrue(columns.contains("_hudi_query_id"))    // query id renamed
+    assertTrue(columns.contains("_hudi_query_label")) // query label renamed
+    assertTrue(columns.contains("_hudi_distance"))
 
     val rows = result.collect()
     assertEquals(2, rows.length)
@@ -1159,20 +1154,20 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     // ARRAY(1, 0, 0) is inferred as decimal by Spark, should still work
     val result = spark.sql(
       s"""
-         |SELECT id, _distance
+         |SELECT id, _hudi_distance
          |FROM hudi_vector_search(
          |  '$corpusViewName',
          |  'embedding',
          |  ARRAY(1, 0, 0),
          |  2
          |)
-         |ORDER BY _distance
+         |ORDER BY _hudi_distance
          |""".stripMargin
     ).collect()
 
     assertEquals(2, result.length)
     assertEquals("doc_1", result(0).getAs[String]("id"))
-    assertEquals(0.0, result(0).getAs[Double]("_distance"), 1e-5)
+    assertEquals(0.0, result(0).getAs[Double]("_hudi_distance"), 1e-5)
   }
 
   // ==================== Non-Hudi table as corpus ====================
@@ -1199,7 +1194,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
     val result = spark.sql(
       """
-        |SELECT id, _distance
+        |SELECT id, _hudi_distance
         |FROM hudi_vector_search(
         |  'plain_corpus',
         |  'embedding',
@@ -1207,13 +1202,13 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
         |  2,
         |  'cosine'
         |)
-        |ORDER BY _distance
+        |ORDER BY _hudi_distance
         |""".stripMargin
     ).collect()
 
     assertEquals(2, result.length)
     assertEquals("plain_1", result(0).getAs[String]("id"))
-    assertEquals(0.0, result(0).getAs[Double]("_distance"), 1e-5)
+    assertEquals(0.0, result(0).getAs[Double]("_hudi_distance"), 1e-5)
 
     spark.catalog.dropTempView("plain_corpus")
   }
@@ -1236,7 +1231,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
     val result = spark.sql(
       """
-        |SELECT id, _distance
+        |SELECT id, _hudi_distance
         |FROM hudi_vector_search(
         |  'zero_corpus',
         |  'embedding',
@@ -1244,17 +1239,17 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
         |  2,
         |  'cosine'
         |)
-        |ORDER BY _distance
+        |ORDER BY _hudi_distance
         |""".stripMargin
     ).collect()
 
     assertEquals(2, result.length)
     // Normal vector should be closest (distance = 0)
     assertEquals("normal", result(0).getAs[String]("id"))
-    assertEquals(0.0, result(0).getAs[Double]("_distance"), 1e-5)
+    assertEquals(0.0, result(0).getAs[Double]("_hudi_distance"), 1e-5)
     // Zero vector should have maximal cosine distance (1.0)
     assertEquals("zero", result(1).getAs[String]("id"))
-    assertEquals(1.0, result(1).getAs[Double]("_distance"), 1e-5)
+    assertEquals(1.0, result(1).getAs[Double]("_hudi_distance"), 1e-5)
 
     spark.catalog.dropTempView("zero_corpus")
   }
@@ -1278,7 +1273,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
     val result = spark.sql(
       """
-        |SELECT id, _distance
+        |SELECT id, _hudi_distance
         |FROM hudi_vector_search(
         |  'same_corpus',
         |  'embedding',
@@ -1292,7 +1287,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     assertEquals(3, result.length)
     // All distances should be 0.0
     result.foreach { row =>
-      assertEquals(0.0, row.getAs[Double]("_distance"), 1e-5)
+      assertEquals(0.0, row.getAs[Double]("_hudi_distance"), 1e-5)
     }
 
     spark.catalog.dropTempView("same_corpus")
@@ -1329,7 +1324,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     )
 
     // k=100 but corpus has 5 rows, so each query gets 5 results = 10 total
-    val resultsByQuery = result.groupBy("_query_id").count().collect()
+    val resultsByQuery = result.groupBy("_hudi_qid").count().collect()
     assertEquals(2, resultsByQuery.length)
     resultsByQuery.foreach { row =>
       assertEquals(5, row.getLong(1))
@@ -1367,7 +1362,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
   def testExplicitBruteForceAlgorithm(): Unit = {
     val result = spark.sql(
       s"""
-         |SELECT id, _distance
+         |SELECT id, _hudi_distance
          |FROM hudi_vector_search(
          |  '$corpusViewName',
          |  'embedding',
@@ -1376,13 +1371,13 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
          |  'cosine',
          |  'brute_force'
          |)
-         |ORDER BY _distance
+         |ORDER BY _hudi_distance
          |""".stripMargin
     ).collect()
 
     assertEquals(2, result.length)
     assertEquals("doc_1", result(0).getAs[String]("id"))
-    assertEquals(0.0, result(0).getAs[Double]("_distance"), 1e-5)
+    assertEquals(0.0, result(0).getAs[Double]("_hudi_distance"), 1e-5)
   }
 
   // ==================== MOR table ====================
@@ -1420,7 +1415,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
     val result = spark.sql(
       """
-        |SELECT id, _distance
+        |SELECT id, _hudi_distance
         |FROM hudi_vector_search(
         |  'mor_corpus',
         |  'embedding',
@@ -1428,13 +1423,13 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
         |  2,
         |  'cosine'
         |)
-        |ORDER BY _distance
+        |ORDER BY _hudi_distance
         |""".stripMargin
     ).collect()
 
     assertEquals(2, result.length)
     assertEquals("m1", result(0).getAs[String]("id"))
-    assertEquals(0.0, result(0).getAs[Double]("_distance"), 1e-5)
+    assertEquals(0.0, result(0).getAs[Double]("_hudi_distance"), 1e-5)
 
     spark.catalog.dropTempView("mor_corpus")
   }

@@ -39,7 +39,7 @@ import org.apache.spark.sql.hudi.analysis.HoodieSparkBaseAnalysis.{HoodieV1OrV2T
 import org.apache.spark.sql.hudi.catalog.HoodieInternalV2Table
 import org.apache.spark.sql.hudi.command.{AlterHoodieTableDropPartitionCommand, ShowHoodieTablePartitionsCommand, TruncateHoodieTableCommand}
 import org.apache.spark.sql.hudi.command.exception.HoodieAnalysisException
-import org.apache.spark.sql.types.{ArrayType, DecimalType, DoubleType, FloatType, IntegerType, LongType}
+import org.apache.spark.sql.types.{ArrayType, DecimalType, DoubleType, FloatType, IntegerType}
 
 /**
  * NOTE: PLEASE READ CAREFULLY
@@ -364,8 +364,6 @@ case class ResolveReferences(spark: SparkSession) extends Rule[LogicalPlan]
         while (i < numElements) { result(i) = arrayData.getFloat(i).toDouble; i += 1 }
       case IntegerType =>
         while (i < numElements) { result(i) = arrayData.getInt(i).toDouble; i += 1 }
-      case LongType =>
-        while (i < numElements) { result(i) = arrayData.getLong(i).toDouble; i += 1 }
       // Spark SQL infers untyped decimal literals (e.g. ARRAY(1.0, 0.5)) as DecimalType,
       // not DoubleType. Accept any DecimalType and convert to Double.
       case d: DecimalType =>

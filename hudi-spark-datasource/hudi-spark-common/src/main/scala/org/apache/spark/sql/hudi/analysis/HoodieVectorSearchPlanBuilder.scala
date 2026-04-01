@@ -22,8 +22,8 @@ import org.apache.hudi.common.schema.HoodieSchema
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.catalyst.plans.logical.HoodieVectorSearchTableValuedFunction.{DistanceMetric, SearchAlgorithm}
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
-import org.apache.spark.sql.expressions.{UserDefinedFunction, Window}
-import org.apache.spark.sql.functions.{array, broadcast, col, lit, monotonically_increasing_id, row_number, udf}
+import org.apache.spark.sql.expressions.Window
+import org.apache.spark.sql.functions.{array, broadcast, col, lit, monotonically_increasing_id, row_number}
 import org.apache.spark.sql.hudi.command.exception.HoodieAnalysisException
 import org.apache.spark.sql.types.{ArrayType, ByteType, DataType, DoubleType, FloatType}
 
@@ -41,10 +41,10 @@ import org.apache.spark.sql.types.{ArrayType, ByteType, DataType, DoubleType, Fl
  * and the raw distance functions on [[VectorDistanceUtils]].
  *
  * The output schema contract:
- *  - Single-query: all corpus columns (minus the embedding column) + `_distance: Double`
- *  - Batch-query: all corpus columns (minus the embedding column) + renamed query columns
- *    (prefixed with `_query_`) + `_distance: Double` + `_query_id: Long`
- *  - Results are ordered by `_distance` ascending (lower = more similar)
+ *  - Single-query: all corpus columns (minus the embedding column) + `_hudi_distance: Double`
+ *  - Batch-query: all corpus columns (minus the embedding column) + clashing query columns
+ *    (prefixed with `_hudi_query_`) + `_hudi_distance: Double` + `_hudi_qid: Long`
+ *  - Results are ordered by `_hudi_distance` ascending (lower = more similar)
  */
 trait VectorSearchAlgorithm {
 
@@ -98,11 +98,11 @@ trait VectorSearchAlgorithm {
  */
 object HoodieVectorSearchPlanBuilder {
 
-  val DISTANCE_COL = "_distance"
-  private[analysis] val QUERY_ID_COL = "_query_id"
-  private[analysis] val QUERY_EMB_ALIAS = "_query_emb_internal"
-  private[analysis] val RANK_COL = "_rank"
-  private[analysis] val QUERY_COL_PREFIX = "_query_"
+  val DISTANCE_COL = "_hudi_distance"
+  private[analysis] val QUERY_ID_COL = "_hudi_qid"
+  private[analysis] val QUERY_EMB_ALIAS = "_hudi_query_emb"
+  private[analysis] val RANK_COL = "_hudi_rank"
+  private[analysis] val QUERY_COL_PREFIX = "_hudi_query_"
 
   /** Resolve a [[SearchAlgorithm]] enum value to its implementation. */
   def resolveAlgorithm(algorithm: SearchAlgorithm.Value): VectorSearchAlgorithm = algorithm match {
@@ -110,8 +110,6 @@ object HoodieVectorSearchPlanBuilder {
     case other => throw new HoodieAnalysisException(
       s"Unsupported search algorithm: $other")
   }
-
-  // ======================== Shared Validation ========================
 
   private[analysis] def validateEmbeddingColumn(df: DataFrame, colName: String): Unit = {
     val fieldOpt = df.schema.fields.find(_.name == colName)
@@ -190,8 +188,11 @@ object HoodieVectorSearchPlanBuilder {
     val meta = field.metadata
     if (meta.contains(HoodieSchema.TYPE_METADATA_FIELD)) {
       val typeDesc = meta.getString(HoodieSchema.TYPE_METADATA_FIELD)
-      val dimPattern = """VECTOR\((\d+)""".r
-      dimPattern.findFirstMatchIn(typeDesc).map(_.group(1).toInt)
+      val prefix = "VECTOR("
+      if (typeDesc.startsWith(prefix)) {
+        val dimStr = typeDesc.drop(prefix.length).takeWhile(_.isDigit)
+        if (dimStr.nonEmpty) Some(dimStr.toInt) else None
+      } else None
     } else None
   }
 }
@@ -228,7 +229,7 @@ object BruteForceSearchAlgorithm extends VectorSearchAlgorithm {
     validateQueryVectorDimension(corpusDf, embeddingCol, queryVector.length)
 
     val elemType = getElementType(corpusDf, embeddingCol)
-    val distanceUdf = createDistanceUdf(metric, elemType)
+    val distanceUdf = VectorDistanceUtils.createDistanceUdf(metric, elemType)
     val filteredDf = corpusDf.filter(col(embeddingCol).isNotNull)
 
     // Convert query vector to match corpus element type.
@@ -263,26 +264,20 @@ object BruteForceSearchAlgorithm extends VectorSearchAlgorithm {
     validateBatchDimensions(corpusDf, corpusEmbeddingCol, queryDf, queryEmbeddingCol)
 
     val corpusElemType = getElementType(corpusDf, corpusEmbeddingCol)
-    val distanceUdf = createDistanceUdf(metric, corpusElemType)
+    val distanceUdf = VectorDistanceUtils.createDistanceUdf(metric, corpusElemType)
     val filteredCorpus = corpusDf.filter(col(corpusEmbeddingCol).isNotNull)
 
-    // Prefix every query column with "_query_" to avoid cross-join column ambiguity:
-    //   1. when corpusEmbeddingCol == queryEmbeddingCol (both named "embedding")
-    //   2. when corpus and query share other non-embedding columns (e.g. both have "id")
+    // Prefix clashing query columns with "_hudi_query_" to avoid cross-join ambiguity when
+    // corpus and query share column names (e.g. both have "id" or "embedding").
+    // QUERY_ID_COL uses a distinct name (_hudi_qid) so it never clashes with prefixed query cols.
     val corpusCols = filteredCorpus.columns.toSet
-    val internalCols = Set(QUERY_ID_COL, QUERY_EMB_ALIAS, DISTANCE_COL, RANK_COL)
     val queryWithId = queryDf.filter(col(queryEmbeddingCol).isNotNull)
       .withColumnRenamed(queryEmbeddingCol, QUERY_EMB_ALIAS)
       .withColumn(QUERY_ID_COL, monotonically_increasing_id())
 
-    // Rename any query column that clashes with a corpus column or internal columns.
-    // Uses a double prefix if the standard rename would itself clash (e.g. "id" -> "_query_id"
-    // would collide with the internal _query_id column).
     val renamedQuery = queryWithId.columns.foldLeft(queryWithId) { (df, qCol) =>
       if (qCol != QUERY_ID_COL && qCol != QUERY_EMB_ALIAS && corpusCols.contains(qCol)) {
-        val candidate = s"$QUERY_COL_PREFIX$qCol"
-        val safeName = if (internalCols.contains(candidate)) s"${QUERY_COL_PREFIX}user_$qCol" else candidate
-        df.withColumnRenamed(qCol, safeName)
+        df.withColumnRenamed(qCol, s"$QUERY_COL_PREFIX$qCol")
       } else {
         df
       }
@@ -305,93 +300,4 @@ object BruteForceSearchAlgorithm extends VectorSearchAlgorithm {
     result.queryExecution.analyzed
   }
 
-  // ======================== Distance UDFs ========================
-
-  /**
-   * Creates a distance UDF typed for the corpus element type. Arithmetic uses
-   * Double precision for the final result while keeping per-element operations
-   * in native precision where possible.
-   */
-  private def createDistanceUdf(metric: DistanceMetric.Value, elementType: DataType): UserDefinedFunction = {
-    elementType match {
-      case FloatType => createFloatDistanceUdf(metric)
-      case DoubleType => createDoubleDistanceUdf(metric)
-      case ByteType => createByteDistanceUdf(metric)
-      case _ => throw new HoodieAnalysisException(
-        s"Unsupported vector element type for distance computation: $elementType")
-    }
-  }
-
-  private def createFloatDistanceUdf(metric: DistanceMetric.Value): UserDefinedFunction = metric match {
-    case DistanceMetric.COSINE => udf((a: Seq[Float], b: Seq[Float]) => {
-      requireSameLength(a.length, b.length)
-      var dot = 0.0f; var normA = 0.0f; var normB = 0.0f; var i = 0
-      while (i < a.length) { dot += a(i) * b(i); normA += a(i) * a(i); normB += b(i) * b(i); i += 1 }
-      val denom = math.sqrt(normA.toDouble) * math.sqrt(normB.toDouble)
-      if (denom == 0.0) 1.0 else 1.0 - (dot.toDouble / denom)
-    })
-    case DistanceMetric.L2 => udf((a: Seq[Float], b: Seq[Float]) => {
-      requireSameLength(a.length, b.length)
-      var sum = 0.0f; var i = 0
-      while (i < a.length) { val d = a(i) - b(i); sum += d * d; i += 1 }
-      math.sqrt(sum.toDouble)
-    })
-    case DistanceMetric.DOT_PRODUCT => udf((a: Seq[Float], b: Seq[Float]) => {
-      requireSameLength(a.length, b.length)
-      var dot = 0.0f; var i = 0
-      while (i < a.length) { dot += a(i) * b(i); i += 1 }
-      -dot.toDouble
-    })
-  }
-
-  private def createDoubleDistanceUdf(metric: DistanceMetric.Value): UserDefinedFunction = metric match {
-    case DistanceMetric.COSINE => udf((a: Seq[Double], b: Seq[Double]) => {
-      requireSameLength(a.length, b.length)
-      var dot = 0.0; var normA = 0.0; var normB = 0.0; var i = 0
-      while (i < a.length) { dot += a(i) * b(i); normA += a(i) * a(i); normB += b(i) * b(i); i += 1 }
-      val denom = math.sqrt(normA) * math.sqrt(normB)
-      if (denom == 0.0) 1.0 else 1.0 - (dot / denom)
-    })
-    case DistanceMetric.L2 => udf((a: Seq[Double], b: Seq[Double]) => {
-      requireSameLength(a.length, b.length)
-      var sum = 0.0; var i = 0
-      while (i < a.length) { val d = a(i) - b(i); sum += d * d; i += 1 }
-      math.sqrt(sum)
-    })
-    case DistanceMetric.DOT_PRODUCT => udf((a: Seq[Double], b: Seq[Double]) => {
-      requireSameLength(a.length, b.length)
-      var dot = 0.0; var i = 0
-      while (i < a.length) { dot += a(i) * b(i); i += 1 }
-      -dot
-    })
-  }
-
-  private def createByteDistanceUdf(metric: DistanceMetric.Value): UserDefinedFunction = metric match {
-    case DistanceMetric.COSINE => udf((a: Seq[Byte], b: Seq[Byte]) => {
-      requireSameLength(a.length, b.length)
-      var dot = 0L; var normA = 0L; var normB = 0L; var i = 0
-      while (i < a.length) { dot += a(i) * b(i); normA += a(i) * a(i); normB += b(i) * b(i); i += 1 }
-      val denom = math.sqrt(normA.toDouble) * math.sqrt(normB.toDouble)
-      if (denom == 0.0) 1.0 else 1.0 - (dot.toDouble / denom)
-    })
-    case DistanceMetric.L2 => udf((a: Seq[Byte], b: Seq[Byte]) => {
-      requireSameLength(a.length, b.length)
-      var sum = 0L; var i = 0
-      while (i < a.length) { val d = a(i) - b(i); sum += d * d; i += 1 }
-      math.sqrt(sum.toDouble)
-    })
-    case DistanceMetric.DOT_PRODUCT => udf((a: Seq[Byte], b: Seq[Byte]) => {
-      requireSameLength(a.length, b.length)
-      var dot = 0L; var i = 0
-      while (i < a.length) { dot += a(i) * b(i); i += 1 }
-      -dot.toDouble
-    })
-  }
-
-  private def requireSameLength(aLen: Int, bLen: Int): Unit = {
-    if (aLen != bLen) {
-      throw new IllegalArgumentException(
-        s"Vector dimension mismatch: $aLen vs $bLen")
-    }
-  }
 }
