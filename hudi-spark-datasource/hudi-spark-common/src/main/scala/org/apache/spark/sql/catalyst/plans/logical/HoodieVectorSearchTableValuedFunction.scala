@@ -28,7 +28,7 @@ object HoodieVectorSearchTableValuedFunction {
   object DistanceMetric extends Enumeration {
     val COSINE, L2, DOT_PRODUCT = Value
 
-    def fromString(s: String): Value = s.toLowerCase match {
+    def fromString(s: String): Value = Option(s).map(_.toLowerCase).getOrElse("") match {
       case "cosine" => COSINE
       case "l2" | "euclidean" => L2
       case "dot_product" | "inner_product" => DOT_PRODUCT
@@ -40,7 +40,7 @@ object HoodieVectorSearchTableValuedFunction {
   object SearchAlgorithm extends Enumeration {
     val BRUTE_FORCE = Value
 
-    def fromString(s: String): Value = s.toLowerCase match {
+    def fromString(s: String): Value = Option(s).map(_.toLowerCase).getOrElse("") match {
       case "brute_force" => BRUTE_FORCE
       case other => throw new HoodieAnalysisException(
         s"Unsupported search algorithm: '$other'. Supported: brute_force")
@@ -90,8 +90,13 @@ object HoodieVectorSearchTableValuedFunction {
           "Batch query: (corpus_table, corpus_col, query_table, query_col, k [, metric] [, algorithm]).")
     }
 
-    val tableName = exprs.head.eval().toString
-    val embeddingCol = exprs(1).eval().toString
+    def requireStringLiteral(expr: Expression, argName: String): String = expr match {
+      case Literal(v, StringType) if v != null => v.toString
+      case _ => throw new HoodieAnalysisException(
+        s"Function '$FUNC_NAME': argument '$argName' must be a string literal, got: ${expr.sql}")
+    }
+    val tableName = requireStringLiteral(exprs.head, "table")
+    val embeddingCol = requireStringLiteral(exprs(1), "embedding_col")
 
     // Distinguish single vs batch mode: batch mode has string literals for both arg[2] (query_table)
     // and arg[3] (query_col); single mode has an ARRAY expression at arg[2] and integer k at arg[3].

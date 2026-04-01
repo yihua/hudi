@@ -1343,6 +1343,91 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
   }
 
   @Test
+  def testCosineDistanceAntiparallelVectors(): Unit = {
+    // [1,0,0] vs [-1,0,0] are exactly antiparallel; cosine distance should be 2.0.
+    // FP rounding can push dot/denom slightly below -1.0, making 1 - x > 2.0.
+    // Verify the upper clamp keeps the result at exactly 2.0.
+    val schema = StructType(Seq(
+      StructField("id", StringType, nullable = false),
+      StructField("embedding", ArrayType(FloatType, containsNull = false), nullable = false)
+    ))
+    spark.createDataFrame(
+      spark.sparkContext.parallelize(Seq(Row("anti", Seq(-1.0f, 0.0f, 0.0f)))),
+      schema
+    ).createOrReplaceTempView("antiparallel_corpus")
+
+    val result = spark.sql(
+      """
+        |SELECT id, _hudi_distance
+        |FROM hudi_vector_search('antiparallel_corpus', 'embedding', ARRAY(1.0, 0.0, 0.0), 1, 'cosine')
+        |""".stripMargin
+    ).collect()
+
+    assertEquals(1, result.length)
+    val dist = result(0).getAs[Double]("_hudi_distance")
+    assertTrue(s"Cosine distance should be <= 2.0 but was $dist", dist <= 2.0)
+    assertEquals(2.0, dist, 1e-5)
+
+    spark.catalog.dropTempView("antiparallel_corpus")
+  }
+
+  @Test
+  def testByteCorpusOutOfRangeQueryVector(): Unit = {
+    val schema = StructType(Seq(
+      StructField("id", StringType, nullable = false),
+      StructField("embedding", ArrayType(ByteType, containsNull = false), nullable = false)
+    ))
+    spark.createDataFrame(
+      spark.sparkContext.parallelize(Seq(Row("b1", Seq(10.toByte, 0.toByte, 0.toByte)))),
+      schema
+    ).createOrReplaceTempView("byte_range_corpus")
+
+    val ex = assertThrows(classOf[Exception], () => {
+      spark.sql(
+        """
+          |SELECT *
+          |FROM hudi_vector_search('byte_range_corpus', 'embedding', ARRAY(200.0, 0.0, 0.0), 1, 'cosine')
+          |""".stripMargin
+      ).collect()
+    })
+    val msg = if (ex.getCause != null) ex.getCause.getMessage else ex.getMessage
+    assertTrue(s"Expected out-of-range error, got: $msg",
+      msg.contains("out of range") || msg.contains("200"))
+
+    spark.catalog.dropTempView("byte_range_corpus")
+  }
+
+  @Test
+  def testTooManyArguments(): Unit = {
+    val ex = assertThrows(classOf[Exception], () => {
+      spark.sql(
+        s"""
+           |SELECT *
+           |FROM hudi_vector_search(
+           |  '$corpusViewName', 'embedding', ARRAY(1.0, 0.0, 0.0), 3, 'cosine', 'brute_force', 'extra_arg'
+           |)
+           |""".stripMargin
+      ).collect()
+    })
+    val msg = if (ex.getCause != null) ex.getCause.getMessage else ex.getMessage
+    assertTrue(s"Expected arg-count error, got: $msg", msg.contains("4-7 arguments"))
+  }
+
+  @Test
+  def testNullQueryVector(): Unit = {
+    // ARRAY(1.0, null, 0.0) — the null element should produce a useful error, not an NPE
+    val ex = assertThrows(classOf[Exception], () => {
+      spark.sql(
+        s"""
+           |SELECT *
+           |FROM hudi_vector_search('$corpusViewName', 'embedding', ARRAY(1.0, null, 0.0), 3)
+           |""".stripMargin
+      ).collect()
+    })
+    assertNotNull(ex)
+  }
+
+  @Test
   def testMorTableVectorSearch(): Unit = {
     val metadata = new MetadataBuilder()
       .putString(HoodieSchema.TYPE_METADATA_FIELD, "VECTOR(3)")

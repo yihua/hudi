@@ -81,6 +81,9 @@ trait VectorSearchAlgorithm {
    * @param k                  number of nearest neighbors per query
    * @param metric             distance metric (COSINE, L2, DOT_PRODUCT)
    * @return an analyzed LogicalPlan whose output matches the batch-query schema contract
+   * @note Batch mode broadcasts the query table to all executors via a cross-join.
+   *       This is designed for small-to-medium query sets (tens to low hundreds of rows).
+   *       For large query tables, memory pressure on executors may occur.
    */
   def buildBatchQueryPlan(
       spark: SparkSession,
@@ -184,16 +187,19 @@ object HoodieVectorSearchPlanBuilder {
 
   /** Extracts VECTOR(dim) dimension from column metadata, if present. */
   private def extractVectorDimension(df: DataFrame, colName: String): Option[Int] = {
-    val field = df.schema.fields.find(_.name == colName).get
-    val meta = field.metadata
-    if (meta.contains(HoodieSchema.TYPE_METADATA_FIELD)) {
-      val typeDesc = meta.getString(HoodieSchema.TYPE_METADATA_FIELD)
-      val prefix = "VECTOR("
-      if (typeDesc.startsWith(prefix)) {
-        val dimStr = typeDesc.drop(prefix.length).takeWhile(_.isDigit)
-        if (dimStr.nonEmpty) Some(dimStr.toInt) else None
-      } else None
-    } else None
+    df.schema.fields.find(_.name == colName) match {
+      case None => None
+      case Some(field) =>
+        val meta = field.metadata
+        if (meta.contains(HoodieSchema.TYPE_METADATA_FIELD)) {
+          val typeDesc = meta.getString(HoodieSchema.TYPE_METADATA_FIELD)
+          val prefix = "VECTOR("
+          if (typeDesc.startsWith(prefix)) {
+            val dimStr = typeDesc.drop(prefix.length).takeWhile(_.isDigit)
+            if (dimStr.nonEmpty) Some(dimStr.toInt) else None
+          } else None
+        } else None
+    }
   }
 }
 
@@ -237,7 +243,13 @@ object BruteForceSearchAlgorithm extends VectorSearchAlgorithm {
     val queryLit = elemType match {
       case FloatType => lit(queryVector.map(_.toFloat))
       case DoubleType => lit(queryVector)
-      case ByteType => array(queryVector.map(v => lit(v.toByte)): _*)
+      case ByteType =>
+        queryVector.foreach { v =>
+          if (v < Byte.MinValue || v > Byte.MaxValue)
+            throw new HoodieAnalysisException(
+              s"Query vector value $v is out of range for byte corpus [${Byte.MinValue}, ${Byte.MaxValue}]")
+        }
+        array(queryVector.map(v => lit(v.toByte)): _*)
       case _ => lit(queryVector)
     }
 
@@ -275,13 +287,12 @@ object BruteForceSearchAlgorithm extends VectorSearchAlgorithm {
       .withColumnRenamed(queryEmbeddingCol, QUERY_EMB_ALIAS)
       .withColumn(QUERY_ID_COL, monotonically_increasing_id())
 
-    val renamedQuery = queryWithId.columns.foldLeft(queryWithId) { (df, qCol) =>
-      if (qCol != QUERY_ID_COL && qCol != QUERY_EMB_ALIAS && corpusCols.contains(qCol)) {
-        df.withColumnRenamed(qCol, s"$QUERY_COL_PREFIX$qCol")
-      } else {
-        df
-      }
-    }
+    val renamedQuery = queryWithId.select(queryWithId.columns.map { qCol =>
+      if (qCol != QUERY_ID_COL && qCol != QUERY_EMB_ALIAS && corpusCols.contains(qCol))
+        col(qCol).as(s"$QUERY_COL_PREFIX$qCol")
+      else
+        col(qCol)
+    }: _*)
 
     // Cross join corpus with broadcast queries, compute distance, then rank
     val scored = filteredCorpus.crossJoin(broadcast(renamedQuery))

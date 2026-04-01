@@ -45,7 +45,7 @@ object VectorDistanceUtils {
       dot += a(i) * b(i); normA += a(i) * a(i); normB += b(i) * b(i); i += 1
     }
     val denom = math.sqrt(normA) * math.sqrt(normB)
-    if (denom == 0.0) 1.0 else math.max(0.0, 1.0 - (dot / denom))
+    if (denom == 0.0) 1.0 else math.min(2.0, math.max(0.0, 1.0 - (dot / denom)))
   }
 
   /**
@@ -91,7 +91,7 @@ object VectorDistanceUtils {
       var dot = 0.0; var normA = 0.0; var normB = 0.0; var i = 0
       while (i < a.length) { dot += a(i) * b(i); normA += a(i) * a(i); normB += b(i) * b(i); i += 1 }
       val denom = math.sqrt(normA) * math.sqrt(normB)
-      if (denom == 0.0) 1.0 else math.max(0.0, 1.0 - (dot / denom))
+      if (denom == 0.0) 1.0 else math.min(2.0, math.max(0.0, 1.0 - (dot / denom)))
     })
     case DistanceMetric.L2 => udf((a: Seq[Float], b: Seq[Float]) => {
       requireSameLength(a.length, b.length)
@@ -113,7 +113,7 @@ object VectorDistanceUtils {
       var dot = 0.0; var normA = 0.0; var normB = 0.0; var i = 0
       while (i < a.length) { dot += a(i) * b(i); normA += a(i) * a(i); normB += b(i) * b(i); i += 1 }
       val denom = math.sqrt(normA) * math.sqrt(normB)
-      if (denom == 0.0) 1.0 else math.max(0.0, 1.0 - (dot / denom))
+      if (denom == 0.0) 1.0 else math.min(2.0, math.max(0.0, 1.0 - (dot / denom)))
     })
     case DistanceMetric.L2 => udf((a: Seq[Double], b: Seq[Double]) => {
       requireSameLength(a.length, b.length)
@@ -135,7 +135,7 @@ object VectorDistanceUtils {
       var dot = 0L; var normA = 0L; var normB = 0L; var i = 0
       while (i < a.length) { dot += a(i) * b(i); normA += a(i) * a(i); normB += b(i) * b(i); i += 1 }
       val denom = math.sqrt(normA.toDouble) * math.sqrt(normB.toDouble)
-      if (denom == 0.0) 1.0 else math.max(0.0, 1.0 - (dot.toDouble / denom))
+      if (denom == 0.0) 1.0 else math.min(2.0, math.max(0.0, 1.0 - (dot.toDouble / denom)))
     })
     case DistanceMetric.L2 => udf((a: Seq[Byte], b: Seq[Byte]) => {
       requireSameLength(a.length, b.length)
