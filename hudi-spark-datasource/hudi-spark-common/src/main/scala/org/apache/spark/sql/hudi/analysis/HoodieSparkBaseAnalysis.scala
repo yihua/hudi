@@ -355,23 +355,28 @@ case class ResolveReferences(spark: SparkSession) extends Rule[LogicalPlan]
     val arrayData = value.asInstanceOf[ArrayData]
     val numElements = arrayData.numElements()
     val elementType = expr.dataType.asInstanceOf[ArrayType].elementType
+
+    // Resolve element extractor once, before the loop.
+    // Spark SQL infers untyped decimal literals (e.g. ARRAY(1.0, 0.5)) as DecimalType,
+    // not DoubleType, so DecimalType is accepted and converted.
+    val getElement: Int => Double = elementType match {
+      case DoubleType     => i => arrayData.getDouble(i)
+      case FloatType      => i => arrayData.getFloat(i).toDouble
+      case IntegerType    => i => arrayData.getInt(i).toDouble
+      case d: DecimalType => i => arrayData.getDecimal(i, d.precision, d.scale).toDouble
+      case other => throw new HoodieAnalysisException(
+        s"Function '${HoodieVectorSearchTableValuedFunction.FUNC_NAME}': " +
+          s"query vector element type $other not supported, expected numeric array")
+    }
+
     val result = new Array[Double](numElements)
     var i = 0
-    elementType match {
-      case DoubleType =>
-        while (i < numElements) { result(i) = arrayData.getDouble(i); i += 1 }
-      case FloatType =>
-        while (i < numElements) { result(i) = arrayData.getFloat(i).toDouble; i += 1 }
-      case IntegerType =>
-        while (i < numElements) { result(i) = arrayData.getInt(i).toDouble; i += 1 }
-      // Spark SQL infers untyped decimal literals (e.g. ARRAY(1.0, 0.5)) as DecimalType,
-      // not DoubleType. Accept any DecimalType and convert to Double.
-      case d: DecimalType =>
-        while (i < numElements) { result(i) = arrayData.getDecimal(i, d.precision, d.scale).toDouble; i += 1 }
-      case _ =>
-        throw new HoodieAnalysisException(
-          s"Function '${HoodieVectorSearchTableValuedFunction.FUNC_NAME}': " +
-            s"query vector element type $elementType not supported, expected numeric array")
+    while (i < numElements) {
+      if (arrayData.isNullAt(i)) throw new HoodieAnalysisException(
+        s"Function '${HoodieVectorSearchTableValuedFunction.FUNC_NAME}': " +
+          s"query vector element at index $i is null")
+      result(i) = getElement(i)
+      i += 1
     }
     result
   }

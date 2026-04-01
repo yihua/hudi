@@ -104,6 +104,13 @@ object HoodieVectorSearchTableValuedFunction {
       exprs(2).isInstanceOf[Literal] && exprs(2).asInstanceOf[Literal].dataType == StringType &&
       exprs(3).isInstanceOf[Literal] && exprs(3).asInstanceOf[Literal].dataType == StringType
 
+    if (!isBatchMode && exprs.size > 6) {
+      throw new HoodieAnalysisException(
+        s"Function '$FUNC_NAME' expects 4-7 arguments. " +
+          "Single query: (table, embedding_col, query_vector, k [, metric] [, algorithm]). " +
+          "Batch query: (corpus_table, corpus_col, query_table, query_col, k [, metric] [, algorithm]).")
+    }
+
     if (isBatchMode) {
       // Batch mode: (corpus_table, corpus_col, query_table, query_col, k [, metric] [, algorithm])
       val queryTable = exprs(2).eval().toString
