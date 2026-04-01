@@ -27,6 +27,8 @@ import org.apache.spark.sql.functions.{array, broadcast, col, lit, monotonically
 import org.apache.spark.sql.hudi.command.exception.HoodieAnalysisException
 import org.apache.spark.sql.types.{ArrayType, ByteType, DataType, DoubleType, FloatType}
 
+import scala.util.Try
+
 /**
  * Extension point for vector search algorithms. Each implementation provides
  * the Spark logical plan for single-query and batch-query KNN search.
@@ -187,18 +189,14 @@ object HoodieVectorSearchPlanBuilder {
 
   /** Extracts VECTOR(dim) dimension from column metadata, if present. */
   private def extractVectorDimension(df: DataFrame, colName: String): Option[Int] = {
-    df.schema.fields.find(_.name == colName) match {
-      case None => None
-      case Some(field) =>
-        val meta = field.metadata
-        if (meta.contains(HoodieSchema.TYPE_METADATA_FIELD)) {
-          val typeDesc = meta.getString(HoodieSchema.TYPE_METADATA_FIELD)
-          val prefix = "VECTOR("
-          if (typeDesc.startsWith(prefix)) {
-            val dimStr = typeDesc.drop(prefix.length).takeWhile(_.isDigit)
-            if (dimStr.nonEmpty) Some(dimStr.toInt) else None
-          } else None
-        } else None
+    df.schema.fields.find(_.name == colName).flatMap { field =>
+      val meta = field.metadata
+      if (meta.contains(HoodieSchema.TYPE_METADATA_FIELD)) {
+        val typeDesc = meta.getString(HoodieSchema.TYPE_METADATA_FIELD)
+        Try(HoodieSchema.parseTypeDescriptor(typeDesc))
+          .toOption
+          .collect { case v: HoodieSchema.Vector => v.getDimension }
+      } else None
     }
   }
 }

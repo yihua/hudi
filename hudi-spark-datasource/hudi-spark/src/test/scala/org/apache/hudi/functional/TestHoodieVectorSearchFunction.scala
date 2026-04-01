@@ -99,6 +99,69 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
       .createOrReplaceTempView(corpusViewName)
   }
 
+  /**
+   * Creates an in-memory Float corpus temp view (no Hudi write).
+   * Schema: id (String), embedding (Array[Float]).
+   */
+  private def createFloatInMemoryView(viewName: String, data: Seq[(String, Seq[Float])]): Unit = {
+    val schema = StructType(Seq(
+      StructField("id", StringType, nullable = false),
+      StructField("embedding", ArrayType(FloatType, containsNull = false), nullable = false)
+    ))
+    val rows = data.map { case (id, emb) => Row(id, emb) }
+    spark.createDataFrame(spark.sparkContext.parallelize(rows), schema)
+      .createOrReplaceTempView(viewName)
+  }
+
+  /**
+   * Creates an in-memory Byte corpus temp view (no Hudi write).
+   * Schema: id (String), embedding (Array[Byte]).
+   */
+  private def createByteCorpusView(viewName: String, data: Seq[(String, Seq[Byte])]): Unit = {
+    val schema = StructType(Seq(
+      StructField("id", StringType, nullable = false),
+      StructField("embedding", ArrayType(ByteType, containsNull = false), nullable = false)
+    ))
+    val rows = data.map { case (id, emb) => Row(id, emb) }
+    spark.createDataFrame(spark.sparkContext.parallelize(rows), schema)
+      .createOrReplaceTempView(viewName)
+  }
+
+  /**
+   * Creates a Float query temp view with configurable id and vector column names.
+   * Used by batch-query tests to avoid repeating StructType + createDataFrame boilerplate.
+   */
+  private def createFloatQueryView(viewName: String, idCol: String, vecCol: String,
+                                    data: Seq[(String, Seq[Float])]): Unit = {
+    val schema = StructType(Seq(
+      StructField(idCol, StringType, nullable = false),
+      StructField(vecCol, ArrayType(FloatType, containsNull = false), nullable = false)
+    ))
+    val rows = data.map { case (id, vec) => Row(id, vec) }
+    spark.createDataFrame(spark.sparkContext.parallelize(rows), schema)
+      .createOrReplaceTempView(viewName)
+  }
+
+  /**
+   * Writes rows to a Hudi table and registers the result as a Spark temp view.
+   * The supplied schema must include an "id" column used as the record key.
+   */
+  private def writeHudiAndCreateView(schema: StructType, data: Seq[Row], tableName: String,
+                                      subPath: String, viewName: String,
+                                      tableType: String = "COPY_ON_WRITE",
+                                      precombineField: String = "id"): Unit = {
+    spark.createDataFrame(spark.sparkContext.parallelize(data), schema)
+      .write.format("hudi")
+      .option(RECORDKEY_FIELD.key, "id")
+      .option(PRECOMBINE_FIELD.key, precombineField)
+      .option(TABLE_NAME.key, tableName)
+      .option(TABLE_TYPE.key, tableType)
+      .mode(SaveMode.Overwrite)
+      .save(basePath + "/" + subPath)
+    spark.read.format("hudi").load(basePath + "/" + subPath)
+      .createOrReplaceTempView(viewName)
+  }
+
   @Test
   def testSingleQueryCosineDistance(): Unit = {
     // Query vector [1, 0, 0] should be closest to doc_1, then doc_4, then doc_5
@@ -298,62 +361,11 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
   }
 
   @Test
-  def testBatchQueryMode(): Unit = {
-    // Create a query table with 2 queries
-    val querySchema = StructType(Seq(
-      StructField("query_name", StringType, nullable = false),
-      StructField("query_embedding", ArrayType(FloatType, containsNull = false), nullable = false)
-    ))
-
-    val queryRows = Seq(
-      Row("q_x", Seq(1.0f, 0.0f, 0.0f)),     // should find doc_1 closest
-      Row("q_y", Seq(0.0f, 1.0f, 0.0f))      // should find doc_2 closest
-    )
-
-    spark.createDataFrame(
-      spark.sparkContext.parallelize(queryRows), querySchema
-    ).createOrReplaceTempView("queries_view")
-
-    val result = spark.sql(
-      s"""
-         |SELECT *
-         |FROM hudi_vector_search(
-         |  '$corpusViewName',
-         |  'embedding',
-         |  'queries_view',
-         |  'query_embedding',
-         |  2,
-         |  'cosine'
-         |)
-         |""".stripMargin
-    ).collect()
-
-    // 2 queries x 2 results each = 4 rows
-    assertEquals(4, result.length)
-
-    // Check that _hudi_distance column exists
-    val columns = result.head.schema.fieldNames
-    assertTrue(columns.contains("_hudi_distance"))
-    assertTrue(columns.contains("_hudi_qid"))
-
-    spark.catalog.dropTempView("queries_view")
-  }
-
-  @Test
   def testBatchQueryResultsPerQuery(): Unit = {
-    val querySchema = StructType(Seq(
-      StructField("qid", StringType, nullable = false),
-      StructField("qvec", ArrayType(FloatType, containsNull = false), nullable = false)
+    createFloatQueryView("batch_queries", "qid", "qvec", Seq(
+      ("q1", Seq(1.0f, 0.0f, 0.0f)),
+      ("q2", Seq(0.0f, 0.0f, 1.0f))
     ))
-
-    val queryRows = Seq(
-      Row("q1", Seq(1.0f, 0.0f, 0.0f)),
-      Row("q2", Seq(0.0f, 0.0f, 1.0f))
-    )
-
-    spark.createDataFrame(
-      spark.sparkContext.parallelize(queryRows), querySchema
-    ).createOrReplaceTempView("batch_queries")
 
     val resultDf = spark.sql(
       s"""
@@ -369,7 +381,12 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
          |""".stripMargin
     )
 
-    // Each query should get 2 results
+    // Verify output columns
+    val columns = resultDf.columns
+    assertTrue(columns.contains("_hudi_distance"))
+    assertTrue(columns.contains("_hudi_qid"))
+
+    // Each query should get exactly 2 results
     val resultsByQuery = resultDf.groupBy("_hudi_qid").count().collect()
     assertEquals(2, resultsByQuery.length)
     resultsByQuery.foreach { row =>
@@ -382,17 +399,10 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
   @Test
   def testBatchQuerySameEmbeddingColumnName(): Unit = {
     // Both corpus and query use the column name "embedding" — previously caused ambiguity error
-    val querySchema = StructType(Seq(
-      StructField("query_name", StringType, nullable = false),
-      StructField("embedding", ArrayType(FloatType, containsNull = false), nullable = false)
+    createFloatQueryView("same_col_queries", "query_name", "embedding", Seq(
+      ("q_x", Seq(1.0f, 0.0f, 0.0f)),
+      ("q_y", Seq(0.0f, 1.0f, 0.0f))
     ))
-
-    spark.createDataFrame(
-      spark.sparkContext.parallelize(Seq(
-        Row("q_x", Seq(1.0f, 0.0f, 0.0f)),
-        Row("q_y", Seq(0.0f, 1.0f, 0.0f))
-      )), querySchema
-    ).createOrReplaceTempView("same_col_queries")
 
     val result = spark.sql(
       s"""
@@ -416,46 +426,11 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
   }
 
   @Test
-  def testSingleQueryViaDataFrameApi(): Unit = {
-    val resultDf = spark.sql(
-      s"""
-         |SELECT id, label, _hudi_distance
-         |FROM hudi_vector_search(
-         |  '$corpusViewName',
-         |  'embedding',
-         |  ARRAY(0.0, 0.0, 1.0),
-         |  2,
-         |  'cosine'
-         |)
-         |""".stripMargin
-    )
-
-    val results = resultDf.collect()
-    assertEquals(2, results.length)
-
-    // doc_3 [0,0,1] should be the closest to query [0,0,1]
-    assertEquals("doc_3", results(0).getAs[String]("id"))
-    assertEquals(0.0, results(0).getAs[Double]("_hudi_distance"), 1e-5)
-
-    // Verify we can do DataFrame operations on the result
-    val filtered = resultDf.filter("_hudi_distance < 0.5")
-    assertTrue(filtered.count() >= 1)
-  }
-
-  @Test
   def testBatchQueryViaDataFrameApi(): Unit = {
-    val querySchema = StructType(Seq(
-      StructField("query_name", StringType, nullable = false),
-      StructField("query_vec", ArrayType(FloatType, containsNull = false), nullable = false)
+    createFloatQueryView("df_queries", "query_name", "query_vec", Seq(
+      ("q1", Seq(1.0f, 0.0f, 0.0f)),
+      ("q2", Seq(0.0f, 1.0f, 0.0f))
     ))
-
-    val queries = spark.createDataFrame(
-      spark.sparkContext.parallelize(Seq(
-        Row("q1", Seq(1.0f, 0.0f, 0.0f)),
-        Row("q2", Seq(0.0f, 1.0f, 0.0f))
-      )), querySchema)
-
-    queries.createOrReplaceTempView("df_queries")
 
     val resultDf = spark.sql(
       s"""
@@ -514,23 +489,11 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
         nullable = false, metadata)
     ))
 
-    val data = Seq(
+    writeHudiAndCreateView(schema, Seq(
       Row("d1", Seq(1.0, 0.0, 0.0)),
       Row("d2", Seq(0.0, 1.0, 0.0)),
       Row("d3", Seq(0.0, 0.0, 1.0))
-    )
-
-    spark.createDataFrame(spark.sparkContext.parallelize(data), schema)
-      .write.format("hudi")
-      .option(RECORDKEY_FIELD.key, "id")
-      .option(PRECOMBINE_FIELD.key, "id")
-      .option(TABLE_NAME.key, "double_vec_search")
-      .option(TABLE_TYPE.key, "COPY_ON_WRITE")
-      .mode(SaveMode.Overwrite)
-      .save(basePath + "/double_search")
-
-    spark.read.format("hudi").load(basePath + "/double_search")
-      .createOrReplaceTempView("double_corpus")
+    ), "double_vec_search", "double_search", "double_corpus")
 
     val result = spark.sql(
       """
@@ -685,23 +648,11 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
       StructField("label", StringType, nullable = true)
     ))
 
-    val data = Seq(
+    writeHudiAndCreateView(schema, Seq(
       Row("n1", Seq(1.0f, 0.0f, 0.0f), "has-vector"),
       Row("n2", null, "null-vector"),
       Row("n3", Seq(0.0f, 1.0f, 0.0f), "has-vector")
-    )
-
-    spark.createDataFrame(spark.sparkContext.parallelize(data), schema)
-      .write.format("hudi")
-      .option(RECORDKEY_FIELD.key, "id")
-      .option(PRECOMBINE_FIELD.key, "id")
-      .option(TABLE_NAME.key, "null_vec_search")
-      .option(TABLE_TYPE.key, "COPY_ON_WRITE")
-      .mode(SaveMode.Overwrite)
-      .save(basePath + "/null_search")
-
-    spark.read.format("hudi").load(basePath + "/null_search")
-      .createOrReplaceTempView("null_corpus")
+    ), "null_vec_search", "null_search", "null_corpus")
 
     // Should not throw NPE — null rows are filtered out
     val result = spark.sql(
@@ -792,8 +743,9 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
   }
 
   @Test
-  def testZeroK(): Unit = {
-    val ex = assertThrows(classOf[Exception], () => {
+  def testInvalidK(): Unit = {
+    // k=0
+    val exZero = assertThrows(classOf[Exception], () => {
       spark.sql(
         s"""
            |SELECT *
@@ -806,13 +758,11 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
            |""".stripMargin
       ).collect()
     })
-    assertTrue(ex.getMessage.contains("positive integer") ||
-      (ex.getCause != null && ex.getCause.getMessage.contains("positive integer")))
-  }
+    assertTrue(exZero.getMessage.contains("positive integer") ||
+      (exZero.getCause != null && exZero.getCause.getMessage.contains("positive integer")))
 
-  @Test
-  def testNegativeK(): Unit = {
-    val ex = assertThrows(classOf[Exception], () => {
+    // k=-5
+    val exNeg = assertThrows(classOf[Exception], () => {
       spark.sql(
         s"""
            |SELECT *
@@ -825,25 +775,17 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
            |""".stripMargin
       ).collect()
     })
-    assertTrue(ex.getMessage.contains("positive integer") ||
-      (ex.getCause != null && ex.getCause.getMessage.contains("positive integer")))
+    assertTrue(exNeg.getMessage.contains("positive integer") ||
+      (exNeg.getCause != null && exNeg.getCause.getMessage.contains("positive integer")))
   }
 
   @Test
   def testByteVectorCosineDistance(): Unit = {
-    val schema = StructType(Seq(
-      StructField("id", StringType, nullable = false),
-      StructField("embedding", ArrayType(ByteType, containsNull = false), nullable = false)
+    createByteCorpusView("byte_corpus", Seq(
+      ("b1", Seq(127.toByte, 0.toByte, 0.toByte)),
+      ("b2", Seq(0.toByte, 127.toByte, 0.toByte)),
+      ("b3", Seq(0.toByte, 0.toByte, 127.toByte))
     ))
-
-    val data = Seq(
-      Row("b1", Seq(127.toByte, 0.toByte, 0.toByte)),
-      Row("b2", Seq(0.toByte, 127.toByte, 0.toByte)),
-      Row("b3", Seq(0.toByte, 0.toByte, 127.toByte))
-    )
-
-    spark.createDataFrame(spark.sparkContext.parallelize(data), schema)
-      .createOrReplaceTempView("byte_corpus")
 
     val result = spark.sql(
       """
@@ -868,18 +810,10 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
   @Test
   def testByteVectorL2Distance(): Unit = {
-    val schema = StructType(Seq(
-      StructField("id", StringType, nullable = false),
-      StructField("embedding", ArrayType(ByteType, containsNull = false), nullable = false)
+    createByteCorpusView("byte_l2_corpus", Seq(
+      ("b1", Seq(10.toByte, 0.toByte, 0.toByte)),
+      ("b2", Seq(0.toByte, 10.toByte, 0.toByte))
     ))
-
-    val data = Seq(
-      Row("b1", Seq(10.toByte, 0.toByte, 0.toByte)),
-      Row("b2", Seq(0.toByte, 10.toByte, 0.toByte))
-    )
-
-    spark.createDataFrame(spark.sparkContext.parallelize(data), schema)
-      .createOrReplaceTempView("byte_l2_corpus")
 
     val result = spark.sql(
       """
@@ -906,18 +840,10 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
   @Test
   def testByteVectorDotProductDistance(): Unit = {
-    val schema = StructType(Seq(
-      StructField("id", StringType, nullable = false),
-      StructField("embedding", ArrayType(ByteType, containsNull = false), nullable = false)
+    createByteCorpusView("byte_dot_corpus", Seq(
+      ("b1", Seq(10.toByte, 5.toByte, 0.toByte)),
+      ("b2", Seq(0.toByte, 5.toByte, 0.toByte))
     ))
-
-    val data = Seq(
-      Row("b1", Seq(10.toByte, 5.toByte, 0.toByte)),
-      Row("b2", Seq(0.toByte, 5.toByte, 0.toByte))
-    )
-
-    spark.createDataFrame(spark.sparkContext.parallelize(data), schema)
-      .createOrReplaceTempView("byte_dot_corpus")
 
     val result = spark.sql(
       """
@@ -946,19 +872,10 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
   @Test
   def testBatchQueryCorrectnessVerification(): Unit = {
-    val querySchema = StructType(Seq(
-      StructField("query_name", StringType, nullable = false),
-      StructField("query_vec", ArrayType(FloatType, containsNull = false), nullable = false)
+    createFloatQueryView("correctness_queries", "query_name", "query_vec", Seq(
+      ("q_x", Seq(1.0f, 0.0f, 0.0f)),
+      ("q_y", Seq(0.0f, 1.0f, 0.0f))
     ))
-
-    val queryRows = Seq(
-      Row("q_x", Seq(1.0f, 0.0f, 0.0f)),
-      Row("q_y", Seq(0.0f, 1.0f, 0.0f))
-    )
-
-    spark.createDataFrame(
-      spark.sparkContext.parallelize(queryRows), querySchema
-    ).createOrReplaceTempView("correctness_queries")
 
     val result = spark.sql(
       s"""
@@ -1187,17 +1104,10 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
   @Test
   def testZeroVectorInCorpus(): Unit = {
-    val schema = StructType(Seq(
-      StructField("id", StringType, nullable = false),
-      StructField("embedding", ArrayType(FloatType, containsNull = false), nullable = false)
+    createFloatInMemoryView("zero_corpus", Seq(
+      ("normal", Seq(1.0f, 0.0f, 0.0f)),
+      ("zero", Seq(0.0f, 0.0f, 0.0f))
     ))
-
-    spark.createDataFrame(
-      spark.sparkContext.parallelize(Seq(
-        Row("normal", Seq(1.0f, 0.0f, 0.0f)),
-        Row("zero", Seq(0.0f, 0.0f, 0.0f))
-      )), schema
-    ).createOrReplaceTempView("zero_corpus")
 
     val result = spark.sql(
       """
@@ -1226,18 +1136,11 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
   @Test
   def testAllIdenticalVectors(): Unit = {
-    val schema = StructType(Seq(
-      StructField("id", StringType, nullable = false),
-      StructField("embedding", ArrayType(FloatType, containsNull = false), nullable = false)
+    createFloatInMemoryView("same_corpus", Seq(
+      ("same_1", Seq(1.0f, 0.0f, 0.0f)),
+      ("same_2", Seq(1.0f, 0.0f, 0.0f)),
+      ("same_3", Seq(1.0f, 0.0f, 0.0f))
     ))
-
-    spark.createDataFrame(
-      spark.sparkContext.parallelize(Seq(
-        Row("same_1", Seq(1.0f, 0.0f, 0.0f)),
-        Row("same_2", Seq(1.0f, 0.0f, 0.0f)),
-        Row("same_3", Seq(1.0f, 0.0f, 0.0f))
-      )), schema
-    ).createOrReplaceTempView("same_corpus")
 
     val result = spark.sql(
       """
@@ -1263,17 +1166,10 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
   @Test
   def testBatchQueryLargeK(): Unit = {
-    val querySchema = StructType(Seq(
-      StructField("qid", StringType, nullable = false),
-      StructField("qvec", ArrayType(FloatType, containsNull = false), nullable = false)
+    createFloatQueryView("large_k_queries", "qid", "qvec", Seq(
+      ("q1", Seq(1.0f, 0.0f, 0.0f)),
+      ("q2", Seq(0.0f, 1.0f, 0.0f))
     ))
-
-    spark.createDataFrame(
-      spark.sparkContext.parallelize(Seq(
-        Row("q1", Seq(1.0f, 0.0f, 0.0f)),
-        Row("q2", Seq(0.0f, 1.0f, 0.0f))
-      )), querySchema
-    ).createOrReplaceTempView("large_k_queries")
 
     val result = spark.sql(
       s"""
@@ -1347,14 +1243,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     // [1,0,0] vs [-1,0,0] are exactly antiparallel; cosine distance should be 2.0.
     // FP rounding can push dot/denom slightly below -1.0, making 1 - x > 2.0.
     // Verify the upper clamp keeps the result at exactly 2.0.
-    val schema = StructType(Seq(
-      StructField("id", StringType, nullable = false),
-      StructField("embedding", ArrayType(FloatType, containsNull = false), nullable = false)
-    ))
-    spark.createDataFrame(
-      spark.sparkContext.parallelize(Seq(Row("anti", Seq(-1.0f, 0.0f, 0.0f)))),
-      schema
-    ).createOrReplaceTempView("antiparallel_corpus")
+    createFloatInMemoryView("antiparallel_corpus", Seq(("anti", Seq(-1.0f, 0.0f, 0.0f))))
 
     val result = spark.sql(
       """
@@ -1365,7 +1254,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
     assertEquals(1, result.length)
     val dist = result(0).getAs[Double]("_hudi_distance")
-    assertTrue(s"Cosine distance should be <= 2.0 but was $dist", dist <= 2.0)
+    assertTrue(dist <= 2.0, s"Cosine distance should be <= 2.0 but was $dist")
     assertEquals(2.0, dist, 1e-5)
 
     spark.catalog.dropTempView("antiparallel_corpus")
@@ -1373,14 +1262,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
   @Test
   def testByteCorpusOutOfRangeQueryVector(): Unit = {
-    val schema = StructType(Seq(
-      StructField("id", StringType, nullable = false),
-      StructField("embedding", ArrayType(ByteType, containsNull = false), nullable = false)
-    ))
-    spark.createDataFrame(
-      spark.sparkContext.parallelize(Seq(Row("b1", Seq(10.toByte, 0.toByte, 0.toByte)))),
-      schema
-    ).createOrReplaceTempView("byte_range_corpus")
+    createByteCorpusView("byte_range_corpus", Seq(("b1", Seq(10.toByte, 0.toByte, 0.toByte))))
 
     val ex = assertThrows(classOf[Exception], () => {
       spark.sql(
@@ -1391,8 +1273,8 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
       ).collect()
     })
     val msg = if (ex.getCause != null) ex.getCause.getMessage else ex.getMessage
-    assertTrue(s"Expected out-of-range error, got: $msg",
-      msg.contains("out of range") || msg.contains("200"))
+    assertTrue(msg.contains("out of range") || msg.contains("200"),
+      s"Expected out-of-range error, got: $msg")
 
     spark.catalog.dropTempView("byte_range_corpus")
   }
@@ -1410,7 +1292,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
       ).collect()
     })
     val msg = if (ex.getCause != null) ex.getCause.getMessage else ex.getMessage
-    assertTrue(s"Expected arg-count error, got: $msg", msg.contains("4-7 arguments"))
+    assertTrue(msg.contains("4-7 arguments"), s"Expected arg-count error, got: $msg")
   }
 
   @Test
@@ -1424,7 +1306,9 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
            |""".stripMargin
       ).collect()
     })
-    assertNotNull(ex)
+    val rootCause = Option(ex.getCause).getOrElse(ex)
+    assertFalse(rootCause.isInstanceOf[NullPointerException],
+      s"Expected a meaningful error, not NPE: $rootCause")
   }
 
   @Test
@@ -1440,23 +1324,11 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
       StructField("ts", LongType, nullable = false)
     ))
 
-    val data = Seq(
+    writeHudiAndCreateView(schema, Seq(
       Row("m1", Seq(1.0f, 0.0f, 0.0f), 1L),
       Row("m2", Seq(0.0f, 1.0f, 0.0f), 1L),
       Row("m3", Seq(0.0f, 0.0f, 1.0f), 1L)
-    )
-
-    spark.createDataFrame(spark.sparkContext.parallelize(data), schema)
-      .write.format("hudi")
-      .option(RECORDKEY_FIELD.key, "id")
-      .option(PRECOMBINE_FIELD.key, "ts")
-      .option(TABLE_NAME.key, "mor_search_test")
-      .option(TABLE_TYPE.key, "MERGE_ON_READ")
-      .mode(SaveMode.Overwrite)
-      .save(basePath + "/mor_search")
-
-    spark.read.format("hudi").load(basePath + "/mor_search")
-      .createOrReplaceTempView("mor_corpus")
+    ), "mor_search_test", "mor_search", "mor_corpus", "MERGE_ON_READ", "ts")
 
     val result = spark.sql(
       """
