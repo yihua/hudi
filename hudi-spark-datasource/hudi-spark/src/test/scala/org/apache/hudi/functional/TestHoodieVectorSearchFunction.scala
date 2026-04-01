@@ -99,8 +99,6 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
       .createOrReplaceTempView(corpusViewName)
   }
 
-  // ==================== Single Query Mode: Spark SQL ====================
-
   @Test
   def testSingleQueryCosineDistance(): Unit = {
     // Query vector [1, 0, 0] should be closest to doc_1, then doc_4, then doc_5
@@ -299,8 +297,6 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     assertTrue(result.forall(_.getAs[String]("id") != "doc_2"))
   }
 
-  // ==================== Batch Query Mode ====================
-
   @Test
   def testBatchQueryMode(): Unit = {
     // Create a query table with 2 queries
@@ -486,8 +482,6 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     spark.catalog.dropTempView("df_queries")
   }
 
-  // ==================== Path-based resolution ====================
-
   @Test
   def testTableByPath(): Unit = {
     val tablePath = basePath + "/" + corpusPath
@@ -507,8 +501,6 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     assertEquals(2, result.length)
     assertEquals("doc_1", result(0).getAs[String]("id"))
   }
-
-  // ==================== Different embedding types ====================
 
   @Test
   def testDoubleVectorEmbeddings(): Unit = {
@@ -559,8 +551,6 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
     spark.catalog.dropTempView("double_corpus")
   }
-
-  // ==================== Error handling ====================
 
   @Test
   def testInvalidEmbeddingColumn(): Unit = {
@@ -617,8 +607,6 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     assertTrue(ex.getMessage.contains("expects 4-7 arguments") ||
       ex.getCause.getMessage.contains("expects 4-7 arguments"))
   }
-
-  // ==================== Correctness: manual distance verification ====================
 
   @Test
   def testCosineDistanceExactValues(): Unit = {
@@ -841,8 +829,6 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
       (ex.getCause != null && ex.getCause.getMessage.contains("positive integer")))
   }
 
-  // ==================== Byte vector type ====================
-
   @Test
   def testByteVectorCosineDistance(): Unit = {
     val schema = StructType(Seq(
@@ -958,8 +944,6 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     spark.catalog.dropTempView("byte_dot_corpus")
   }
 
-  // ==================== Batch query correctness ====================
-
   @Test
   def testBatchQueryCorrectnessVerification(): Unit = {
     val querySchema = StructType(Seq(
@@ -1002,8 +986,6 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     spark.catalog.dropTempView("correctness_queries")
   }
 
-  // ==================== Batch query element type mismatch ====================
-
   @Test
   def testBatchQueryMismatchedElementTypes(): Unit = {
     // Query table uses array<double>, corpus uses array<float>
@@ -1037,8 +1019,6 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
     spark.catalog.dropTempView("mismatched_type_queries")
   }
-
-  // ==================== Batch query dimension mismatch ====================
 
   @Test
   def testBatchQueryDimensionMismatch(): Unit = {
@@ -1078,8 +1058,6 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
     spark.catalog.dropTempView("dim_mismatch_queries")
   }
-
-  // ==================== Batch overlapping non-embedding columns ====================
 
   @Test
   def testBatchQueryOverlappingNonEmbeddingColumns(): Unit = {
@@ -1126,8 +1104,6 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     spark.catalog.dropTempView("overlapping_queries")
   }
 
-  // ==================== Non-foldable query vector ====================
-
   @Test
   def testNonFoldableQueryVectorError(): Unit = {
     // A non-constant expression (column reference) as the query vector must fail.
@@ -1146,8 +1122,6 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
       ).collect()
     })
   }
-
-  // ==================== Integer query vector ====================
 
   @Test
   def testIntegerQueryVector(): Unit = {
@@ -1169,8 +1143,6 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     assertEquals("doc_1", result(0).getAs[String]("id"))
     assertEquals(0.0, result(0).getAs[Double]("_hudi_distance"), 1e-5)
   }
-
-  // ==================== Non-Hudi table as corpus ====================
 
   @Test
   def testNonHudiTableAsCorpus(): Unit = {
@@ -1213,8 +1185,6 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     spark.catalog.dropTempView("plain_corpus")
   }
 
-  // ==================== Zero vector in corpus ====================
-
   @Test
   def testZeroVectorInCorpus(): Unit = {
     val schema = StructType(Seq(
@@ -1254,8 +1224,6 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     spark.catalog.dropTempView("zero_corpus")
   }
 
-  // ==================== All identical vectors ====================
-
   @Test
   def testAllIdenticalVectors(): Unit = {
     val schema = StructType(Seq(
@@ -1292,8 +1260,6 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
     spark.catalog.dropTempView("same_corpus")
   }
-
-  // ==================== Batch query with large k ====================
 
   @Test
   def testBatchQueryLargeK(): Unit = {
@@ -1333,8 +1299,6 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     spark.catalog.dropTempView("large_k_queries")
   }
 
-  // ==================== Unsupported algorithm ====================
-
   @Test
   def testUnsupportedAlgorithmError(): Unit = {
     val ex = assertThrows(classOf[Exception], () => {
@@ -1355,8 +1319,6 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     assertTrue(ex.getMessage.contains("Unsupported search algorithm") ||
       (ex.getCause != null && ex.getCause.getMessage.contains("Unsupported search algorithm")))
   }
-
-  // ==================== Explicit brute_force algorithm ====================
 
   @Test
   def testExplicitBruteForceAlgorithm(): Unit = {
@@ -1379,8 +1341,6 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     assertEquals("doc_1", result(0).getAs[String]("id"))
     assertEquals(0.0, result(0).getAs[Double]("_hudi_distance"), 1e-5)
   }
-
-  // ==================== MOR table ====================
 
   @Test
   def testMorTableVectorSearch(): Unit = {
