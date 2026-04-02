@@ -178,9 +178,7 @@ public class HiveTestUtil {
     if (ddlExecutor != null) {
       ddlExecutor.close();
     }
-    // Wait for Hive metastore to be ready before creating the client
-    // This prevents "Connection refused" errors in CI environments
-    ddlExecutor = new HiveQueryDDLExecutor(hiveSyncConfig, getMSCWithRetry(hiveSyncConfig.getHiveConf()));
+    ddlExecutor = new HiveQueryDDLExecutor(hiveSyncConfig, IMetaStoreClientUtil.getMSC(hiveSyncConfig.getHiveConf()));
 
     if (shouldClearBasePathAndTables) {
       clear();
@@ -204,40 +202,6 @@ public class HiveTestUtil {
 
   public static HiveConf getHiveConf() {
     return hiveServer.getHiveConf();
-  }
-
-  /**
-   * Get Hive metastore client with retry logic to handle initialization delays.
-   * This is especially important in CI environments where the Hive metastore service
-   * may take time to become ready after startup.
-   */
-  private static org.apache.hadoop.hive.metastore.IMetaStoreClient getMSCWithRetry(HiveConf hiveConf) throws Exception {
-    int maxRetries = 10;
-    int retryDelayMs = 500;
-    Exception lastException = null;
-
-    for (int attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        log.info("Attempting to connect to Hive metastore (attempt {}/{})", attempt, maxRetries);
-        org.apache.hadoop.hive.metastore.IMetaStoreClient client = IMetaStoreClientUtil.getMSC(hiveConf);
-        log.info("Successfully connected to Hive metastore on attempt {}", attempt);
-        return client;
-      } catch (Exception e) {
-        lastException = e;
-        log.warn("Failed to connect to Hive metastore on attempt {}/{}: {}",
-            attempt, maxRetries, e.getMessage());
-        if (attempt < maxRetries) {
-          try {
-            Thread.sleep(retryDelayMs);
-          } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("Interrupted while waiting to retry Hive metastore connection", ie);
-          }
-        }
-      }
-    }
-
-    throw new RuntimeException("Failed to connect to Hive metastore after " + maxRetries + " attempts", lastException);
   }
 
   public static void shutdown() {
