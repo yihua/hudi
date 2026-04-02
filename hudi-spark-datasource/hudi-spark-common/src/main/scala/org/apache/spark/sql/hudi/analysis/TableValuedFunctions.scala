@@ -19,7 +19,7 @@ package org.apache.spark.sql.hudi.analysis
 
 import org.apache.spark.sql.catalyst.FunctionIdentifier
 import org.apache.spark.sql.catalyst.expressions.{Expression, ExpressionInfo}
-import org.apache.spark.sql.catalyst.plans.logical.{HoodieFileSystemViewTableValuedFunction, HoodieMetadataTableValuedFunction, HoodieQuery, HoodieTableChanges, HoodieTimelineTableValuedFunction, HoodieVectorSearchTableValuedFunction}
+import org.apache.spark.sql.catalyst.plans.logical.{HoodieFileSystemViewTableValuedFunction, HoodieMetadataTableValuedFunction, HoodieQuery, HoodieTableChanges, HoodieTimelineTableValuedFunction, HoodieVectorSearchBatchTableValuedFunction, HoodieVectorSearchTableValuedFunction}
 
 object TableValuedFunctions {
 
@@ -53,6 +53,11 @@ object TableValuedFunctions {
       FunctionIdentifier(HoodieVectorSearchTableValuedFunction.FUNC_NAME),
       new ExpressionInfo(HoodieVectorSearchTableValuedFunction.getClass.getCanonicalName, HoodieVectorSearchTableValuedFunction.FUNC_NAME),
       (args: Seq[Expression]) => new HoodieVectorSearchTableValuedFunction(args)
+    ),
+    (
+      FunctionIdentifier(HoodieVectorSearchBatchTableValuedFunction.FUNC_NAME),
+      new ExpressionInfo(HoodieVectorSearchBatchTableValuedFunction.getClass.getCanonicalName, HoodieVectorSearchBatchTableValuedFunction.FUNC_NAME),
+      (args: Seq[Expression]) => new HoodieVectorSearchBatchTableValuedFunction(args)
     )
   )
 }

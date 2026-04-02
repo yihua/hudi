@@ -47,47 +47,27 @@ object HoodieVectorSearchTableValuedFunction {
     }
   }
 
-  sealed trait VectorSearchArgs
-  case class SingleQueryArgs(
+  case class ParsedArgs(
     tableName: String,
     embeddingCol: String,
     queryVectorExpr: Expression,
     k: Int,
     metric: DistanceMetric.Value,
     algorithm: SearchAlgorithm.Value
-  ) extends VectorSearchArgs
-
-  case class BatchQueryArgs(
-    corpusTable: String,
-    corpusEmbeddingCol: String,
-    queryTable: String,
-    queryEmbeddingCol: String,
-    k: Int,
-    metric: DistanceMetric.Value,
-    algorithm: SearchAlgorithm.Value
-  ) extends VectorSearchArgs
+  )
 
   /**
-   * Parse arguments for the hudi_vector_search TVF.
+   * Parse arguments for the hudi_vector_search TVF (single-query mode).
    *
-   * Single query mode (4-6 args):
+   * Signature (4–6 args):
    *   hudi_vector_search('table', 'embedding_col', ARRAY(1.0, 2.0, ...), k [, 'metric'] [, 'algorithm'])
    *   metric defaults to 'cosine'; algorithm defaults to 'brute_force'.
-   *
-   * Batch query mode (5-7 args):
-   *   hudi_vector_search('corpus_table', 'corpus_col', 'query_table', 'query_col', k [, 'metric'] [, 'algorithm'])
-   *   metric defaults to 'cosine'; algorithm defaults to 'brute_force'.
-   *
-   * Mode is distinguished by checking whether both arg[2] and arg[3] are string literals:
-   * in batch mode they are the query table name and query column name; in single mode arg[2]
-   * is the ARRAY expression and arg[3] is the integer k.
    */
-  def parseArgs(exprs: Seq[Expression]): VectorSearchArgs = {
-    if (exprs.size < 4 || exprs.size > 7) {
+  def parseArgs(exprs: Seq[Expression]): ParsedArgs = {
+    if (exprs.size < 4 || exprs.size > 6) {
       throw new HoodieAnalysisException(
-        s"Function '$FUNC_NAME' expects 4-7 arguments. " +
-          "Single query: (table, embedding_col, query_vector, k [, metric] [, algorithm]). " +
-          "Batch query: (corpus_table, corpus_col, query_table, query_col, k [, metric] [, algorithm]).")
+        s"Function '$FUNC_NAME' expects 4-6 arguments: " +
+          "(table, embedding_col, query_vector, k [, metric] [, algorithm]).")
     }
 
     def requireStringLiteral(expr: Expression, argName: String): String = expr match {
@@ -95,62 +75,92 @@ object HoodieVectorSearchTableValuedFunction {
       case _ => throw new HoodieAnalysisException(
         s"Function '$FUNC_NAME': argument '$argName' must be a string literal, got: ${expr.sql}")
     }
+
     val tableName = requireStringLiteral(exprs.head, "table")
     val embeddingCol = requireStringLiteral(exprs(1), "embedding_col")
-
-    // Distinguish single vs batch mode: batch mode has string literals for both arg[2] (query_table)
-    // and arg[3] (query_col); single mode has an ARRAY expression at arg[2] and integer k at arg[3].
-    val isBatchMode = exprs.size >= 5 &&
-      exprs(2).isInstanceOf[Literal] && exprs(2).asInstanceOf[Literal].dataType == StringType &&
-      exprs(3).isInstanceOf[Literal] && exprs(3).asInstanceOf[Literal].dataType == StringType
-
-    if (!isBatchMode && exprs.size > 6) {
-      throw new HoodieAnalysisException(
-        s"Function '$FUNC_NAME' expects 4-7 arguments. " +
-          "Single query: (table, embedding_col, query_vector, k [, metric] [, algorithm]). " +
-          "Batch query: (corpus_table, corpus_col, query_table, query_col, k [, metric] [, algorithm]).")
-    }
-
-    if (isBatchMode) {
-      // Batch mode: (corpus_table, corpus_col, query_table, query_col, k [, metric] [, algorithm])
-      val queryTable = exprs(2).eval().toString
-      val queryCol = exprs(3).eval().toString
-      val k = parseK(exprs(4))
-      val metric = if (exprs.size >= 6) DistanceMetric.fromString(exprs(5).eval().toString)
-      else DistanceMetric.COSINE
-      val algorithm = if (exprs.size >= 7) SearchAlgorithm.fromString(exprs(6).eval().toString)
-      else SearchAlgorithm.BRUTE_FORCE
-      BatchQueryArgs(tableName, embeddingCol, queryTable, queryCol, k, metric, algorithm)
-    } else {
-      // Single query mode: (table, embedding_col, ARRAY(...), k [, metric] [, algorithm])
-      val queryVectorExpr = exprs(2)
-      val k = parseK(exprs(3))
-      val metric = if (exprs.size >= 5) DistanceMetric.fromString(exprs(4).eval().toString)
-      else DistanceMetric.COSINE
-      val algorithm = if (exprs.size >= 6) SearchAlgorithm.fromString(exprs(5).eval().toString)
-      else SearchAlgorithm.BRUTE_FORCE
-      SingleQueryArgs(tableName, embeddingCol, queryVectorExpr, k, metric, algorithm)
-    }
+    val queryVectorExpr = exprs(2)
+    val k = parseK(FUNC_NAME, exprs(3))
+    val metric = if (exprs.size >= 5) DistanceMetric.fromString(exprs(4).eval().toString)
+    else DistanceMetric.COSINE
+    val algorithm = if (exprs.size >= 6) SearchAlgorithm.fromString(exprs(5).eval().toString)
+    else SearchAlgorithm.BRUTE_FORCE
+    ParsedArgs(tableName, embeddingCol, queryVectorExpr, k, metric, algorithm)
   }
 
-  private def parseK(expr: Expression): Int = {
+  private[logical] def parseK(funcName: String, expr: Expression): Int = {
     val rawValue = expr.eval()
     val kValue = try {
       rawValue.toString.toInt
     } catch {
       case _: NumberFormatException =>
         throw new HoodieAnalysisException(
-          s"Function '$FUNC_NAME': k must be a positive integer, got '$rawValue'")
+          s"Function '$funcName': k must be a positive integer, got '$rawValue'")
     }
     if (kValue <= 0) {
       throw new HoodieAnalysisException(
-        s"Function '$FUNC_NAME': k must be a positive integer, got $kValue")
+        s"Function '$funcName': k must be a positive integer, got $kValue")
     }
     kValue
   }
 }
 
 case class HoodieVectorSearchTableValuedFunction(args: Seq[Expression]) extends LeafNode {
+
+  override def output: Seq[Attribute] = Nil
+
+  override lazy val resolved: Boolean = false
+}
+
+object HoodieVectorSearchBatchTableValuedFunction {
+
+  val FUNC_NAME = "hudi_vector_search_batch"
+
+  case class ParsedArgs(
+    corpusTable: String,
+    corpusEmbeddingCol: String,
+    queryTable: String,
+    queryEmbeddingCol: String,
+    k: Int,
+    metric: HoodieVectorSearchTableValuedFunction.DistanceMetric.Value,
+    algorithm: HoodieVectorSearchTableValuedFunction.SearchAlgorithm.Value
+  )
+
+  /**
+   * Parse arguments for the hudi_vector_search_batch TVF (batch-query mode).
+   *
+   * Signature (5–7 args):
+   *   hudi_vector_search_batch('corpus_table', 'corpus_col', 'query_table', 'query_col', k [, 'metric'] [, 'algorithm'])
+   *   metric defaults to 'cosine'; algorithm defaults to 'brute_force'.
+   */
+  def parseArgs(exprs: Seq[Expression]): ParsedArgs = {
+    if (exprs.size < 5 || exprs.size > 7) {
+      throw new HoodieAnalysisException(
+        s"Function '$FUNC_NAME' expects 5-7 arguments: " +
+          "(corpus_table, corpus_col, query_table, query_col, k [, metric] [, algorithm]).")
+    }
+
+    def requireStringLiteral(expr: Expression, argName: String): String = expr match {
+      case Literal(v, StringType) if v != null => v.toString
+      case _ => throw new HoodieAnalysisException(
+        s"Function '$FUNC_NAME': argument '$argName' must be a string literal, got: ${expr.sql}")
+    }
+
+    val corpusTable = requireStringLiteral(exprs.head, "corpus_table")
+    val corpusEmbeddingCol = requireStringLiteral(exprs(1), "corpus_col")
+    val queryTable = requireStringLiteral(exprs(2), "query_table")
+    val queryEmbeddingCol = requireStringLiteral(exprs(3), "query_col")
+    val k = HoodieVectorSearchTableValuedFunction.parseK(FUNC_NAME, exprs(4))
+    val metric = if (exprs.size >= 6)
+      HoodieVectorSearchTableValuedFunction.DistanceMetric.fromString(exprs(5).eval().toString)
+    else HoodieVectorSearchTableValuedFunction.DistanceMetric.COSINE
+    val algorithm = if (exprs.size >= 7)
+      HoodieVectorSearchTableValuedFunction.SearchAlgorithm.fromString(exprs(6).eval().toString)
+    else HoodieVectorSearchTableValuedFunction.SearchAlgorithm.BRUTE_FORCE
+    ParsedArgs(corpusTable, corpusEmbeddingCol, queryTable, queryEmbeddingCol, k, metric, algorithm)
+  }
+}
+
+case class HoodieVectorSearchBatchTableValuedFunction(args: Seq[Expression]) extends LeafNode {
 
   override def output: Seq[Attribute] = Nil
 

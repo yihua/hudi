@@ -152,24 +152,19 @@ case class ResolveReferences(spark: SparkSession) extends Rule[LogicalPlan]
         LogicalRelation(relation, catalogTable)
       }
     case HoodieVectorSearchTableValuedFunction(args) =>
-      val parsedArgs = HoodieVectorSearchTableValuedFunction.parseArgs(args)
-      parsedArgs match {
-        case HoodieVectorSearchTableValuedFunction.SingleQueryArgs(
-          tableName, embeddingCol, queryVectorExpr, k, metric, algorithm) =>
-          val searchAlgorithm = HoodieVectorSearchPlanBuilder.resolveAlgorithm(algorithm)
-          val corpusDf = resolveTableToDf(tableName)
-          val queryVector = evaluateQueryVector(queryVectorExpr)
-          searchAlgorithm.buildSingleQueryPlan(
-            spark, corpusDf, embeddingCol, queryVector, k, metric)
+      val a = HoodieVectorSearchTableValuedFunction.parseArgs(args)
+      val searchAlgorithm = HoodieVectorSearchPlanBuilder.resolveAlgorithm(a.algorithm)
+      val corpusDf = resolveTableToDf(a.tableName)
+      val queryVector = evaluateQueryVector(a.queryVectorExpr)
+      searchAlgorithm.buildSingleQueryPlan(spark, corpusDf, a.embeddingCol, queryVector, a.k, a.metric)
 
-        case HoodieVectorSearchTableValuedFunction.BatchQueryArgs(
-          corpusTable, corpusEmbeddingCol, queryTable, queryEmbeddingCol, k, metric, algorithm) =>
-          val searchAlgorithm = HoodieVectorSearchPlanBuilder.resolveAlgorithm(algorithm)
-          val corpusDf = resolveTableToDf(corpusTable)
-          val queryDf = resolveTableToDf(queryTable)
-          searchAlgorithm.buildBatchQueryPlan(
-            spark, corpusDf, corpusEmbeddingCol, queryDf, queryEmbeddingCol, k, metric)
-      }
+    case HoodieVectorSearchBatchTableValuedFunction(args) =>
+      val a = HoodieVectorSearchBatchTableValuedFunction.parseArgs(args)
+      val searchAlgorithm = HoodieVectorSearchPlanBuilder.resolveAlgorithm(a.algorithm)
+      val corpusDf = resolveTableToDf(a.corpusTable)
+      val queryDf = resolveTableToDf(a.queryTable)
+      searchAlgorithm.buildBatchQueryPlan(
+        spark, corpusDf, a.corpusEmbeddingCol, queryDf, a.queryEmbeddingCol, a.k, a.metric)
 
     case mO@MatchMergeIntoTable(targetTableO, sourceTableO, _)
       // START: custom Hudi change: don't want to go to the spark mit resolution so we resolve the source and target

@@ -370,7 +370,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     val resultDf = spark.sql(
       s"""
          |SELECT *
-         |FROM hudi_vector_search(
+         |FROM hudi_vector_search_batch(
          |  '$corpusViewName',
          |  'embedding',
          |  'batch_queries',
@@ -407,7 +407,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     val result = spark.sql(
       s"""
          |SELECT *
-         |FROM hudi_vector_search(
+         |FROM hudi_vector_search_batch(
          |  '$corpusViewName',
          |  'embedding',
          |  'same_col_queries',
@@ -435,7 +435,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     val resultDf = spark.sql(
       s"""
          |SELECT *
-         |FROM hudi_vector_search(
+         |FROM hudi_vector_search_batch(
          |  '$corpusViewName',
          |  'embedding',
          |  'df_queries',
@@ -567,8 +567,8 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
            |""".stripMargin
       ).collect()
     })
-    assertTrue(ex.getMessage.contains("expects 4-7 arguments") ||
-      ex.getCause.getMessage.contains("expects 4-7 arguments"))
+    assertTrue(ex.getMessage.contains("expects 4-6 arguments") ||
+      ex.getCause.getMessage.contains("expects 4-6 arguments"))
   }
 
   @Test
@@ -880,7 +880,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     val result = spark.sql(
       s"""
          |SELECT id, _hudi_distance, query_name
-         |FROM hudi_vector_search(
+         |FROM hudi_vector_search_batch(
          |  '$corpusViewName',
          |  'embedding',
          |  'correctness_queries',
@@ -920,7 +920,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
       spark.sql(
         s"""
            |SELECT *
-           |FROM hudi_vector_search(
+           |FROM hudi_vector_search_batch(
            |  '$corpusViewName',
            |  'embedding',
            |  'mismatched_type_queries',
@@ -959,7 +959,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
       spark.sql(
         s"""
            |SELECT *
-           |FROM hudi_vector_search(
+           |FROM hudi_vector_search_batch(
            |  '$corpusViewName',
            |  'embedding',
            |  'dim_mismatch_queries',
@@ -995,7 +995,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     val result = spark.sql(
       s"""
          |SELECT *
-         |FROM hudi_vector_search(
+         |FROM hudi_vector_search_batch(
          |  '$corpusViewName',
          |  'embedding',
          |  'overlapping_queries',
@@ -1174,7 +1174,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     val result = spark.sql(
       s"""
          |SELECT *
-         |FROM hudi_vector_search(
+         |FROM hudi_vector_search_batch(
          |  '$corpusViewName',
          |  'embedding',
          |  'large_k_queries',
@@ -1292,7 +1292,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
       ).collect()
     })
     val msg = if (ex.getCause != null) ex.getCause.getMessage else ex.getMessage
-    assertTrue(msg.contains("4-7 arguments"), s"Expected arg-count error, got: $msg")
+    assertTrue(msg.contains("4-6 arguments"), s"Expected arg-count error, got: $msg")
   }
 
   @Test
