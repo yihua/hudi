@@ -27,9 +27,6 @@ import org.apache.spark.sql.types.{ByteType, DataType, DoubleType, FloatType}
 /**
  * Vector distance utilities: raw distance functions and Spark UDF factories.
  *
- * Raw functions operate on Array[Double] and can be used outside of Spark
- * (e.g. for verification, index building, or non-Spark distance computation).
- *
  * UDF factories produce typed Spark UDFs for Float, Double, and Byte corpus columns.
  */
 object VectorDistanceUtils {
@@ -65,10 +62,10 @@ object VectorDistanceUtils {
     -(new DenseVector(a)).dot(new DenseVector(b))
   }
 
-  // ======================== Spark UDF Factories ========================
-
   /**
    * Creates a Spark UDF for the given distance metric and corpus element type.
+   * Both arguments (corpus vector and query vector) are evaluated per row.
+   * Prefer [[createSingleQueryDistanceUdf]] when the query vector is constant.
    * Supports Float, Double, and Byte element types.
    */
   def createDistanceUdf(metric: DistanceMetric.Value, elementType: DataType): UserDefinedFunction =
@@ -78,6 +75,55 @@ object VectorDistanceUtils {
       case ByteType   => createByteDistanceUdf(metric)
       case _ => throw new HoodieAnalysisException(
         s"Unsupported vector element type for distance computation: $elementType")
+    }
+
+  /**
+   * Creates a Spark UDF optimized for single-query mode: the query vector's
+   * [[DenseVector]] is pre-computed once and closed over, so only the corpus
+   * vector is converted per row.
+   */
+  def createSingleQueryDistanceUdf(
+      metric: DistanceMetric.Value,
+      elementType: DataType,
+      queryVector: Array[Double]): UserDefinedFunction = {
+    val queryDv = new DenseVector(queryVector)
+    val queryNorm = Vectors.norm(queryDv, 2.0)
+    val distFn = resolveDistanceFn(metric)
+
+    elementType match {
+      case FloatType => udf((corpus: Seq[Float]) => {
+        requireSameLength(corpus.length, queryVector.length)
+        distFn(new DenseVector(corpus.iterator.map(_.toDouble).toArray), queryDv, queryNorm)
+      })
+      case DoubleType => udf((corpus: Seq[Double]) => {
+        requireSameLength(corpus.length, queryVector.length)
+        distFn(new DenseVector(corpus.toArray), queryDv, queryNorm)
+      })
+      case ByteType => udf((corpus: Seq[Byte]) => {
+        requireSameLength(corpus.length, queryVector.length)
+        distFn(new DenseVector(corpus.iterator.map(_.toDouble).toArray), queryDv, queryNorm)
+      })
+      case _ => throw new HoodieAnalysisException(
+        s"Unsupported vector element type for distance computation: $elementType")
+    }
+  }
+
+  /**
+   * Returns a distance function that takes (corpusDenseVector, queryDenseVector, queryNorm)
+   * and returns a Double distance. The queryNorm parameter avoids recomputing
+   * the query vector's norm on every row for cosine distance.
+   */
+  private def resolveDistanceFn(
+      metric: DistanceMetric.Value): (DenseVector, DenseVector, Double) => Double =
+    metric match {
+      case DistanceMetric.COSINE => (a, b, bNorm) =>
+        val aNorm = Vectors.norm(a, 2.0)
+        val denom = aNorm * bNorm
+        if (denom == 0.0) 1.0 else math.min(2.0, math.max(0.0, 1.0 - (a.dot(b) / denom)))
+      case DistanceMetric.L2 => (a, b, _) =>
+        math.sqrt(Vectors.sqdist(a, b))
+      case DistanceMetric.DOT_PRODUCT => (a, b, _) =>
+        -(a.dot(b))
     }
 
   private def computeRawDistance(metric: DistanceMetric.Value, a: Array[Double], b: Array[Double]): Double =
@@ -107,7 +153,9 @@ object VectorDistanceUtils {
 
   private def requireSameLength(aLen: Int, bLen: Int): Unit = {
     if (aLen != bLen) {
-      throw new IllegalArgumentException(s"Vector dimension mismatch: $aLen vs $bLen")
+      throw new IllegalArgumentException(
+        s"Hudi vector search: vector dimension mismatch ($aLen vs $bLen). " +
+          "Ensure all embeddings have the same number of dimensions as the query vector.")
     }
   }
 }

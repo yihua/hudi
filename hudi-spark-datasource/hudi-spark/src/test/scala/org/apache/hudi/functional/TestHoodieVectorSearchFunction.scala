@@ -1350,4 +1350,166 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
     spark.catalog.dropTempView("mor_corpus")
   }
+
+  @Test
+  def testDimensionMismatchWithoutVectorMetadata(): Unit = {
+    // Corpus WITHOUT VECTOR(dim) metadata — dimension mismatch is caught at UDF runtime
+    createFloatInMemoryView("no_meta_corpus", Seq(
+      ("n1", Seq(1.0f, 0.0f, 0.0f)),
+      ("n2", Seq(0.0f, 1.0f, 0.0f))
+    ))
+
+    val ex = assertThrows(classOf[Exception], () => {
+      spark.sql(
+        """
+          |SELECT *
+          |FROM hudi_vector_search(
+          |  'no_meta_corpus',
+          |  'embedding',
+          |  ARRAY(1.0, 0.0, 0.0, 0.0, 0.0),
+          |  2,
+          |  'cosine'
+          |)
+          |""".stripMargin
+      ).collect()
+    })
+    def rootMessage(e: Throwable): String = if (e.getCause != null) rootMessage(e.getCause) else e.getMessage
+    val msg = rootMessage(ex)
+    assertTrue(msg.contains("dimension mismatch") || msg.contains("mismatch"),
+      s"Expected dimension mismatch error, got: $msg")
+
+    spark.catalog.dropTempView("no_meta_corpus")
+  }
+
+  @Test
+  def testBatchQueryExactDistanceValues(): Unit = {
+    createFloatQueryView("exact_dist_queries", "query_name", "query_vec", Seq(
+      ("q_x", Seq(1.0f, 0.0f, 0.0f)),
+      ("q_z", Seq(0.0f, 0.0f, 1.0f))
+    ))
+
+    val result = spark.sql(
+      s"""
+         |SELECT id, _hudi_distance, query_name
+         |FROM hudi_vector_search_batch(
+         |  '$corpusViewName',
+         |  'embedding',
+         |  'exact_dist_queries',
+         |  'query_vec',
+         |  5,
+         |  'cosine'
+         |)
+         |""".stripMargin
+    ).collect()
+
+    // 2 queries x 5 results each = 10 rows
+    assertEquals(10, result.length)
+
+    // Verify exact distances for q_x query [1,0,0]
+    val qxResults = result.filter(_.getAs[String]("query_name") == "q_x")
+      .map(r => r.getAs[String]("id") -> r.getAs[Double]("_hudi_distance")).toMap
+
+    // doc_1 [1,0,0]: cosine distance = 0.0
+    assertEquals(0.0, qxResults("doc_1"), 1e-5)
+    // doc_2 [0,1,0]: cosine distance = 1.0
+    assertEquals(1.0, qxResults("doc_2"), 1e-5)
+    // doc_3 [0,0,1]: cosine distance = 1.0
+    assertEquals(1.0, qxResults("doc_3"), 1e-5)
+    // doc_4 [0.707,0.707,0]: cosine distance = 1 - 0.707 ~= 0.293
+    assertEquals(1.0 - 0.70710678, qxResults("doc_4"), 1e-4)
+
+    // Verify exact distances for q_z query [0,0,1]
+    val qzResults = result.filter(_.getAs[String]("query_name") == "q_z")
+      .map(r => r.getAs[String]("id") -> r.getAs[Double]("_hudi_distance")).toMap
+
+    // doc_3 [0,0,1]: cosine distance = 0.0
+    assertEquals(0.0, qzResults("doc_3"), 1e-5)
+    // doc_1 [1,0,0]: cosine distance = 1.0
+    assertEquals(1.0, qzResults("doc_1"), 1e-5)
+
+    spark.catalog.dropTempView("exact_dist_queries")
+  }
+
+  @Test
+  def testNaNInCorpusVectors(): Unit = {
+    // Corpus with a NaN element — should not crash, NaN distances sort last
+    createFloatInMemoryView("nan_corpus", Seq(
+      ("normal", Seq(1.0f, 0.0f, 0.0f)),
+      ("has_nan", Seq(Float.NaN, 0.0f, 0.0f))
+    ))
+
+    val result = spark.sql(
+      """
+        |SELECT id, _hudi_distance
+        |FROM hudi_vector_search(
+        |  'nan_corpus',
+        |  'embedding',
+        |  ARRAY(1.0, 0.0, 0.0),
+        |  2,
+        |  'cosine'
+        |)
+        |ORDER BY _hudi_distance
+        |""".stripMargin
+    ).collect()
+
+    assertEquals(2, result.length)
+    // Normal vector should be first (distance = 0)
+    assertEquals("normal", result(0).getAs[String]("id"))
+    assertEquals(0.0, result(0).getAs[Double]("_hudi_distance"), 1e-5)
+    // NaN vector sorts last in Spark's orderBy (NaN > all other values)
+    assertEquals("has_nan", result(1).getAs[String]("id"))
+
+    spark.catalog.dropTempView("nan_corpus")
+  }
+
+  @Test
+  def testZeroQueryVectorCosineDistance(): Unit = {
+    // Zero query vector with cosine distance: all corpus vectors should have distance 1.0
+    createFloatInMemoryView("zero_q_corpus", Seq(
+      ("a", Seq(1.0f, 0.0f, 0.0f)),
+      ("b", Seq(0.0f, 1.0f, 0.0f)),
+      ("c", Seq(0.0f, 0.0f, 1.0f))
+    ))
+
+    val result = spark.sql(
+      """
+        |SELECT id, _hudi_distance
+        |FROM hudi_vector_search(
+        |  'zero_q_corpus',
+        |  'embedding',
+        |  ARRAY(0.0, 0.0, 0.0),
+        |  3,
+        |  'cosine'
+        |)
+        |""".stripMargin
+    ).collect()
+
+    assertEquals(3, result.length)
+    // All distances should be 1.0 (convention for zero query vector)
+    result.foreach { row =>
+      assertEquals(1.0, row.getAs[Double]("_hudi_distance"), 1e-5)
+    }
+
+    spark.catalog.dropTempView("zero_q_corpus")
+  }
+
+  @Test
+  def testByteCorpusFractionalQueryVector(): Unit = {
+    // Fractional query values against a byte corpus should fail with a clear error
+    createByteCorpusView("byte_frac_corpus", Seq(("b1", Seq(10.toByte, 0.toByte, 0.toByte))))
+
+    val ex = assertThrows(classOf[Exception], () => {
+      spark.sql(
+        """
+          |SELECT *
+          |FROM hudi_vector_search('byte_frac_corpus', 'embedding', ARRAY(10.5, 0.0, 0.0), 1, 'cosine')
+          |""".stripMargin
+      ).collect()
+    })
+    val msg = if (ex.getCause != null) ex.getCause.getMessage else ex.getMessage
+    assertTrue(msg.contains("not a whole number"),
+      s"Expected integrality error, got: $msg")
+
+    spark.catalog.dropTempView("byte_frac_corpus")
+  }
 }
