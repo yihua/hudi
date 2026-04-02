@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.hudi.analysis
 
+import org.apache.spark.ml.linalg.{DenseVector, Vectors}
 import org.apache.spark.sql.catalyst.plans.logical.HoodieVectorSearchTableValuedFunction.DistanceMetric
 import org.apache.spark.sql.expressions.UserDefinedFunction
 import org.apache.spark.sql.functions.udf
@@ -40,12 +41,10 @@ object VectorDistanceUtils {
    */
   def cosineDistance(a: Array[Double], b: Array[Double]): Double = {
     require(a.length == b.length, s"Vector dimension mismatch: ${a.length} vs ${b.length}")
-    var dot = 0.0; var normA = 0.0; var normB = 0.0; var i = 0
-    while (i < a.length) {
-      dot += a(i) * b(i); normA += a(i) * a(i); normB += b(i) * b(i); i += 1
-    }
-    val denom = math.sqrt(normA) * math.sqrt(normB)
-    if (denom == 0.0) 1.0 else math.min(2.0, math.max(0.0, 1.0 - (dot / denom)))
+    val va = new DenseVector(a)
+    val vb = new DenseVector(b)
+    val denom = Vectors.norm(va, 2.0) * Vectors.norm(vb, 2.0)
+    if (denom == 0.0) 1.0 else math.min(2.0, math.max(0.0, 1.0 - (va.dot(vb) / denom)))
   }
 
   /**
@@ -54,9 +53,7 @@ object VectorDistanceUtils {
    */
   def l2Distance(a: Array[Double], b: Array[Double]): Double = {
     require(a.length == b.length, s"Vector dimension mismatch: ${a.length} vs ${b.length}")
-    var sum = 0.0; var i = 0
-    while (i < a.length) { val d = a(i) - b(i); sum += d * d; i += 1 }
-    math.sqrt(sum)
+    math.sqrt(Vectors.sqdist(new DenseVector(a), new DenseVector(b)))
   }
 
   /**
@@ -65,9 +62,7 @@ object VectorDistanceUtils {
    */
   def dotProductDistance(a: Array[Double], b: Array[Double]): Double = {
     require(a.length == b.length, s"Vector dimension mismatch: ${a.length} vs ${b.length}")
-    var dot = 0.0; var i = 0
-    while (i < a.length) { dot += a(i) * b(i); i += 1 }
-    -dot
+    -(new DenseVector(a)).dot(new DenseVector(b))
   }
 
   // ======================== Spark UDF Factories ========================
@@ -85,71 +80,30 @@ object VectorDistanceUtils {
         s"Unsupported vector element type for distance computation: $elementType")
     }
 
-  private def createFloatDistanceUdf(metric: DistanceMetric.Value): UserDefinedFunction = metric match {
-    case DistanceMetric.COSINE => udf((a: Seq[Float], b: Seq[Float]) => {
-      requireSameLength(a.length, b.length)
-      var dot = 0.0; var normA = 0.0; var normB = 0.0; var i = 0
-      while (i < a.length) { dot += a(i) * b(i); normA += a(i) * a(i); normB += b(i) * b(i); i += 1 }
-      val denom = math.sqrt(normA) * math.sqrt(normB)
-      if (denom == 0.0) 1.0 else math.min(2.0, math.max(0.0, 1.0 - (dot / denom)))
-    })
-    case DistanceMetric.L2 => udf((a: Seq[Float], b: Seq[Float]) => {
-      requireSameLength(a.length, b.length)
-      var sum = 0.0; var i = 0
-      while (i < a.length) { val d = a(i) - b(i); sum += d * d; i += 1 }
-      math.sqrt(sum)
-    })
-    case DistanceMetric.DOT_PRODUCT => udf((a: Seq[Float], b: Seq[Float]) => {
-      requireSameLength(a.length, b.length)
-      var dot = 0.0; var i = 0
-      while (i < a.length) { dot += a(i) * b(i); i += 1 }
-      -dot
-    })
-  }
+  private def computeRawDistance(metric: DistanceMetric.Value, a: Array[Double], b: Array[Double]): Double =
+    metric match {
+      case DistanceMetric.COSINE      => cosineDistance(a, b)
+      case DistanceMetric.L2          => l2Distance(a, b)
+      case DistanceMetric.DOT_PRODUCT => dotProductDistance(a, b)
+    }
 
-  private def createDoubleDistanceUdf(metric: DistanceMetric.Value): UserDefinedFunction = metric match {
-    case DistanceMetric.COSINE => udf((a: Seq[Double], b: Seq[Double]) => {
+  private def createFloatDistanceUdf(metric: DistanceMetric.Value): UserDefinedFunction =
+    udf((a: Seq[Float], b: Seq[Float]) => {
       requireSameLength(a.length, b.length)
-      var dot = 0.0; var normA = 0.0; var normB = 0.0; var i = 0
-      while (i < a.length) { dot += a(i) * b(i); normA += a(i) * a(i); normB += b(i) * b(i); i += 1 }
-      val denom = math.sqrt(normA) * math.sqrt(normB)
-      if (denom == 0.0) 1.0 else math.min(2.0, math.max(0.0, 1.0 - (dot / denom)))
+      computeRawDistance(metric, a.iterator.map(_.toDouble).toArray, b.iterator.map(_.toDouble).toArray)
     })
-    case DistanceMetric.L2 => udf((a: Seq[Double], b: Seq[Double]) => {
-      requireSameLength(a.length, b.length)
-      var sum = 0.0; var i = 0
-      while (i < a.length) { val d = a(i) - b(i); sum += d * d; i += 1 }
-      math.sqrt(sum)
-    })
-    case DistanceMetric.DOT_PRODUCT => udf((a: Seq[Double], b: Seq[Double]) => {
-      requireSameLength(a.length, b.length)
-      var dot = 0.0; var i = 0
-      while (i < a.length) { dot += a(i) * b(i); i += 1 }
-      -dot
-    })
-  }
 
-  private def createByteDistanceUdf(metric: DistanceMetric.Value): UserDefinedFunction = metric match {
-    case DistanceMetric.COSINE => udf((a: Seq[Byte], b: Seq[Byte]) => {
+  private def createDoubleDistanceUdf(metric: DistanceMetric.Value): UserDefinedFunction =
+    udf((a: Seq[Double], b: Seq[Double]) => {
       requireSameLength(a.length, b.length)
-      var dot = 0L; var normA = 0L; var normB = 0L; var i = 0
-      while (i < a.length) { dot += a(i) * b(i); normA += a(i) * a(i); normB += b(i) * b(i); i += 1 }
-      val denom = math.sqrt(normA.toDouble) * math.sqrt(normB.toDouble)
-      if (denom == 0.0) 1.0 else math.min(2.0, math.max(0.0, 1.0 - (dot.toDouble / denom)))
+      computeRawDistance(metric, a.toArray, b.toArray)
     })
-    case DistanceMetric.L2 => udf((a: Seq[Byte], b: Seq[Byte]) => {
+
+  private def createByteDistanceUdf(metric: DistanceMetric.Value): UserDefinedFunction =
+    udf((a: Seq[Byte], b: Seq[Byte]) => {
       requireSameLength(a.length, b.length)
-      var sum = 0L; var i = 0
-      while (i < a.length) { val d = a(i) - b(i); sum += d * d; i += 1 }
-      math.sqrt(sum.toDouble)
+      computeRawDistance(metric, a.iterator.map(_.toDouble).toArray, b.iterator.map(_.toDouble).toArray)
     })
-    case DistanceMetric.DOT_PRODUCT => udf((a: Seq[Byte], b: Seq[Byte]) => {
-      requireSameLength(a.length, b.length)
-      var dot = 0L; var i = 0
-      while (i < a.length) { dot += a(i) * b(i); i += 1 }
-      -dot.toDouble
-    })
-  }
 
   private def requireSameLength(aLen: Int, bLen: Int): Unit = {
     if (aLen != bLen) {
