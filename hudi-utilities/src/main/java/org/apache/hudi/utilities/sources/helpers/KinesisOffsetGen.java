@@ -270,10 +270,15 @@ public class KinesisOffsetGen {
     }
   }
 
+  /** Name of the Kinesis Data Stream to consume from (e.g. "my-stream"). */
   private final String streamName;
+  /** AWS region where the Kinesis stream is provisioned (e.g. "us-east-1"). Required because KinesisClient is region-scoped — each client instance connects to exactly one regional endpoint. */
   private final String region;
+  /** Optional custom Kinesis endpoint URL, used for localstack or VPC endpoints. Empty when using the default AWS endpoint. */
   private final Option<String> endpointUrl;
+  /** Strategy that determines where to start reading when no prior checkpoint exists (LATEST, TRIM_HORIZON, etc.). */
   private final KinesisSourceConfig.KinesisStartingPositionStrategy startingPositionStrategy;
+  /** Raw configuration properties passed from HoodieStreamer; used to resolve Kinesis-specific and shared settings. */
   private final TypedProperties props;
 
   public KinesisOffsetGen(TypedProperties props) {
