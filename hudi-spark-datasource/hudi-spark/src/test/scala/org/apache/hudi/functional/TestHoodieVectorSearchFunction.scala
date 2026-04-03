@@ -384,10 +384,10 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     // Verify output columns
     val columns = resultDf.columns
     assertTrue(columns.contains("_hudi_distance"))
-    assertTrue(columns.contains("_hudi_qid"))
+    assertTrue(columns.contains("_hudi_query_index"))
 
     // Each query should get exactly 2 results
-    val resultsByQuery = resultDf.groupBy("_hudi_qid").count().collect()
+    val resultsByQuery = resultDf.groupBy("_hudi_query_index").count().collect()
     assertEquals(2, resultsByQuery.length)
     resultsByQuery.foreach { row =>
       assertEquals(2, row.getLong(1))
@@ -451,7 +451,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     // Can apply DataFrame operations
     val topResults = resultDf
       .filter("_hudi_distance < 0.5")
-      .select("id", "_hudi_distance", "_hudi_qid")
+      .select("id", "_hudi_distance", "_hudi_query_index")
     assertTrue(topResults.count() > 0)
 
     spark.catalog.dropTempView("df_queries")
@@ -1186,7 +1186,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     )
 
     // k=100 but corpus has 5 rows, so each query gets 5 results = 10 total
-    val resultsByQuery = result.groupBy("_hudi_qid").count().collect()
+    val resultsByQuery = result.groupBy("_hudi_query_index").count().collect()
     assertEquals(2, resultsByQuery.length)
     resultsByQuery.foreach { row =>
       assertEquals(5, row.getLong(1))
