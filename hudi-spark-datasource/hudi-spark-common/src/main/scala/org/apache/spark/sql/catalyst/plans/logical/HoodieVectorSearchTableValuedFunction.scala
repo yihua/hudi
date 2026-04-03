@@ -80,9 +80,9 @@ object HoodieVectorSearchTableValuedFunction {
     val embeddingCol = requireStringLiteral(exprs(1), "embedding_col")
     val queryVectorExpr = exprs(2)
     val k = parseK(FUNC_NAME, exprs(3))
-    val metric = if (exprs.size >= 5) DistanceMetric.fromString(exprs(4).eval().toString)
+    val metric = if (exprs.size >= 5) DistanceMetric.fromString(requireStringLiteral(exprs(4), "metric"))
     else DistanceMetric.COSINE
-    val algorithm = if (exprs.size >= 6) SearchAlgorithm.fromString(exprs(5).eval().toString)
+    val algorithm = if (exprs.size >= 6) SearchAlgorithm.fromString(requireStringLiteral(exprs(5), "algorithm"))
     else SearchAlgorithm.BRUTE_FORCE
     ParsedArgs(tableName, embeddingCol, queryVectorExpr, k, metric, algorithm)
   }
@@ -151,10 +151,10 @@ object HoodieVectorSearchBatchTableValuedFunction {
     val queryEmbeddingCol = requireStringLiteral(exprs(3), "query_col")
     val k = HoodieVectorSearchTableValuedFunction.parseK(FUNC_NAME, exprs(4))
     val metric = if (exprs.size >= 6)
-      HoodieVectorSearchTableValuedFunction.DistanceMetric.fromString(exprs(5).eval().toString)
+      HoodieVectorSearchTableValuedFunction.DistanceMetric.fromString(requireStringLiteral(exprs(5), "metric"))
     else HoodieVectorSearchTableValuedFunction.DistanceMetric.COSINE
     val algorithm = if (exprs.size >= 7)
-      HoodieVectorSearchTableValuedFunction.SearchAlgorithm.fromString(exprs(6).eval().toString)
+      HoodieVectorSearchTableValuedFunction.SearchAlgorithm.fromString(requireStringLiteral(exprs(6), "algorithm"))
     else HoodieVectorSearchTableValuedFunction.SearchAlgorithm.BRUTE_FORCE
     ParsedArgs(corpusTable, corpusEmbeddingCol, queryTable, queryEmbeddingCol, k, metric, algorithm)
   }

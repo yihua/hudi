@@ -39,7 +39,7 @@ import org.apache.spark.sql.hudi.analysis.HoodieSparkBaseAnalysis.{HoodieV1OrV2T
 import org.apache.spark.sql.hudi.catalog.HoodieInternalV2Table
 import org.apache.spark.sql.hudi.command.{AlterHoodieTableDropPartitionCommand, ShowHoodieTablePartitionsCommand, TruncateHoodieTableCommand}
 import org.apache.spark.sql.hudi.command.exception.HoodieAnalysisException
-import org.apache.spark.sql.types.{ArrayType, DecimalType, DoubleType, FloatType, IntegerType}
+import org.apache.spark.sql.types.{ArrayType, DecimalType, DoubleType, FloatType, IntegerType, LongType}
 
 /**
  * NOTE: PLEASE READ CAREFULLY
@@ -328,10 +328,16 @@ case class ResolveReferences(spark: SparkSession) extends Rule[LogicalPlan]
   }
 
   private def resolveTableToDf(tableName: String): DataFrame = {
-    if (tableName.contains(StoragePath.SEPARATOR)) {
-      spark.read.format("hudi").load(tableName)
-    } else {
-      spark.table(tableName)
+    try {
+      if (tableName.contains(StoragePath.SEPARATOR)) {
+        spark.read.format("hudi").load(tableName)
+      } else {
+        // spark.table() supports multi-part identifiers (e.g. catalog.db.table)
+        spark.table(tableName)
+      }
+    } catch {
+      case e: Exception => throw new HoodieAnalysisException(
+        s"hudi_vector_search: unable to resolve table '$tableName': ${e.getMessage}")
     }
   }
 
@@ -358,6 +364,7 @@ case class ResolveReferences(spark: SparkSession) extends Rule[LogicalPlan]
       case DoubleType     => i => arrayData.getDouble(i)
       case FloatType      => i => arrayData.getFloat(i).toDouble
       case IntegerType    => i => arrayData.getInt(i).toDouble
+      case LongType       => i => arrayData.getLong(i).toDouble
       case d: DecimalType => i => arrayData.getDecimal(i, d.precision, d.scale).toDouble
       case other => throw new HoodieAnalysisException(
         s"Function '${HoodieVectorSearchTableValuedFunction.FUNC_NAME}': " +

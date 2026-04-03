@@ -107,9 +107,10 @@ object HoodieVectorSearchPlanBuilder {
 
   val DISTANCE_COL = "_hudi_distance"
   private[analysis] val QUERY_ID_COL = "_hudi_qid"
-  private[analysis] val QUERY_EMB_ALIAS = "_hudi_query_emb"
   private[analysis] val RANK_COL = "_hudi_rank"
   private[analysis] val QUERY_COL_PREFIX = "_hudi_query_"
+  private[analysis] val CORPUS_ALIAS = "corpus"
+  private[analysis] val QUERY_ALIAS = "query"
 
   /** Resolve a [[SearchAlgorithm]] enum value to its implementation. */
   def resolveAlgorithm(algorithm: SearchAlgorithm.Value): VectorSearchAlgorithm = algorithm match {
@@ -150,6 +151,12 @@ object HoodieVectorSearchPlanBuilder {
 
   /**
    * Validates that corpus and query embedding columns have the same element type.
+   *
+   * This is a deliberate design choice: we require strict type matching rather than
+   * silently upcasting (e.g. float to double). While some vector search systems
+   * auto-convert, strict matching avoids subtle precision differences and makes
+   * type mismatches between pipelines explicit. This can be relaxed to support
+   * automatic widening (byte -> float -> double) in a future iteration if needed.
    */
   private[analysis] def validateElementTypeCompatibility(
       corpusDf: DataFrame, corpusCol: String,
@@ -197,7 +204,9 @@ object HoodieVectorSearchPlanBuilder {
         val typeDesc = meta.getString(HoodieSchema.TYPE_METADATA_FIELD)
         Try(HoodieSchema.parseTypeDescriptor(typeDesc)) match {
           case Success(v: HoodieSchema.Vector) => Some(v.getDimension)
-          case Success(_) => None
+          case Success(_) => throw new HoodieAnalysisException(
+            s"Column '$colName' has type '$typeDesc' which is not a VECTOR type. " +
+              "Only VECTOR columns are supported for vector search.")
           case Failure(e) => throw new HoodieAnalysisException(
             s"Column '$colName' has malformed type metadata '$typeDesc': ${e.getMessage}")
         }
@@ -281,35 +290,43 @@ object BruteForceSearchAlgorithm extends VectorSearchAlgorithm {
 
     val corpusElemType = getElementType(corpusDf, corpusEmbeddingCol)
     val distanceUdf = VectorDistanceUtils.createDistanceUdf(metric, corpusElemType)
-    val filteredCorpus = corpusDf.filter(col(corpusEmbeddingCol).isNotNull)
 
-    // Prefix clashing query columns with "_hudi_query_" to avoid cross-join ambiguity when
-    // corpus and query share column names (e.g. both have "id" or "embedding").
-    // QUERY_ID_COL uses a distinct name (_hudi_qid) so it never clashes with prefixed query cols.
-    val corpusCols = filteredCorpus.columns.toSet
-    val queryWithId = queryDf.filter(col(queryEmbeddingCol).isNotNull)
-      .withColumnRenamed(queryEmbeddingCol, QUERY_EMB_ALIAS)
+    // Alias DataFrames to disambiguate columns in the cross-join via qualified names
+    // (e.g. corpus.id vs query.id) instead of renaming columns upfront.
+    val corpus = corpusDf.filter(col(corpusEmbeddingCol).isNotNull).as(CORPUS_ALIAS)
+    val query = queryDf.filter(col(queryEmbeddingCol).isNotNull)
       .withColumn(QUERY_ID_COL, monotonically_increasing_id())
+      .as(QUERY_ALIAS)
 
-    val renamedQuery = queryWithId.select(queryWithId.columns.map { qCol =>
-      if (qCol != QUERY_ID_COL && qCol != QUERY_EMB_ALIAS && corpusCols.contains(qCol))
-        col(qCol).as(s"$QUERY_COL_PREFIX$qCol")
-      else
-        col(qCol)
-    }: _*)
+    val corpusCols = corpusDf.columns.toSet
 
     // Cross join corpus with broadcast queries, compute distance, then rank
-    val scored = filteredCorpus.crossJoin(broadcast(renamedQuery))
+    val scored = corpus.crossJoin(broadcast(query))
       .withColumn(DISTANCE_COL,
-        distanceUdf(col(corpusEmbeddingCol), col(QUERY_EMB_ALIAS)))
-      .drop(corpusEmbeddingCol)
-      .drop(QUERY_EMB_ALIAS)
+        distanceUdf(col(s"$CORPUS_ALIAS.$corpusEmbeddingCol"), col(s"$QUERY_ALIAS.$queryEmbeddingCol")))
+      .drop(col(s"$CORPUS_ALIAS.$corpusEmbeddingCol"))
+      .drop(col(s"$QUERY_ALIAS.$queryEmbeddingCol"))
 
     val window = Window.partitionBy(QUERY_ID_COL).orderBy(col(DISTANCE_COL).asc)
-    val result = scored
+    val ranked = scored
       .withColumn(RANK_COL, row_number().over(window))
       .filter(col(RANK_COL) <= k)
       .drop(RANK_COL)
+
+    // In the output, prefix query columns that clash with corpus columns
+    // to keep them distinguishable (e.g. query "id" -> "_hudi_query_id").
+    val outputCols = ranked.columns.map { c =>
+      if (c != QUERY_ID_COL && c != DISTANCE_COL && corpusCols.contains(c)) {
+        // After the join both aliases are flattened, so the second occurrence
+        // of a clashing name belongs to the query side. Use the qualified name
+        // to select the query column and alias it with the prefix.
+        col(s"$QUERY_ALIAS.$c").as(s"$QUERY_COL_PREFIX$c")
+      } else {
+        col(c)
+      }
+    }
+
+    val result = ranked.select(outputCols: _*)
       .orderBy(col(QUERY_ID_COL), col(DISTANCE_COL))
 
     result.queryExecution.analyzed

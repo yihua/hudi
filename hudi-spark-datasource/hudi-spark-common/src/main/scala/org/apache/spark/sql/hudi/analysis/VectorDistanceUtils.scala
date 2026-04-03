@@ -30,38 +30,6 @@ import org.apache.spark.sql.types.{ByteType, DataType, DoubleType, FloatType}
  * UDF factories produce typed Spark UDFs for Float, Double, and Byte corpus columns.
  */
 object VectorDistanceUtils {
-
-  /**
-   * Cosine distance: 1 - (a . b) / (||a|| * ||b||).
-   * Returns 0.0 for identical vectors, 1.0 for orthogonal, 2.0 for opposite.
-   * Returns 1.0 if either vector is zero (convention: maximal distance).
-   */
-  def cosineDistance(a: Array[Double], b: Array[Double]): Double = {
-    require(a.length == b.length, s"Vector dimension mismatch: ${a.length} vs ${b.length}")
-    val va = new DenseVector(a)
-    val vb = new DenseVector(b)
-    val denom = Vectors.norm(va, 2.0) * Vectors.norm(vb, 2.0)
-    if (denom == 0.0) 1.0 else math.min(2.0, math.max(0.0, 1.0 - (va.dot(vb) / denom)))
-  }
-
-  /**
-   * L2 (Euclidean) distance: sqrt(sum((a[i] - b[i])^2)).
-   * Returns 0.0 for identical vectors.
-   */
-  def l2Distance(a: Array[Double], b: Array[Double]): Double = {
-    require(a.length == b.length, s"Vector dimension mismatch: ${a.length} vs ${b.length}")
-    math.sqrt(Vectors.sqdist(new DenseVector(a), new DenseVector(b)))
-  }
-
-  /**
-   * Negated dot product distance: -(a . b).
-   * Lower values indicate higher similarity (for ascending sort compatibility).
-   */
-  def dotProductDistance(a: Array[Double], b: Array[Double]): Double = {
-    require(a.length == b.length, s"Vector dimension mismatch: ${a.length} vs ${b.length}")
-    -(new DenseVector(a)).dot(new DenseVector(b))
-  }
-
   /**
    * Creates a Spark UDF for the given distance metric and corpus element type.
    * Both arguments (corpus vector and query vector) are evaluated per row.
@@ -90,6 +58,8 @@ object VectorDistanceUtils {
     val queryNorm = Vectors.norm(queryDv, 2.0)
     val distFn = resolveDistanceFn(metric)
 
+    // Array[Double] allocation per row is required: DenseVector needs a backing Array[Double],
+    // and Spark UDFs are stateless so a reusable buffer is not safe across rows.
     elementType match {
       case FloatType => udf((corpus: Seq[Float]) => {
         requireSameLength(corpus.length, queryVector.length)
@@ -126,30 +96,35 @@ object VectorDistanceUtils {
         -(a.dot(b))
     }
 
-  private def computeRawDistance(metric: DistanceMetric.Value, a: Array[Double], b: Array[Double]): Double =
-    metric match {
-      case DistanceMetric.COSINE      => cosineDistance(a, b)
-      case DistanceMetric.L2          => l2Distance(a, b)
-      case DistanceMetric.DOT_PRODUCT => dotProductDistance(a, b)
-    }
-
-  private def createFloatDistanceUdf(metric: DistanceMetric.Value): UserDefinedFunction =
+  private def createFloatDistanceUdf(metric: DistanceMetric.Value): UserDefinedFunction = {
+    val distFn = resolveDistanceFn(metric)
     udf((a: Seq[Float], b: Seq[Float]) => {
       requireSameLength(a.length, b.length)
-      computeRawDistance(metric, a.iterator.map(_.toDouble).toArray, b.iterator.map(_.toDouble).toArray)
+      val dvA = new DenseVector(a.iterator.map(_.toDouble).toArray)
+      val dvB = new DenseVector(b.iterator.map(_.toDouble).toArray)
+      distFn(dvA, dvB, Vectors.norm(dvB, 2.0))
     })
+  }
 
-  private def createDoubleDistanceUdf(metric: DistanceMetric.Value): UserDefinedFunction =
+  private def createDoubleDistanceUdf(metric: DistanceMetric.Value): UserDefinedFunction = {
+    val distFn = resolveDistanceFn(metric)
     udf((a: Seq[Double], b: Seq[Double]) => {
       requireSameLength(a.length, b.length)
-      computeRawDistance(metric, a.toArray, b.toArray)
+      val dvA = new DenseVector(a.toArray)
+      val dvB = new DenseVector(b.toArray)
+      distFn(dvA, dvB, Vectors.norm(dvB, 2.0))
     })
+  }
 
-  private def createByteDistanceUdf(metric: DistanceMetric.Value): UserDefinedFunction =
+  private def createByteDistanceUdf(metric: DistanceMetric.Value): UserDefinedFunction = {
+    val distFn = resolveDistanceFn(metric)
     udf((a: Seq[Byte], b: Seq[Byte]) => {
       requireSameLength(a.length, b.length)
-      computeRawDistance(metric, a.iterator.map(_.toDouble).toArray, b.iterator.map(_.toDouble).toArray)
+      val dvA = new DenseVector(a.iterator.map(_.toDouble).toArray)
+      val dvB = new DenseVector(b.iterator.map(_.toDouble).toArray)
+      distFn(dvA, dvB, Vectors.norm(dvB, 2.0))
     })
+  }
 
   private def requireSameLength(aLen: Int, bLen: Int): Unit = {
     if (aLen != bLen) {
