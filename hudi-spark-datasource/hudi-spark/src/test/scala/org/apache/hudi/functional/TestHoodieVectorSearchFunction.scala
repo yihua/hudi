@@ -222,6 +222,12 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     val expectedL2Doc4 = math.sqrt(
       math.pow(1.0 - 0.70710678, 2) + math.pow(0.70710678, 2))
     assertEquals(expectedL2Doc4, result(1).getAs[Double]("_hudi_distance"), 1e-4)
+
+    // doc_5: L2 = sqrt((1-0.577)^2 + 0.577^2 + 0.577^2)
+    assertEquals("doc_5", result(2).getAs[String]("id"))
+    val expectedL2Doc5 = math.sqrt(
+      math.pow(1.0 - 0.57735027, 2) + math.pow(0.57735027, 2) + math.pow(0.57735027, 2))
+    assertEquals(expectedL2Doc5, result(2).getAs[Double]("_hudi_distance"), 1e-4)
   }
 
   @Test
@@ -331,9 +337,9 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
          |""".stripMargin
     ).collect()
 
-    // doc_1 (distance ~0) and doc_4 (distance ~0.29) should pass; doc_5 (~0.42) should pass too
+    // doc_1 (distance ~0), doc_4 (distance ~0.29), doc_5 (~0.42) should pass
     // doc_2 and doc_3 have distance = 1.0 and should be filtered out
-    assertTrue(result.length >= 2)
+    assertEquals(3, result.length)
     assertTrue(result.forall(_.getAs[Double]("_hudi_distance") < 0.5))
   }
 
@@ -392,6 +398,12 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     resultsByQuery.foreach { row =>
       assertEquals(2, row.getLong(1))
     }
+
+    // Validate that _hudi_query_index has two distinct values
+    val queryIndexValues = resultDf.select("_hudi_query_index").distinct().collect()
+      .map(_.getLong(0)).sorted
+    assertEquals(2, queryIndexValues.length)
+    assertTrue(queryIndexValues(0) != queryIndexValues(1))
 
     spark.catalog.dropTempView("batch_queries")
   }
@@ -609,14 +621,14 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
 
   @Test
   def testL2DistanceExactValues(): Unit = {
-    // Query [0, 0, 0] with L2 - distance is just the norm of each vector
+    // Query [1, 0, 0] with L2 - distances differ so we can validate ordering
     val result = spark.sql(
       s"""
          |SELECT id, _hudi_distance
          |FROM hudi_vector_search(
          |  '$corpusViewName',
          |  'embedding',
-         |  ARRAY(0.0, 0.0, 0.0),
+         |  ARRAY(1.0, 0.0, 0.0),
          |  5,
          |  'l2'
          |)
@@ -625,14 +637,30 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     ).collect()
 
     assertEquals(5, result.length)
-    val distanceMap = result.map(r => r.getAs[String]("id") -> r.getAs[Double]("_hudi_distance")).toMap
 
-    // All corpus vectors are unit vectors, so L2 from origin = 1.0 for each
-    assertEquals(1.0, distanceMap("doc_1"), 1e-4)
-    assertEquals(1.0, distanceMap("doc_2"), 1e-4)
-    assertEquals(1.0, distanceMap("doc_3"), 1e-4)
-    assertEquals(1.0, distanceMap("doc_4"), 1e-4)
-    assertEquals(1.0, distanceMap("doc_5"), 1e-4)
+    // doc_1 [1,0,0]: L2 = 0.0 (exact match)
+    assertEquals("doc_1", result(0).getAs[String]("id"))
+    assertEquals(0.0, result(0).getAs[Double]("_hudi_distance"), 1e-4)
+
+    // doc_4 [0.707,0.707,0]: L2 = sqrt((1-0.707)^2 + 0.707^2) ~= 0.765
+    assertEquals("doc_4", result(1).getAs[String]("id"))
+    val expectedDoc4 = math.sqrt(math.pow(1.0 - 0.70710678, 2) + math.pow(0.70710678, 2))
+    assertEquals(expectedDoc4, result(1).getAs[Double]("_hudi_distance"), 1e-4)
+
+    // doc_5 [0.577,0.577,0.577]: L2 ~= 0.816
+    assertEquals("doc_5", result(2).getAs[String]("id"))
+    val expectedDoc5 = math.sqrt(
+      math.pow(1.0 - 0.57735027, 2) + math.pow(0.57735027, 2) + math.pow(0.57735027, 2))
+    assertEquals(expectedDoc5, result(2).getAs[Double]("_hudi_distance"), 1e-4)
+
+    // doc_2 [0,1,0] and doc_3 [0,0,1]: L2 = sqrt(2) ~= 1.414
+    assertEquals(math.sqrt(2.0), result(3).getAs[Double]("_hudi_distance"), 1e-4)
+    assertEquals(math.sqrt(2.0), result(4).getAs[Double]("_hudi_distance"), 1e-4)
+
+    // Verify ordering: distances are ascending
+    for (i <- 0 until result.length - 1) {
+      assertTrue(result(i).getAs[Double]("_hudi_distance") <= result(i + 1).getAs[Double]("_hudi_distance"))
+    }
   }
 
   @Test
@@ -1273,7 +1301,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
       ).collect()
     })
     val msg = if (ex.getCause != null) ex.getCause.getMessage else ex.getMessage
-    assertTrue(msg.contains("out of range") || msg.contains("200"),
+    assertTrue(msg.contains("Query vector value 200.0 is out of range for byte corpus"),
       s"Expected out-of-range error, got: $msg")
 
     spark.catalog.dropTempView("byte_range_corpus")
@@ -1458,6 +1486,7 @@ class TestHoodieVectorSearchFunction extends HoodieSparkClientTestBase {
     assertEquals(0.0, result(0).getAs[Double]("_hudi_distance"), 1e-5)
     // NaN vector sorts last in Spark's orderBy (NaN > all other values)
     assertEquals("has_nan", result(1).getAs[String]("id"))
+    assertTrue(result(1).getAs[Double]("_hudi_distance").isNaN)
 
     spark.catalog.dropTempView("nan_corpus")
   }

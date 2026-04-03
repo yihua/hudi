@@ -104,6 +104,22 @@ object HoodieVectorSearchTableValuedFunction {
   }
 }
 
+/**
+ * Unresolved logical plan node for the {@code hudi_vector_search} table-valued function
+ * (single-query mode). Replaced during analysis by the resolved search plan.
+ *
+ * <p><b>Usage (SQL):</b>
+ * {{{
+ *   SELECT * FROM hudi_vector_search('table_name', 'embedding_col', ARRAY(1.0, 2.0, 3.0), 10)
+ *   SELECT * FROM hudi_vector_search('table_name', 'embedding_col', ARRAY(1.0, 2.0, 3.0), 10, 'cosine', 'brute_force')
+ * }}}
+ *
+ * <p><b>Output columns:</b> all corpus columns (minus embedding) + {@code _hudi_distance: Double}.
+ * Results are ordered by distance ascending (lower = more similar), limited to top-k.
+ *
+ * <p><b>Type matching:</b> the corpus embedding column and query vector must have compatible
+ * element types (e.g. both float or both double). Mismatched types produce an error.
+ */
 case class HoodieVectorSearchTableValuedFunction(args: Seq[Expression]) extends LeafNode {
 
   override def output: Seq[Attribute] = Nil
@@ -160,6 +176,21 @@ object HoodieVectorSearchBatchTableValuedFunction {
   }
 }
 
+/**
+ * Unresolved logical plan node for the {@code hudi_vector_search_batch} table-valued function
+ * (batch-query mode). Replaced during analysis by the resolved search plan.
+ *
+ * <p><b>Usage (SQL):</b>
+ * {{{
+ *   SELECT * FROM hudi_vector_search_batch('corpus_table', 'corpus_col', 'query_table', 'query_col', 5)
+ *   SELECT * FROM hudi_vector_search_batch('corpus_table', 'corpus_col', 'query_table', 'query_col', 5, 'cosine')
+ * }}}
+ *
+ * <p><b>Output columns:</b> all corpus columns (minus embedding) + {@code _hudi_distance: Double}
+ * + {@code _hudi_query_index: Long} + query table columns (clashing names prefixed with
+ * {@code _hudi_query_}). Results are partitioned by query and ordered by distance ascending,
+ * top-k per query.
+ */
 case class HoodieVectorSearchBatchTableValuedFunction(args: Seq[Expression]) extends LeafNode {
 
   override def output: Seq[Attribute] = Nil

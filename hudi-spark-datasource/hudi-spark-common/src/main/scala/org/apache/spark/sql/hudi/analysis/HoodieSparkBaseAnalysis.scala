@@ -327,6 +327,12 @@ case class ResolveReferences(spark: SparkSession) extends Rule[LogicalPlan]
       sparkAdapter.getCatalystPlanUtils.unapplyMergeIntoTable(plan)
   }
 
+  /**
+   * Resolves a table identifier to a DataFrame. Accepts either a table name
+   * (including multi-part identifiers like catalog.db.table) or a file path.
+   * A dedicated tablePath argument may be added in a future iteration for
+   * clearer separation.
+   */
   private def resolveTableToDf(tableName: String): DataFrame = {
     try {
       if (tableName.contains(StoragePath.SEPARATOR)) {
@@ -371,16 +377,12 @@ case class ResolveReferences(spark: SparkSession) extends Rule[LogicalPlan]
           s"query vector element type $other not supported, expected numeric array")
     }
 
-    val result = new Array[Double](numElements)
-    var i = 0
-    while (i < numElements) {
+    (0 until numElements).map { i =>
       if (arrayData.isNullAt(i)) throw new HoodieAnalysisException(
         s"Function '${HoodieVectorSearchTableValuedFunction.FUNC_NAME}': " +
           s"query vector element at index $i is null")
-      result(i) = getElement(i)
-      i += 1
-    }
-    result
+      getElement(i)
+    }.toArray
   }
 
 }
