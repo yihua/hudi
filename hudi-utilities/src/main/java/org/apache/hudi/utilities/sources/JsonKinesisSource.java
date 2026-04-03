@@ -20,6 +20,7 @@ package org.apache.hudi.utilities.sources;
 
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.utilities.config.KinesisSourceConfig;
 import org.apache.hudi.utilities.ingestion.HoodieIngestionMetrics;
 import org.apache.hudi.utilities.schema.SchemaProvider;
@@ -235,7 +236,7 @@ public class JsonKinesisSource extends KinesisSource<JavaRDD<String>> {
         return OBJECT_MAPPER.writeValueAsString(node);
       } catch (Exception e) {
         // We can disable the flag for mitigation.
-        throw new RuntimeException("Failed to add metadata fields", e);
+        throw new HoodieException("Failed to add metadata fields", e);
       }
     }
     return dataStr;
