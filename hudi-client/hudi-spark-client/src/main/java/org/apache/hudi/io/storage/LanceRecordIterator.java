@@ -92,11 +92,10 @@ public class LanceRecordIterator implements ClosableIterator<UnsafeRow> {
       return true;
     }
 
-    // Close previous batch before loading next
-    if (currentBatch != null) {
-      currentBatch.close();
-      currentBatch = null;
-    }
+    // Release reference to previous batch (don't close — the underlying
+    // FieldVectors are reused by ArrowReader across loadNextBatch() calls,
+    // and closing would corrupt the cached LanceArrowColumnVector wrappers).
+    currentBatch = null;
 
     // Try to load next batch
     try {
@@ -144,11 +143,11 @@ public class LanceRecordIterator implements ClosableIterator<UnsafeRow> {
     IOException arrowException = null;
     Exception lanceException = null;
 
-    // Close current batch if exists
-    if (currentBatch != null) {
-      currentBatch.close();
-      currentBatch = null;
-    }
+    // Don't close currentBatch here: ColumnarBatch.close() would close the
+    // underlying Arrow FieldVectors through LanceArrowColumnVector, but they
+    // are owned by the ArrowReader (via VectorSchemaRoot) and will be closed
+    // when arrowReader.close() is called below.
+    currentBatch = null;
 
     // Close Arrow reader
     if (arrowReader != null) {
