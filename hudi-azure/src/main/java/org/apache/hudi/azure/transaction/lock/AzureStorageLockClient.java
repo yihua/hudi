@@ -48,7 +48,6 @@ import com.azure.storage.blob.models.BlobErrorCode;
 import com.azure.storage.blob.models.BlobRequestConditions;
 import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.models.BlockBlobItem;
-import com.azure.storage.blob.options.BlobParallelUploadOptions;
 import com.azure.storage.common.policy.RequestRetryOptions;
 import com.azure.storage.common.policy.RetryPolicyType;
 import org.slf4j.Logger;
@@ -206,10 +205,13 @@ public class AzureStorageLockClient implements StorageLockClient {
       requestConditions.setIfMatch(expectedEtag);
     }
 
-    BlobParallelUploadOptions options = new BlobParallelUploadOptions(binaryData)
-        .setRequestConditions(requestConditions);
-
-    Response<BlockBlobItem> response = blobClient.uploadWithResponse(options, null, Context.NONE);
+    // Use BlockBlobClient.uploadWithResponse directly instead of BlobClient.uploadWithResponse
+    // with BlobParallelUploadOptions. The parallel upload path in azure-storage-blob:12.14.0
+    // may not set required headers (x-ms-blob-type) correctly for small payloads.
+    long contentLength = bytes.length;
+    Response<BlockBlobItem> response = blobClient.getBlockBlobClient().uploadWithResponse(
+        binaryData.toStream(), contentLength, null, null, null, null,
+        requestConditions, null, Context.NONE);
     String newEtag = response.getValue().getETag();
 
     return new StorageLockFile(lockData, newEtag);
