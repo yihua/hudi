@@ -554,8 +554,7 @@ public class HoodieSchemaConverter {
 
   /**
    * Converts a Variant schema to Flink's ROW type.
-   * Variant is represented as ROW<`metadata` BYTES, `value` BYTES> in Flink.
-   * // TODO: We are only supporting unshredded for now, support shredded in the future
+   * Variant is represented as ROW<`value` BYTES, `metadata` BYTES> in Flink.
    *
    * @param schema HoodieSchema to convert (must be a VARIANT type)
    * @return DataType representing the Variant as a ROW with binary fields
