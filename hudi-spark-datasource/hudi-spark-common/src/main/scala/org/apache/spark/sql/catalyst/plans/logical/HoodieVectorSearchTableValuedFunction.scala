@@ -48,7 +48,7 @@ object HoodieVectorSearchTableValuedFunction {
   }
 
   case class ParsedArgs(
-    tableName: String,
+    table: String,
     embeddingCol: String,
     queryVectorExpr: Expression,
     k: Int,
@@ -76,7 +76,7 @@ object HoodieVectorSearchTableValuedFunction {
         s"Function '$FUNC_NAME': argument '$argName' must be a string literal, got: ${expr.sql}")
     }
 
-    val tableName = requireStringLiteral(exprs.head, "table")
+    val table = requireStringLiteral(exprs.head, "table")
     val embeddingCol = requireStringLiteral(exprs(1), "embedding_col")
     val queryVectorExpr = exprs(2)
     val k = parseK(FUNC_NAME, exprs(3))
@@ -84,7 +84,7 @@ object HoodieVectorSearchTableValuedFunction {
     else DistanceMetric.COSINE
     val algorithm = if (exprs.size >= 6) SearchAlgorithm.fromString(requireStringLiteral(exprs(5), "algorithm"))
     else SearchAlgorithm.BRUTE_FORCE
-    ParsedArgs(tableName, embeddingCol, queryVectorExpr, k, metric, algorithm)
+    ParsedArgs(table, embeddingCol, queryVectorExpr, k, metric, algorithm)
   }
 
   private[logical] def parseK(funcName: String, expr: Expression): Int = {

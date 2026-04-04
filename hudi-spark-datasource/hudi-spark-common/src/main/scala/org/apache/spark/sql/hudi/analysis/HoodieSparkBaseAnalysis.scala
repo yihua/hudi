@@ -154,7 +154,7 @@ case class ResolveReferences(spark: SparkSession) extends Rule[LogicalPlan]
     case HoodieVectorSearchTableValuedFunction(args) =>
       val a = HoodieVectorSearchTableValuedFunction.parseArgs(args)
       val searchAlgorithm = HoodieVectorSearchPlanBuilder.resolveAlgorithm(a.algorithm)
-      val corpusDf = resolveTableToDf(a.tableName)
+      val corpusDf = resolveTableToDf(a.table)
       val queryVector = evaluateQueryVector(a.queryVectorExpr)
       searchAlgorithm.buildSingleQueryPlan(spark, corpusDf, a.embeddingCol, queryVector, a.k, a.metric)
 
@@ -328,22 +328,19 @@ case class ResolveReferences(spark: SparkSession) extends Rule[LogicalPlan]
   }
 
   /**
-   * Resolves a table identifier to a DataFrame. Accepts either a table name
+   * Resolves a table reference to a DataFrame. Accepts either a table identifier
    * (including multi-part identifiers like catalog.db.table) or a file path.
-   * A dedicated tablePath argument may be added in a future iteration for
-   * clearer separation.
    */
-  private def resolveTableToDf(tableName: String): DataFrame = {
+  private def resolveTableToDf(table: String): DataFrame = {
     try {
-      if (tableName.contains(StoragePath.SEPARATOR)) {
-        spark.read.format("hudi").load(tableName)
+      if (table.contains(StoragePath.SEPARATOR)) {
+        spark.read.format("hudi").load(table)
       } else {
-        // spark.table() supports multi-part identifiers (e.g. catalog.db.table)
-        spark.table(tableName)
+        spark.table(table)
       }
     } catch {
       case e: Exception => throw new HoodieAnalysisException(
-        s"hudi_vector_search: unable to resolve table '$tableName': ${e.getMessage}")
+        s"hudi_vector_search: unable to resolve table '$table': ${e.getMessage}")
     }
   }
 
