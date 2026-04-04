@@ -21,6 +21,7 @@ package org.apache.hudi.source.reader;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.source.split.HoodieSourceSplit;
 
+import org.apache.flink.api.common.eventtime.Watermark;
 import org.apache.flink.api.connector.source.SourceOutput;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,7 +32,9 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -194,6 +197,51 @@ public class TestHoodieRecordEmitter {
     assertEquals(0L, mockSplit.getConsumed());
 
     verify(mockOutput, times(6)).collect(org.mockito.ArgumentMatchers.anyString());
+  }
+
+  // -------------------------------------------------------------------------
+  // Watermark tests
+  // -------------------------------------------------------------------------
+
+  @Test
+  public void testWatermarkEmittedForLastRecordInSplit() throws Exception {
+    // "19700101000000000" parses to epoch 0 ms in the local timezone of the JVM;
+    // we only verify that emitWatermark was invoked exactly once.
+    HoodieRecordWithPosition<String> lastRecord = new HoodieRecordWithPosition<>("last", 0, 1L);
+    lastRecord.setLastInSplit(true);
+
+    emitter.emitRecord(lastRecord, mockOutput, mockSplit);
+
+    ArgumentCaptor<Watermark> watermarkCaptor = ArgumentCaptor.forClass(Watermark.class);
+    verify(mockOutput, times(1)).emitWatermark(watermarkCaptor.capture());
+    // The watermark must be non-null and captured exactly once.
+    assertFalse(watermarkCaptor.getAllValues().isEmpty());
+  }
+
+  @Test
+  public void testNoWatermarkEmittedForNonLastRecord() throws Exception {
+    HoodieRecordWithPosition<String> record = new HoodieRecordWithPosition<>("mid", 0, 0L);
+    // lastInSplit defaults to false
+
+    emitter.emitRecord(record, mockOutput, mockSplit);
+
+    verify(mockOutput, never()).emitWatermark(org.mockito.ArgumentMatchers.any());
+  }
+
+  @Test
+  public void testWatermarkEmittedOnlyForLastOfMultipleRecords() throws Exception {
+    HoodieRecordWithPosition<String> r1 = new HoodieRecordWithPosition<>("r1", 0, 0L);
+    HoodieRecordWithPosition<String> r2 = new HoodieRecordWithPosition<>("r2", 0, 1L);
+    HoodieRecordWithPosition<String> r3 = new HoodieRecordWithPosition<>("r3", 0, 2L);
+    r3.setLastInSplit(true);
+
+    emitter.emitRecord(r1, mockOutput, mockSplit);
+    emitter.emitRecord(r2, mockOutput, mockSplit);
+    emitter.emitRecord(r3, mockOutput, mockSplit);
+
+    // Three records collected, but watermark emitted only once (for r3).
+    verify(mockOutput, times(3)).collect(org.mockito.ArgumentMatchers.anyString());
+    verify(mockOutput, times(1)).emitWatermark(org.mockito.ArgumentMatchers.any(Watermark.class));
   }
 
   /**

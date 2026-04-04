@@ -345,6 +345,94 @@ public class TestBatchRecords {
   }
 
   /**
+   * Verifies that BatchRecords correctly handles iterators that pre-fetch the next element
+   * inside hasNext() (like the CDC AddBaseFileIterator).  The bug was that
+   * nextRecordFromSplit() called hasNext() twice between consecutive next() calls — once
+   * for the outer guard and once for setLastInSplit — causing every other record to be
+   * skipped when hasNext() has side-effects.
+   */
+  @Test
+  public void testAllRecordsReturnedWithPrefetchingIterator() {
+    String splitId = "test-split-prefetch";
+    List<String> records = Arrays.asList("a", "b", "c", "d");
+    // Iterator that pre-fetches the next element inside hasNext(), mirroring
+    // CdcIterators.AddBaseFileIterator behaviour.
+    ClosableIterator<String> prefetchingIterator = new PrefetchingClosableIterator<>(records);
+
+    BatchRecords<String> batchRecords = BatchRecords.forRecords(splitId, prefetchingIterator, 0, 0L);
+    batchRecords.nextSplit();
+
+    List<String> collected = new java.util.ArrayList<>();
+    HoodieRecordWithPosition<String> r;
+    while ((r = batchRecords.nextRecordFromSplit()) != null) {
+      collected.add(r.record());
+    }
+
+    assertEquals(records, collected, "All records must be returned without skipping");
+  }
+
+  @Test
+  public void testLastInSplitFlagWithPrefetchingIterator() {
+    String splitId = "test-split-prefetch-last";
+    List<String> records = Arrays.asList("x", "y");
+    ClosableIterator<String> prefetchingIterator = new PrefetchingClosableIterator<>(records);
+
+    BatchRecords<String> batchRecords = BatchRecords.forRecords(splitId, prefetchingIterator, 0, 0L);
+    batchRecords.nextSplit();
+
+    HoodieRecordWithPosition<String> first = batchRecords.nextRecordFromSplit();
+    assertNotNull(first);
+    assertEquals("x", first.record());
+    assertEquals(false, first.isLastInSplit(), "First record must NOT be marked as last");
+
+    HoodieRecordWithPosition<String> last = batchRecords.nextRecordFromSplit();
+    assertNotNull(last);
+    assertEquals("y", last.record());
+    assertEquals(true, last.isLastInSplit(), "Second (last) record MUST be marked as last");
+
+    assertNull(batchRecords.nextRecordFromSplit(), "No more records expected");
+  }
+
+  /**
+   * A ClosableIterator that pre-fetches the next element inside hasNext(), mimicking
+   * the behaviour of CdcIterators.AddBaseFileIterator.
+   */
+  private static class PrefetchingClosableIterator<T> implements ClosableIterator<T> {
+    private final Iterator<T> delegate;
+    private T prefetched;
+    private boolean hasPrefetched;
+
+    PrefetchingClosableIterator(List<T> items) {
+      this.delegate = items.iterator();
+    }
+
+    @Override
+    public boolean hasNext() {
+      if (delegate.hasNext()) {
+        prefetched = delegate.next(); // pre-fetch side-effect
+        hasPrefetched = true;
+        return true;
+      }
+      hasPrefetched = false;
+      return false;
+    }
+
+    @Override
+    public T next() {
+      if (!hasPrefetched) {
+        throw new java.util.NoSuchElementException();
+      }
+      hasPrefetched = false;
+      return prefetched;
+    }
+
+    @Override
+    public void close() {
+      // no-op
+    }
+  }
+
+  /**
    * Mock closable iterator for testing close behavior.
    */
   private static class MockClosableIterator<T> implements ClosableIterator<T> {

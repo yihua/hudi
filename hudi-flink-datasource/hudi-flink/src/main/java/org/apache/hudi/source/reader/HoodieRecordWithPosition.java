@@ -27,6 +27,8 @@ public class HoodieRecordWithPosition<T> {
   private T record;
   private int fileOffset;
   private long recordOffset;
+  /** True for the final record in a split; triggers watermark emission in the emitter. */
+  private boolean lastInSplit;
 
   public HoodieRecordWithPosition(T record, int fileOffset, long recordOffset) {
     this.record = record;
@@ -59,10 +61,19 @@ public class HoodieRecordWithPosition<T> {
     this.recordOffset = newRecordOffset;
   }
 
+  public boolean isLastInSplit() {
+    return lastInSplit;
+  }
+
+  public void setLastInSplit(boolean lastInSplit) {
+    this.lastInSplit = lastInSplit;
+  }
+
   /** Sets the next record of a sequence. This increments the {@code recordOffset} by one. */
   public void record(T nextRecord) {
     this.record = nextRecord;
     this.recordOffset++;
+    this.lastInSplit = false;
   }
 
   @Override
