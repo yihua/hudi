@@ -136,7 +136,7 @@ public abstract class KinesisSource<T> extends Source<T> {
     private final KinesisClient client;
     private final String shardId;
     private final int maxRecordsPerRequest;
-    private final long intervalMs;
+    private final long requestIntervalMs;
     private final long maxTotalRecords;
     private final boolean enableDeaggregation;
     private final long retryInitialIntervalMs;
@@ -169,13 +169,13 @@ public abstract class KinesisSource<T> extends Source<T> {
     private long lastSuccessTimeMs;
 
     public ShardRecordIterator(String initialShardIterator, KinesisClient client, String shardId,
-        int maxRecordsPerRequest, long intervalMs, long maxTotalRecords, boolean enableDeaggregation,
-        long retryInitialIntervalMs, long retryMaxIntervalMs, long throttleTimeoutMs) {
+                               int maxRecordsPerRequest, long requestIntervalMs, long maxTotalRecords, boolean enableDeaggregation,
+                               long retryInitialIntervalMs, long retryMaxIntervalMs, long throttleTimeoutMs) {
       this.shardIteratorStr = initialShardIterator;
       this.client = client;
       this.shardId = shardId;
       this.maxRecordsPerRequest = maxRecordsPerRequest;
-      this.intervalMs = intervalMs;
+      this.requestIntervalMs = requestIntervalMs;
       this.maxTotalRecords = maxTotalRecords;
       this.enableDeaggregation = enableDeaggregation;
       this.retryInitialIntervalMs = retryInitialIntervalMs;
@@ -299,9 +299,9 @@ public abstract class KinesisSource<T> extends Source<T> {
       }
 
       // Rate-limit only when we will fetch another page.
-      if (!fetchingDone && intervalMs > 0) {
+      if (!fetchingDone && requestIntervalMs > 0) {
         try {
-          Thread.sleep(intervalMs);
+          Thread.sleep(requestIntervalMs);
         } catch (InterruptedException e) {
           Thread.currentThread().interrupt();
           fetchingDone = true;
@@ -326,8 +326,8 @@ public abstract class KinesisSource<T> extends Source<T> {
       boolean enableDeaggregation,
       long retryInitialIntervalMs, long retryMaxIntervalMs, long throttleTimeoutMs) {
     try {
-      String initialShardIterator = getShardIterator(client, streamName, range, defaultPosition);
-      return new ShardRecordIterator(initialShardIterator, client, range.getShardId(),
+      String initialCursor = getCurrentCursor(client, streamName, range, defaultPosition);
+      return new ShardRecordIterator(initialCursor, client, range.getShardId(),
           maxRecordsPerRequest, intervalMs, maxTotalRecords, enableDeaggregation,
           retryInitialIntervalMs, retryMaxIntervalMs, throttleTimeoutMs);
     } catch (InvalidArgumentException e) {
@@ -338,8 +338,9 @@ public abstract class KinesisSource<T> extends Source<T> {
     }
   }
 
-  private static String getShardIterator(KinesisClient client, String streamName,
-      KinesisOffsetGen.KinesisShardRange range, KinesisSourceConfig.KinesisStartingPositionStrategy defaultPosition) {
+  private static String getCurrentCursor(KinesisClient client, String streamName,
+                                         KinesisOffsetGen.KinesisShardRange range,
+                                         KinesisSourceConfig.KinesisStartingPositionStrategy defaultPosition) {
     GetShardIteratorRequest.Builder builder = GetShardIteratorRequest.builder()
         .streamName(streamName)
         .shardId(range.getShardId());
