@@ -131,10 +131,19 @@ private[sql] class AvroDeserializer(rootAvroType: Schema,
         updater.setBoolean(ordinal, value.asInstanceOf[Boolean])
 
       case (INT, IntegerType) => (updater, ordinal, value) =>
-        updater.setInt(ordinal, value.asInstanceOf[Int])
+        value match {
+          case localDate: java.time.LocalDate =>
+            updater.setInt(ordinal, localDate.toEpochDay.toInt)
+          case _ =>
+            updater.setInt(ordinal, value.asInstanceOf[Int])
+        }
 
       case (INT, DateType) => (updater, ordinal, value) =>
-        updater.setInt(ordinal, dateRebaseFunc(value.asInstanceOf[Int]))
+        val days = value match {
+          case localDate: java.time.LocalDate => localDate.toEpochDay.toInt
+          case _ => value.asInstanceOf[Int]
+        }
+        updater.setInt(ordinal, dateRebaseFunc(days))
 
       case (LONG, LongType) => (updater, ordinal, value) =>
         updater.setLong(ordinal, value.asInstanceOf[Long])
