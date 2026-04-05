@@ -119,7 +119,7 @@ object HoodieVectorSearchPlanBuilder {
   }
 
   private[analysis] def validateEmbeddingColumn(df: DataFrame, colName: String): Unit = {
-    val fieldOpt = df.schema.fields.find(_.name == colName)
+    val fieldOpt = df.schema.fields.find(_.name.equalsIgnoreCase(colName))
     val field = fieldOpt.getOrElse(
       throw new HoodieAnalysisException(
         s"Embedding column '$colName' not found in table schema. " +
@@ -187,7 +187,11 @@ object HoodieVectorSearchPlanBuilder {
   }
 
   private[analysis] def getElementType(df: DataFrame, colName: String): DataType = {
-    df.schema(colName).dataType match {
+    val field = df.schema.fields.find(_.name.equalsIgnoreCase(colName)).getOrElse(
+      throw new HoodieAnalysisException(
+        s"Embedding column '$colName' not found in table schema. " +
+          s"Available columns: ${df.schema.fieldNames.mkString(", ")}"))
+    field.dataType match {
       case ArrayType(elemType, _) => elemType
       case other =>
         throw new HoodieAnalysisException(
@@ -197,7 +201,7 @@ object HoodieVectorSearchPlanBuilder {
 
   /** Extracts VECTOR(dim) dimension from column metadata, if present. */
   private def extractVectorDimension(df: DataFrame, colName: String): Option[Int] = {
-    df.schema.fields.find(_.name == colName).flatMap { field =>
+    df.schema.fields.find(_.name.equalsIgnoreCase(colName)).flatMap { field =>
       val meta = field.metadata
       if (meta.contains(HoodieSchema.TYPE_METADATA_FIELD)) {
         val typeDesc = meta.getString(HoodieSchema.TYPE_METADATA_FIELD)

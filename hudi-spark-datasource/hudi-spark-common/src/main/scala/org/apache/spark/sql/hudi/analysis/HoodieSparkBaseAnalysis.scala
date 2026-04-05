@@ -154,15 +154,15 @@ case class ResolveReferences(spark: SparkSession) extends Rule[LogicalPlan]
     case HoodieVectorSearchTableValuedFunction(args) =>
       val a = HoodieVectorSearchTableValuedFunction.parseArgs(args)
       val searchAlgorithm = HoodieVectorSearchPlanBuilder.resolveAlgorithm(a.algorithm)
-      val corpusDf = resolveTableToDf(a.table)
+      val corpusDf = resolveTableToDf(a.table, HoodieVectorSearchTableValuedFunction.FUNC_NAME)
       val queryVector = evaluateQueryVector(a.queryVectorExpr)
       searchAlgorithm.buildSingleQueryPlan(spark, corpusDf, a.embeddingCol, queryVector, a.k, a.metric)
 
     case HoodieVectorSearchBatchTableValuedFunction(args) =>
       val a = HoodieVectorSearchBatchTableValuedFunction.parseArgs(args)
       val searchAlgorithm = HoodieVectorSearchPlanBuilder.resolveAlgorithm(a.algorithm)
-      val corpusDf = resolveTableToDf(a.corpusTable)
-      val queryDf = resolveTableToDf(a.queryTable)
+      val corpusDf = resolveTableToDf(a.corpusTable, HoodieVectorSearchBatchTableValuedFunction.FUNC_NAME)
+      val queryDf = resolveTableToDf(a.queryTable, HoodieVectorSearchBatchTableValuedFunction.FUNC_NAME)
       searchAlgorithm.buildBatchQueryPlan(
         spark, corpusDf, a.corpusEmbeddingCol, queryDf, a.queryEmbeddingCol, a.k, a.metric)
 
@@ -331,7 +331,7 @@ case class ResolveReferences(spark: SparkSession) extends Rule[LogicalPlan]
    * Resolves a table reference to a DataFrame. Accepts either a table identifier
    * (including multi-part identifiers like catalog.db.table) or a file path.
    */
-  private def resolveTableToDf(table: String): DataFrame = {
+  private def resolveTableToDf(table: String, funcName: String): DataFrame = {
     try {
       if (table.contains(StoragePath.SEPARATOR)) {
         spark.read.format("hudi").load(table)
@@ -340,7 +340,7 @@ case class ResolveReferences(spark: SparkSession) extends Rule[LogicalPlan]
       }
     } catch {
       case e: Exception => throw new HoodieAnalysisException(
-        s"hudi_vector_search: unable to resolve table '$table': ${e.getMessage}")
+        s"$funcName: unable to resolve table '$table': ${e.getMessage}")
     }
   }
 
@@ -350,6 +350,13 @@ case class ResolveReferences(spark: SparkSession) extends Rule[LogicalPlan]
         s"Function '${HoodieVectorSearchTableValuedFunction.FUNC_NAME}': " +
           "query vector must be a constant expression (e.g., ARRAY(1.0, 2.0, 3.0))")
     }
+    expr.dataType match {
+      case _: ArrayType => // valid
+      case other => throw new HoodieAnalysisException(
+        s"Function '${HoodieVectorSearchTableValuedFunction.FUNC_NAME}': " +
+          s"query vector must be an array type (e.g., ARRAY(1.0, 2.0, 3.0)), got $other")
+    }
+
     val value = expr.eval(null)
     if (value == null) {
       throw new HoodieAnalysisException(

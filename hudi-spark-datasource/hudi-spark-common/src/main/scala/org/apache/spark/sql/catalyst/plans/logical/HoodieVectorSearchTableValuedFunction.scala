@@ -89,6 +89,10 @@ object HoodieVectorSearchTableValuedFunction {
 
   private[logical] def parseK(funcName: String, expr: Expression): Int = {
     val rawValue = expr.eval()
+    if (rawValue == null) {
+      throw new HoodieAnalysisException(
+        s"Function '$funcName': k must be a positive integer, got null")
+    }
     val kValue = try {
       rawValue.toString.toInt
     } catch {
