@@ -58,8 +58,8 @@ public class HoodieLanceRealtimeInputFormat extends HoodieMergeOnReadTableInputF
     // Hive on Spark invokes multiple getRecordReaders from different threads in the same spark task (and hence the
     // same JVM) unlike Hive on MR. Due to this, accesses to JobConf, which is shared across all threads, is at the
     // risk of experiencing race conditions. Hence, we synchronize on the JobConf object here. There is negligible
-    // latency incurred here due to the synchronization since get record reader is called once per spilt before the
-    // actual heavy lifting of reading the parquet files happen.
+    // latency incurred here due to the synchronization since get record reader is called once per split before the
+    // actual heavy lifting of reading the Lance files happen.
     if (jobConf.get(HoodieInputFormatUtils.HOODIE_READ_COLUMNS_PROP) == null) {
       synchronized (jobConf) {
         LOG.info(
