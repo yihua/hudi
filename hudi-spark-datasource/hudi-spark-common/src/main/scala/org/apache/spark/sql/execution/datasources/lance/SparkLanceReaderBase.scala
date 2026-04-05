@@ -27,6 +27,8 @@ import org.apache.hudi.io.memory.HoodieArrowAllocator
 import org.apache.hudi.io.storage.{HoodieSparkLanceReader, LanceBatchIterator, LanceRecordIterator}
 import org.apache.hudi.storage.StorageConfiguration
 
+import org.apache.arrow.memory.BufferAllocator
+import org.apache.arrow.vector.FieldVector
 import org.apache.arrow.vector.ipc.ArrowReader
 import org.apache.hadoop.conf.Configuration
 import org.apache.parquet.schema.MessageType
@@ -55,6 +57,9 @@ import scala.collection.JavaConverters._
  *                               when false, returns InternalRow one by one
  */
 class SparkLanceReaderBase(enableVectorizedReader: Boolean) extends SparkColumnarFileReader {
+
+  /** Holds a pre-created all-null Arrow vector for a column missing from the file (schema evolution). */
+  private case class NullColumnEntry(colIndex: Int, columnVector: LanceArrowColumnVector, arrowVector: FieldVector)
 
   // Batch size for reading Lance files (number of rows per batch)
   private val DEFAULT_BATCH_SIZE = 512
@@ -88,9 +93,11 @@ class SparkLanceReaderBase(enableVectorizedReader: Boolean) extends SparkColumna
       val allocator = HoodieArrowAllocator.newChildAllocator(getClass.getSimpleName + "-data-" + filePath,
         HoodieSparkLanceReader.LANCE_DATA_ALLOCATOR_SIZE);
 
+      var lanceReader: LanceFileReader = null
+      var arrowReader: ArrowReader = null
       try {
         // Open Lance file reader
-        val lanceReader = LanceFileReader.open(filePath, allocator)
+        lanceReader = LanceFileReader.open(filePath, allocator)
 
         // Get schema from Lance file
         val arrowSchema = lanceReader.schema()
@@ -111,7 +118,7 @@ class SparkLanceReaderBase(enableVectorizedReader: Boolean) extends SparkColumna
         }
 
         // Read data with column projection (filters not supported yet)
-        val arrowReader = lanceReader.readAll(columnNames, null, DEFAULT_BATCH_SIZE)
+        arrowReader = lanceReader.readAll(columnNames, null, DEFAULT_BATCH_SIZE)
 
         // Decide between batch mode and row mode.
         // Fall back to row mode if type casting is needed (batch-level type casting deferred to follow-up).
@@ -126,7 +133,10 @@ class SparkLanceReaderBase(enableVectorizedReader: Boolean) extends SparkColumna
 
       } catch {
         case e: Exception =>
-          allocator.close()
+          // Close all resources that may have been opened, in reverse order.
+          try { if (arrowReader != null) arrowReader.close() } catch { case s: Exception => e.addSuppressed(s) }
+          try { if (lanceReader != null) lanceReader.close() } catch { case s: Exception => e.addSuppressed(s) }
+          try { allocator.close() } catch { case s: Exception => e.addSuppressed(s) }
           throw new IOException(s"Failed to read Lance file: $filePath", e)
       }
     }
@@ -137,7 +147,7 @@ class SparkLanceReaderBase(enableVectorizedReader: Boolean) extends SparkColumna
    * Used when enableVectorizedReader=true and no type casting is needed.
    */
   private def readBatch(file: PartitionedFile,
-                        allocator: org.apache.arrow.memory.BufferAllocator,
+                        allocator: BufferAllocator,
                         lanceReader: LanceFileReader,
                         arrowReader: ArrowReader,
                         filePath: String,
@@ -156,24 +166,24 @@ class SparkLanceReaderBase(enableVectorizedReader: Boolean) extends SparkColumna
     // Create Arrow-backed null vectors for columns missing from the file.
     // Uses LanceArrowColumnVector so that Spark's vectorTypes() contract is satisfied
     // (FileSourceScanExec expects all data columns to be LanceArrowColumnVector).
-    val nullAllocator = if (columnMapping.contains(-1)) {
-      HoodieArrowAllocator.newChildAllocator(
-        getClass.getSimpleName + "-null-" + filePath, HoodieSparkLanceReader.LANCE_DATA_ALLOCATOR_SIZE)
-    } else null
+    val nullAllocator: Option[BufferAllocator] = if (columnMapping.contains(-1)) {
+      Some(HoodieArrowAllocator.newChildAllocator(
+        getClass.getSimpleName + "-null-" + filePath, HoodieSparkLanceReader.LANCE_DATA_ALLOCATOR_SIZE))
+    } else None
 
-    val nullColumnVectors: Array[(Int, LanceArrowColumnVector, org.apache.arrow.vector.FieldVector)] =
-      if (nullAllocator != null) {
+    // Arrow vectors auto-reallocate on setValueCount (see BaseFixedWidthVector.setValueCount),
+    // so it is safe to call setValueCount with a count larger than DEFAULT_BATCH_SIZE.
+    val nullColumnVectors: Array[NullColumnEntry] =
+      nullAllocator.map { alloc =>
         columnMapping.zipWithIndex.filter(_._1 < 0).map { case (_, idx) =>
           val field = LanceArrowUtils.toArrowField(
             requiredSchema(idx).name, requiredSchema(idx).dataType, requiredSchema(idx).nullable, "UTC")
-          val arrowVector = field.createVector(nullAllocator)
+          val arrowVector = field.createVector(alloc)
           arrowVector.allocateNew()
           arrowVector.setValueCount(DEFAULT_BATCH_SIZE)
-          (idx, new LanceArrowColumnVector(arrowVector), arrowVector)
+          NullColumnEntry(idx, new LanceArrowColumnVector(arrowVector), arrowVector)
         }
-      } else {
-        Array.empty
-      }
+      }.getOrElse(Array.empty)
 
     // Pre-create partition column vectors (reused across batches, reset per batch)
     val hasPartitionColumns = partitionSchema.length > 0
@@ -208,12 +218,13 @@ class SparkLanceReaderBase(enableVectorizedReader: Boolean) extends SparkColumna
             vectors(i) = sourceBatch.column(columnMapping(i))
           } else {
             // Find the pre-created null vector for this index
-            val entry = nullColumnVectors.find(_._1 == i).get
+            val entry = nullColumnVectors.find(_.colIndex == i)
+              .getOrElse(throw new IllegalStateException(s"No null vector pre-created for column index $i"))
             // Adjust valueCount if batch size differs from allocated size
-            if (numRows != entry._3.getValueCount) {
-              entry._3.setValueCount(numRows)
+            if (numRows != entry.arrowVector.getValueCount) {
+              entry.arrowVector.setValueCount(numRows)
             }
-            vectors(i) = entry._2
+            vectors(i) = entry.columnVector
           }
           i += 1
         }
@@ -238,10 +249,8 @@ class SparkLanceReaderBase(enableVectorizedReader: Boolean) extends SparkColumna
 
       override def close(): Unit = {
         // Close null Arrow vectors and their allocator before batchIterator (which closes the data allocator)
-        nullColumnVectors.foreach { case (_, columnVector, _) =>
-          columnVector.close()
-        }
-        if (nullAllocator != null) nullAllocator.close()
+        nullColumnVectors.foreach(_.columnVector.close())
+        nullAllocator.foreach(_.close())
         batchIterator.close()
         partitionVectors.foreach(_.close())
       }
@@ -259,7 +268,7 @@ class SparkLanceReaderBase(enableVectorizedReader: Boolean) extends SparkColumna
    * Row-based reading path (original implementation). Returns Iterator[InternalRow].
    */
   private def readRows(file: PartitionedFile,
-                       allocator: org.apache.arrow.memory.BufferAllocator,
+                       allocator: BufferAllocator,
                        lanceReader: LanceFileReader,
                        arrowReader: ArrowReader,
                        filePath: String,
