@@ -47,6 +47,7 @@ import org.apache.spark.sql.hudi.{HoodieMemoryStream, SparkAdapter}
 import org.apache.spark.sql.hudi.analysis.TableValuedFunctions
 import org.apache.spark.sql.internal.{LegacyBehaviorPolicy, SQLConf}
 import org.apache.spark.sql.parser.{HoodieExtendedParserInterface, HoodieSpark4_1ExtendedSqlParser}
+import org.apache.spark.sql.execution.datasources.VariantMetadata
 import org.apache.spark.sql.types.{DataType, DataTypes, Metadata, MetadataBuilder, StructType}
 import org.apache.spark.sql.vectorized.ColumnarBatchRow
 import org.apache.spark.storage.StorageLevel
@@ -101,6 +102,8 @@ class Spark4_1Adapter extends BaseSpark4Adapter {
                                  stop: Origin): ParseException = {
     new ParseException(command, start, exception.getErrorClass, exception.getMessageParameters.asScala.toMap)
   }
+
+  override def isPushDownVariantStruct(dataType: DataType): Boolean = VariantMetadata.isVariantStruct(dataType)
 
   override def createAvroSerializer(rootCatalystType: DataType, rootType: HoodieSchema, nullable: Boolean): HoodieAvroSerializer =
     new HoodieSpark4_1AvroSerializer(rootCatalystType, rootType.toAvroSchema, nullable)
