@@ -257,16 +257,17 @@ HoodieBatchScan -> ...
 
 All new classes go into package `org.apache.spark.sql.hudi.v2` inside `hudi-spark-common`.
 
-| Class | Spark Interface | Responsibility |
-|-------|-----------------|----------------|
-| `HoodieDataSourceV2` | `TableProvider`, `DataSourceRegister`, `CreatableRelationProvider` | SPI entry point for `format("hudi_v2")`. `CreatableRelationProvider` enables DataFrame API writes via `df.write.format("hudi_v2")`. |
-| `HoodieSparkV2Table` | `Table`, `SupportsRead`, `SupportsWrite`, `V2TableWithV1Fallback` | Routes reads to DSv2, writes to DSv1 fallback via `HoodieV1WriteBuilder`. |
-| `HoodieScanBuilder` | `ScanBuilder`, `SupportsPushDownFilters`, `SupportsPushDownRequiredColumns` | Collects filter and column pruning pushdowns. |
-| `HoodieBatchScan` | `Scan`, `Batch` | Plans input partitions using existing `HoodieFileIndex`. |
-| `HoodieInputPartition` | `InputPartition` | Serializable descriptor for file slices. |
-| `HoodiePartitionReaderFactory` | `PartitionReaderFactory` | Creates readers on executors. |
-| `HoodiePartitionReader` | `PartitionReader[InternalRow]` | Delegates to existing file-reading code from `HoodieBaseRelation`. |
-| `HoodieV1WriteBuilder` (reused) | `SupportsTruncate`, `SupportsOverwrite`, `ProvidesHoodieConfig` | Existing V1 write fallback builder from `HoodieInternalV2Table`, reused by `HoodieSparkV2Table`. |
+| Class                           | Spark Interface                                                                                                                   | Responsibility                                                                                                                                                                                                                                                                     |
+|---------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `HoodieDataSourceV2`            | `TableProvider`, `DataSourceRegister`, `CreatableRelationProvider`                                                                | SPI entry point for `format("hudi_v2")`. `CreatableRelationProvider` enables DataFrame API writes via `df.write.format("hudi_v2")`.                                                                                                                                                |
+| `HoodieSparkV2Table`            | `Table`, `SupportsRead`, `SupportsWrite`, `V2TableWithV1Fallback`                                                                 | Routes reads to DSv2, writes to DSv1 fallback via `HoodieV1WriteBuilder`.                                                                                                                                                                                                          |
+| `HoodieScanBuilder`             | `ScanBuilder`, `SupportsPushDownFilters`, `SupportsPushDownRequiredColumns`, `PartialLimitPushDown`, `SupportsPushDownAggregates` | Collects filter, column pruning, limit, and aggregate pushdowns.                                                                                                                                                                                                                   |
+| `HoodieBatchScan`               | `Scan`, `Batch`                                                                                                                   | Plans input partitions using existing `HoodieFileIndex`.                                                                                                                                                                                                                           |
+| `HoodieInputPartition`          | `InputPartition`                                                                                                                  | Serializable descriptor for file slices.                                                                                                                                                                                                                                           |
+| `HoodiePartitionReaderFactory`  | `PartitionReaderFactory`                                                                                                          | Creates readers on executors. Overrides `supportColumnarReads()` and `createColumnarReader()` for COW vectorized reads.                                                                                                                                                            |
+| `HoodiePartitionReader`         | `PartitionReader[InternalRow]`                                                                                                    | Row-based reader for MOR, incremental, CDC, and COW fallback (unsupported schema).                                                                                                                                                                                                 |
+| `HoodieColumnarPartitionReader` | `PartitionReader[ColumnarBatch]`                                                                                                  | Columnar reader for COW base files. Returns vectorized Parquet batches directly to Spark.                                                                                                                                                                                          |
+| `HoodieV1WriteBuilder` (reused) | `SupportsTruncate`, `SupportsOverwrite`, `ProvidesHoodieConfig`                                                                   | Existing V1 write fallback builder, defined as `private[hudi]` in `HoodieInternalV2Table.scala`. `HoodieSparkV2Table` directly instantiates it (sibling class, not a subclass of `HoodieInternalV2Table`). `HoodieInternalV2Table` is retained for the schema-evolution code path. |
 
 ### Table services
 
@@ -275,13 +276,17 @@ They operate via the write client and are triggered independently of the read pa
 
 ### Implementation phases
 
+The phases below describe the logical design ordering. 
+In practice, `HoodieScanBuilder` declares all pushdown interfaces from the outset with working implementations, and the PRs may ship multiple phases together.
+
 1. **Coexistence POC.** All new classes return empty read results, SPI registration, reuse of `HoodieV1WriteBuilder` for V1 write fallback, `hoodie.datasource.read.use.v2` config, 
 `HoodieV1OrV2Table` extractor update in `HoodieSparkBaseAnalysis` to recognize `HoodieSparkV2Table` for DDL operations.
 2. **COW snapshot read.** Wire `HoodieBatchScan.planInputPartitions()` to `HoodieFileIndex`, implement base file reading in `HoodiePartitionReader`. Column pruning support.
 3. **Filter pushdown.** Implement `HoodieScanBuilder.pushFilters()` for partition pruning and data skipping via `HoodieFileIndex`.
-4. **MOR snapshot read.** Extend `HoodiePartitionReader` with base + log merge logic, reusing `HoodieFileGroupReader`.
-5. **Incremental and CDC queries.** Route based on query type option in `HoodieScanBuilder`.
-6. **Advanced pushdowns.** `SupportsPushDownAggregates`, `SupportsPushDownLimit`, `SupportsPushDownTopN`.
+4. **Vectorized COW reads.** Enable columnar batch output for COW snapshot reads to match V1 performance.
+5. **MOR snapshot read.** Extend `HoodiePartitionReader` with base + log merge logic, reusing `HoodieFileGroupReader`.
+6. **Incremental and CDC queries.** Route based on query type option in `HoodieScanBuilder`.
+7. **Advanced pushdowns.** `SupportsPushDownAggregates`, `SupportsPushDownLimit`, `SupportsPushDownTopN`.
 
 ## Rollout/Adoption Plan
 
@@ -290,12 +295,29 @@ They operate via the write client and are triggered independently of the read pa
 - For SQL queries, users set `hoodie.datasource.read.use.v2=true` to route reads through DSv2.
 - Rollback: switch back to `format("hudi")` or set the config to `false`.
 
+### Config interaction: `hoodie.datasource.read.use.v2` vs `hoodie.schema.on.read.enable`
+
+In `HoodieCatalog.loadTable()`, `v2ReadEnabled` is evaluated first and takes strict precedence:
+
+| `hoodie.datasource.read.use.v2` | `hoodie.schema.on.read.enable` | Table returned                                           |
+|---------------------------------|--------------------------------|----------------------------------------------------------|
+| `true` (Spark ≥ 3.5)            | any                            | `HoodieSparkV2Table` (DSv2 read)                         |
+| `false`                         | `true`                         | `HoodieInternalV2Table` (existing schema-evolution path) |
+| `false`                         | `false`                        | `V1Table` wrapper (existing default)                     |
+
+The two configs are independent. When both are `true`, `v2ReadEnabled` wins.
+
 ## Test Plan
 
 - Verify that `EXPLAIN` plans show `BatchScanExec` (DSv2) instead of `FileSourceScanExec` (DSv1) when DSv2 is enabled.
 - Existing unit and functional tests must pass unchanged (no regressions in DSv1 path).
 - New tests for DSv2 read path: COW snapshot, MOR snapshot, filter pushdown, column pruning.
 - TPC-H benchmark to compare DSv1 vs DSv2 read performance at each implementation phase.
+  Success criteria:
+    - DSv2 COW snapshot full data read should show no regression versus DSv1.
+    - DSv2 COW snapshot read with projections and filter pushdowns should show 10% faster wall-clock time.
+    - DSv2 COW snapshot read with limit and aggregate pushdowns should show 20% faster wall-clock time.
+    - MOR benchmarks should show no regression versus DSv1's row-based MOR path.
 
 ## Future Work
 
@@ -306,3 +328,14 @@ They operate via the write client and are triggered independently of the read pa
 4. Switch format short names: `hudi_v2` -> `hudi`, `hudi` -> `hudi_v1`.
 5. Deprecate use of `hudi_v1`, `hoodie.datasource.read/write.use.v2`.
 6. Remove `hudi_v1`, `hoodie.datasource.read/write.use.v2` from the codebase.
+
+### SPI short name mapping at each step
+
+| Step from Future Work | `BaseDefaultSource` | `HoodieDataSourceV2` | `DefaultSource`        |
+|-----------------------|---------------------|----------------------|------------------------|
+| 1 (this RFC)          | `"hudi"`            | `"hudi_v2"`          | `"hudi_v1"` (internal) |
+| 4 (name swap)         | `"hudi_v1"`         | `"hudi"`             | removed or aligned     |
+| 6 (removal)           | removed             | `"hudi"`             | removed                |
+
+Note: `DefaultSource.shortName() = "hudi_v1"` is an internal SPI name that is never user-facing because `BaseDefaultSource` overrides it to `"hudi"`. 
+This existing naming aligns naturally with the planned swap at step 4.
