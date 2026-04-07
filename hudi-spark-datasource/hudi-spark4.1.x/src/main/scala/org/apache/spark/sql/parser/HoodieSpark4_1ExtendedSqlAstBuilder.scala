@@ -2759,11 +2759,16 @@ class HoodieSpark4_1ExtendedSqlAstBuilder(conf: SQLConf, delegate: ParserInterfa
    */
   override def visitComplexColType(ctx: ComplexColTypeContext): StructField = withOrigin(ctx) {
     import ctx._
-    val structField = StructField(
+    val builder = new MetadataBuilder
+    Option(commentSpec).map(visitCommentSpec).foreach {
+      builder.putString("comment", _)
+    }
+    addMetadataForType(ctx.dataType(), builder)
+    StructField(
       name = identifier.getText,
       dataType = typedVisit(dataType()),
-      nullable = NULL == null)
-    Option(commentSpec).map(visitCommentSpec).map(structField.withComment).getOrElse(structField)
+      nullable = NULL == null,
+      metadata = builder.build())
   }
 
   /**
