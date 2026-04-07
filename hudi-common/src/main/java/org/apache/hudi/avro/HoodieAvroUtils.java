@@ -660,7 +660,28 @@ public class HoodieAvroUtils {
       return null;
     }
 
-    return convertValueForAvroLogicalTypes(AvroSchemaUtils.getNonNullTypeFromUnion(fieldSchema), fieldValue, consistentLogicalTimestampEnabled);
+    // Avro 1.12.1 may return java.time types (Instant, LocalDate) instead of raw Long/Integer.
+    // Normalize them back to primitives before further processing to ensure consistent types.
+    Object normalizedValue = normalizeAvroLogicalTypeValue(fieldValue);
+    return convertValueForAvroLogicalTypes(AvroSchemaUtils.getNonNullTypeFromUnion(fieldSchema), normalizedValue, consistentLogicalTimestampEnabled);
+  }
+
+  /**
+   * Normalizes values returned by Avro 1.12.1's ConvertingGenericData back to raw primitives.
+   * Avro 1.12.1 automatically converts logical types to java.time objects, but Hudi expects
+   * the raw Long/Integer values internally.
+   */
+  private static Object normalizeAvroLogicalTypeValue(Object value) {
+    if (value instanceof java.time.Instant) {
+      java.time.Instant instant = (java.time.Instant) value;
+      return instant.getEpochSecond() * 1000000L + instant.getNano() / 1000L;
+    } else if (value instanceof java.time.LocalDate) {
+      return (int) ((java.time.LocalDate) value).toEpochDay();
+    } else if (value instanceof java.time.LocalDateTime) {
+      java.time.Instant instant = ((java.time.LocalDateTime) value).toInstant(java.time.ZoneOffset.UTC);
+      return instant.getEpochSecond() * 1000000L + instant.getNano() / 1000L;
+    }
+    return value;
   }
 
   /**
