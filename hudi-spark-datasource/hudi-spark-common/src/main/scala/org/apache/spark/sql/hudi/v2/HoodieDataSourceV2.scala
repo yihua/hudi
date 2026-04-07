@@ -66,7 +66,10 @@ class HoodieDataSourceV2 extends TableProvider with DataSourceRegister with Crea
     try {
       if (optParams.get(DataSourceWriteOptions.OPERATION.key)
         .contains(DataSourceWriteOptions.BOOTSTRAP_OPERATION_OPT_VAL)) {
-        HoodieSparkSqlWriter.bootstrap(sqlContext, mode, optParams, df)
+        val success = HoodieSparkSqlWriter.bootstrap(sqlContext, mode, optParams, df)
+        if (!success) {
+          throw new HoodieException("Failed to bootstrap Hudi table")
+        }
       } else {
         val (success, _, _, _, _, _) = HoodieSparkSqlWriter.write(sqlContext, mode, optParams, df)
         if (!success) {

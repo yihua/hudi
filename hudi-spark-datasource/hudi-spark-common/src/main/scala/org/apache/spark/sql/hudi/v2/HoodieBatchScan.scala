@@ -27,7 +27,7 @@ import org.apache.spark.util.SerializableConfiguration
 /**
  * Batch scan for snapshot reads via DSv2 (COW).
  */
-class HoodieBatchScan(readSchema: StructType,
+class HoodieBatchScan(outputSchema: StructType,
                       inputPartitions: Array[InputPartition],
                       broadcastReader: Broadcast[SparkColumnarFileReader],
                       broadcastConf: Broadcast[SerializableConfiguration],
@@ -36,7 +36,7 @@ class HoodieBatchScan(readSchema: StructType,
                       pushedFilters: Array[Filter] = Array.empty,
                       pushedLimit: Option[Int] = None) extends Scan with Batch with SupportsReportStatistics {
 
-  override def readSchema(): StructType = readSchema
+  override def readSchema(): StructType = outputSchema
 
   override def description(): String = {
     val filtersStr = if (pushedFilters.nonEmpty) {
@@ -45,7 +45,7 @@ class HoodieBatchScan(readSchema: StructType,
       ", PushedFilters: []"
     }
     val limitStr = pushedLimit.map(l => s", PushedLimit: $l").getOrElse("")
-    s"HoodieBatchScan${readSchema.catalogString}$filtersStr$limitStr"
+    s"HoodieBatchScan${outputSchema.catalogString}$filtersStr$limitStr"
   }
 
   override def toBatch: Batch = this
@@ -56,7 +56,7 @@ class HoodieBatchScan(readSchema: StructType,
     new HoodiePartitionReaderFactory(
       broadcastReader,
       broadcastConf,
-      readSchema,
+      outputSchema,
       requiredDataSchema,
       requiredPartitionSchema,
       pushedLimit)

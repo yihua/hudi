@@ -35,9 +35,7 @@ import java.io.Closeable
 /**
  * Partition reader that reads rows from a single COW base file using [[SparkColumnarFileReader]].
  */
-class
-
-HoodiePartitionReader(partition: HoodieInputPartition,
+class HoodiePartitionReader(partition: HoodieInputPartition,
                             broadcastReader: Broadcast[SparkColumnarFileReader],
                             broadcastConf: Broadcast[SerializableConfiguration],
                             readSchema: StructType,
