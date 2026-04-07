@@ -44,7 +44,6 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.apache.hudi.common.util.TypeUtils.unsafeCast;
@@ -441,23 +440,6 @@ public enum MetadataPartitionType {
   }
 
   /**
-   * Returns the set of all metadata partition names.
-   */
-  public static Set<String> getAllPartitionPaths() {
-    return Arrays.stream(getValidValues())
-        .map(MetadataPartitionType::getPartitionPath)
-        .collect(Collectors.toSet());
-  }
-
-  /**
-   * Returns the set of all valid metadata partition types. Prefer using this method over {@link #values()}.
-   */
-  public static MetadataPartitionType[] getValidValues() {
-    // ALL_PARTITIONS is just another record type in FILES partition
-    return getValidValues(HoodieTableVersion.current());
-  }
-
-  /**
    * Returns the set of all valid metadata partition types. Prefer using this method over {@link #values()}.
    */
   public static MetadataPartitionType[] getValidValues(HoodieTableVersion tableVersion) {
@@ -496,7 +478,7 @@ public enum MetadataPartitionType {
   }
 
   public static MetadataPartitionType fromPartitionPath(String partitionPath) {
-    for (MetadataPartitionType partitionType : getValidValues()) {
+    for (MetadataPartitionType partitionType : values()) {
       if (partitionType.matchesPartitionPath(partitionPath)) {
         return partitionType;
       }
