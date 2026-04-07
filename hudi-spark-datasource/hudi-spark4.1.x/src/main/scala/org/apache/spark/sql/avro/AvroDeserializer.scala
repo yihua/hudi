@@ -146,17 +146,29 @@ private[sql] class AvroDeserializer(rootAvroType: Schema,
         updater.setInt(ordinal, dateRebaseFunc(days))
 
       case (LONG, LongType) => (updater, ordinal, value) =>
-        updater.setLong(ordinal, value.asInstanceOf[Long])
+        val longVal = value match {
+          case instant: java.time.Instant =>
+            instant.getEpochSecond * 1000000L + instant.getNano / 1000L
+          case l => l.asInstanceOf[Long]
+        }
+        updater.setLong(ordinal, longVal)
 
       case (LONG, TimestampType) => avroType.getLogicalType match {
         // For backward compatibility, if the Avro type is Long and it is not logical type
         // (the `null` case), the value is processed as timestamp type with millisecond precision.
         case null | _: TimestampMillis => (updater, ordinal, value) =>
-          val millis = value.asInstanceOf[Long]
+          val millis = value match {
+            case instant: java.time.Instant => instant.toEpochMilli
+            case l => l.asInstanceOf[Long]
+          }
           val micros = DateTimeUtils.millisToMicros(millis)
           updater.setLong(ordinal, timestampRebaseFunc(micros))
         case _: TimestampMicros => (updater, ordinal, value) =>
-          val micros = value.asInstanceOf[Long]
+          val micros = value match {
+            case instant: java.time.Instant =>
+              instant.getEpochSecond * 1000000L + instant.getNano / 1000L
+            case l => l.asInstanceOf[Long]
+          }
           updater.setLong(ordinal, timestampRebaseFunc(micros))
         case other => throw new IncompatibleSchemaException(errorPrefix +
           s"Avro logical type $other cannot be converted to SQL type ${TimestampType.sql}.")
@@ -167,11 +179,20 @@ private[sql] class AvroDeserializer(rootAvroType: Schema,
         // logical type (the `null` case), the value is processed as TimestampNTZ
         // with millisecond precision.
         case null | _: LocalTimestampMillis => (updater, ordinal, value) =>
-          val millis = value.asInstanceOf[Long]
+          val millis = value match {
+            case ldt: java.time.LocalDateTime =>
+              java.time.Duration.between(java.time.Instant.EPOCH, ldt.toInstant(java.time.ZoneOffset.UTC)).toMillis
+            case l => l.asInstanceOf[Long]
+          }
           val micros = DateTimeUtils.millisToMicros(millis)
           updater.setLong(ordinal, micros)
         case _: LocalTimestampMicros => (updater, ordinal, value) =>
-          val micros = value.asInstanceOf[Long]
+          val micros = value match {
+            case ldt: java.time.LocalDateTime =>
+              val instant = ldt.toInstant(java.time.ZoneOffset.UTC)
+              instant.getEpochSecond * 1000000L + instant.getNano / 1000L
+            case l => l.asInstanceOf[Long]
+          }
           updater.setLong(ordinal, micros)
         case other => throw new IncompatibleSchemaException(errorPrefix +
           s"Avro logical type $other cannot be converted to SQL type ${TimestampNTZType.sql}.")
