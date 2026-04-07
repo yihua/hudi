@@ -125,8 +125,8 @@ public class HoodieFlinkTableServiceClient<T> extends BaseHoodieTableServiceClie
       finalizeWrite(table, clusteringCommitTime, writeStats);
       // Only in some cases conflict resolution needs to be performed.
       // So, check if preCommit method that does conflict resolution needs to be triggered.
-      if (isPreCommitRequired()) {
-        preCommit(metadata);
+      if (isPreCommitRequired() || !config.getRollingMetadataKeys().isEmpty()) {
+        preCommit(metadata, isPreCommitRequired());
       }
       // commit to data table after committing to metadata table.
       // We take the lock here to ensure all writes to metadata table happens within a single lock (single writer).

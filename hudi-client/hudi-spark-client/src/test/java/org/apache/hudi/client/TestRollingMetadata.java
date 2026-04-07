@@ -44,7 +44,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.stream.Collectors;
 
-import static org.apache.hudi.common.testutils.HoodieTestDataGenerator.getCommitTimeAtUTC;
+
 import static org.apache.hudi.testutils.Assertions.assertNoWriteErrors;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -72,7 +72,7 @@ class TestRollingMetadata extends SparkClientFunctionalTestHarness {
     SparkRDDWriteClient client = getHoodieWriteClient(config);
 
     // When: First commit with rolling metadata keys
-    String instant1 = getCommitTimeAtUTC(1);
+    String instant1 = client.createNewInstantTime(false);
     List<HoodieRecord> records1 = dataGen.generateInserts(instant1, 10);
     JavaRDD<HoodieRecord> writeRecords1 = jsc().parallelize(records1, 2);
 
@@ -95,7 +95,7 @@ class TestRollingMetadata extends SparkClientFunctionalTestHarness {
     assertEquals("partition-0", metadata1.getMetadata("checkpoint.partition"));
 
     // When: Second commit updates one rolling metadata key
-    String instant2 = getCommitTimeAtUTC(2);
+    String instant2 = client.createNewInstantTime(false);
     List<HoodieRecord> records2 = dataGen.generateInserts(instant2, 10);
     JavaRDD<HoodieRecord> writeRecords2 = jsc().parallelize(records2, 2);
 
@@ -117,7 +117,7 @@ class TestRollingMetadata extends SparkClientFunctionalTestHarness {
     assertEquals("partition-0", metadata2.getMetadata("checkpoint.partition")); // Carried forward from commit1
 
     // When: Third commit with no rolling metadata keys
-    String instant3 = getCommitTimeAtUTC(3);
+    String instant3 = client.createNewInstantTime(false);
     List<HoodieRecord> records3 = dataGen.generateInserts(instant3, 10);
     JavaRDD<HoodieRecord> writeRecords3 = jsc().parallelize(records3, 2);
 
@@ -155,7 +155,7 @@ class TestRollingMetadata extends SparkClientFunctionalTestHarness {
     SparkRDDWriteClient client = getHoodieWriteClient(config);
 
     // When: Commit with extra metadata
-    String instant1 = getCommitTimeAtUTC(1);
+    String instant1 = client.createNewInstantTime(false);
     List<HoodieRecord> records1 = dataGen.generateInserts(instant1, 10);
     JavaRDD<HoodieRecord> writeRecords1 = jsc().parallelize(records1, 2);
 
@@ -177,7 +177,7 @@ class TestRollingMetadata extends SparkClientFunctionalTestHarness {
     client.close();
     client = getHoodieWriteClient(config);
     // When: Second commit without the key
-    String instant2 = getCommitTimeAtUTC(2);
+    String instant2 = client.createNewInstantTime(false);
     List<HoodieRecord> records2 = dataGen.generateInserts(instant2, 10);
     JavaRDD<HoodieRecord> writeRecords2 = jsc().parallelize(records2, 2);
 
@@ -213,7 +213,7 @@ class TestRollingMetadata extends SparkClientFunctionalTestHarness {
     SparkRDDWriteClient client = getHoodieWriteClient(config);
 
     // When: First commit with key1 and key2
-    String instant1 = getCommitTimeAtUTC(1);
+    String instant1 = client.createNewInstantTime(false);
     List<HoodieRecord> records1 = dataGen.generateInserts(instant1, 10);
     JavaRDD<HoodieRecord> writeRecords1 = jsc().parallelize(records1, 2);
 
@@ -228,7 +228,7 @@ class TestRollingMetadata extends SparkClientFunctionalTestHarness {
         Option.of(extraMetadata1), metaClient.getCommitActionType());
 
     // When: Second commit with key3
-    String instant2 = getCommitTimeAtUTC(2);
+    String instant2 = client.createNewInstantTime(false);
     List<HoodieRecord> records2 = dataGen.generateInserts(instant2, 10);
     JavaRDD<HoodieRecord> writeRecords2 = jsc().parallelize(records2, 2);
 
@@ -250,7 +250,7 @@ class TestRollingMetadata extends SparkClientFunctionalTestHarness {
     assertEquals("value3", metadata2.getMetadata("key3")); // From current commit
 
     // When: Third commit with no keys (should walk back to find all three)
-    String instant3 = getCommitTimeAtUTC(3);
+    String instant3 = client.createNewInstantTime(false);
     List<HoodieRecord> records3 = dataGen.generateInserts(instant3, 10);
     JavaRDD<HoodieRecord> writeRecords3 = jsc().parallelize(records3, 2);
 
@@ -291,7 +291,7 @@ class TestRollingMetadata extends SparkClientFunctionalTestHarness {
     HoodieTestDataGenerator dataGen = new HoodieTestDataGenerator();
     SparkRDDWriteClient client = getHoodieWriteClient(config);
 
-    String instant = getCommitTimeAtUTC(1);
+    String instant = client.createNewInstantTime(false);
     List<HoodieRecord> records = dataGen.generateInserts(instant, 10);
     JavaRDD<HoodieRecord> writeRecords = jsc().parallelize(records, 2);
 
@@ -308,7 +308,7 @@ class TestRollingMetadata extends SparkClientFunctionalTestHarness {
     client.close();
     client = getHoodieWriteClient(configNoRollingMetadata);
     for (int i = 2; i <= 3; i++) {
-      instant = getCommitTimeAtUTC(i);
+      instant = client.createNewInstantTime(false);
       records = dataGen.generateInserts(instant, 10);
       writeRecords = jsc().parallelize(records, 2);
 
@@ -322,7 +322,7 @@ class TestRollingMetadata extends SparkClientFunctionalTestHarness {
     client.close();
     client = getHoodieWriteClient(config);
     for (int i = 4; i <= 5; i++) {
-      instant = getCommitTimeAtUTC(i);
+      instant = client.createNewInstantTime(false);
       records = dataGen.generateInserts(instant, 10);
       writeRecords = jsc().parallelize(records, 2);
 
@@ -372,7 +372,7 @@ class TestRollingMetadata extends SparkClientFunctionalTestHarness {
     SparkRDDWriteClient client = getHoodieWriteClient(config);
 
     // When: First commit with rolling metadata
-    String instant1 = getCommitTimeAtUTC(1);
+    String instant1 = client.createNewInstantTime(false);
     List<HoodieRecord> records1 = dataGen.generateInserts(instant1, 10);
     JavaRDD<HoodieRecord> writeRecords1 = jsc().parallelize(records1, 2);
 
@@ -386,7 +386,7 @@ class TestRollingMetadata extends SparkClientFunctionalTestHarness {
         Option.of(extraMetadata1), metaClient.getCommitActionType());
 
     // When: Second commit without the key
-    String instant2 = getCommitTimeAtUTC(2);
+    String instant2 = client.createNewInstantTime(false);
     List<HoodieRecord> records2 = dataGen.generateInserts(instant2, 10);
     JavaRDD<HoodieRecord> writeRecords2 = jsc().parallelize(records2, 2);
 
@@ -421,7 +421,7 @@ class TestRollingMetadata extends SparkClientFunctionalTestHarness {
     SparkRDDWriteClient client = getHoodieWriteClient(config);
 
     // When: First commit with initial value
-    String instant1 = getCommitTimeAtUTC(1);
+    String instant1 = client.createNewInstantTime(false);
     List<HoodieRecord> records1 = dataGen.generateInserts(instant1, 10);
     JavaRDD<HoodieRecord> writeRecords1 = jsc().parallelize(records1, 2);
 
@@ -437,7 +437,7 @@ class TestRollingMetadata extends SparkClientFunctionalTestHarness {
     client.close();
     client = getHoodieWriteClient(config);
     // When: Second commit with updated value
-    String instant2 = getCommitTimeAtUTC(2);
+    String instant2 = client.createNewInstantTime(false);
     List<HoodieRecord> records2 = dataGen.generateInserts(instant2, 10);
     JavaRDD<HoodieRecord> writeRecords2 = jsc().parallelize(records2, 2);
 
@@ -459,7 +459,7 @@ class TestRollingMetadata extends SparkClientFunctionalTestHarness {
     client.close();
     client = getHoodieWriteClient(config);
     // When: Third commit without the key
-    String instant3 = getCommitTimeAtUTC(3);
+    String instant3 = client.createNewInstantTime(false);
     List<HoodieRecord> records3 = dataGen.generateInserts(instant3, 10);
     JavaRDD<HoodieRecord> writeRecords3 = jsc().parallelize(records3, 2);
 
@@ -494,7 +494,7 @@ class TestRollingMetadata extends SparkClientFunctionalTestHarness {
     SparkRDDWriteClient client = getHoodieWriteClient(config);
 
     // When: First commit without rolling metadata
-    String instant1 = getCommitTimeAtUTC(1);
+    String instant1 = client.createNewInstantTime(false);
     List<HoodieRecord> records1 = dataGen.generateInserts(instant1, 10);
     JavaRDD<HoodieRecord> writeRecords1 = jsc().parallelize(records1, 2);
 
@@ -539,7 +539,7 @@ class TestRollingMetadata extends SparkClientFunctionalTestHarness {
     SparkRDDWriteClient client = getHoodieWriteClient(config);
 
     // When: Commit with rolling metadata
-    String instant1 = getCommitTimeAtUTC(1);
+    String instant1 = client.createNewInstantTime(false);
     List<HoodieRecord> records1 = dataGen.generateInserts(instant1, 10);
     JavaRDD<HoodieRecord> writeRecords1 = jsc().parallelize(records1, 2);
 
@@ -554,7 +554,7 @@ class TestRollingMetadata extends SparkClientFunctionalTestHarness {
         Option.of(extraMetadata1), metaClient.getCommitActionType());
 
     // When: Second commit
-    String instant2 = getCommitTimeAtUTC(2);
+    String instant2 = client.createNewInstantTime(false);
     List<HoodieRecord> records2 = dataGen.generateInserts(instant2, 10);
     JavaRDD<HoodieRecord> writeRecords2 = jsc().parallelize(records2, 2);
 

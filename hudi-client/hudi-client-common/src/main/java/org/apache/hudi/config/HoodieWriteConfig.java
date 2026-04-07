@@ -109,6 +109,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.apache.hudi.common.config.HoodieMemoryConfig.DEFAULT_MIN_MEMORY_FOR_SPILLABLE_MAP_IN_BYTES;
@@ -757,7 +758,7 @@ public class HoodieWriteConfig extends HoodieConfig {
       .key("hoodie.write.rolling.metadata.keys")
       .defaultValue("")
       .markAdvanced()
-      .sinceVersion("1.1.0")
+      .sinceVersion("1.2.0")
       .withDocumentation("Comma-separated list of extra metadata keys that should be automatically carried forward "
           + "to every new commit. These keys will be read from recent commit metadata and included in new commits, "
           + "ensuring they remain accessible without walking the timeline or worrying about archival. "
@@ -768,7 +769,7 @@ public class HoodieWriteConfig extends HoodieConfig {
       .key("hoodie.write.rolling.metadata.timeline.lookback.commits")
       .defaultValue(10)
       .markAdvanced()
-      .sinceVersion("1.1.0")
+      .sinceVersion("1.2.0")
       .withDocumentation("Maximum number of completed commits to walk back in the timeline when searching for "
           + "rolling metadata keys. If a rolling metadata key is not found in the latest commit, the system will "
           + "walk back up to this many commits to find the most recent value. This ensures rolling metadata is "
@@ -2892,15 +2893,15 @@ public class HoodieWriteConfig extends HoodieConfig {
     return getBooleanOrDefault(ALLOW_OPERATION_METADATA_FIELD);
   }
 
-  public java.util.Set<String> getRollingMetadataKeys() {
+  public Set<String> getRollingMetadataKeys() {
     String keys = getString(ROLLING_METADATA_KEYS);
     if (keys == null || keys.trim().isEmpty()) {
-      return java.util.Collections.emptySet();
+      return Collections.emptySet();
     }
-    return java.util.Arrays.stream(keys.split(","))
+    return Arrays.stream(keys.split(","))
         .map(String::trim)
         .filter(s -> !s.isEmpty())
-        .collect(java.util.stream.Collectors.toSet());
+        .collect(Collectors.toSet());
   }
 
   public int getRollingMetadataTimelineLookbackCommits() {
