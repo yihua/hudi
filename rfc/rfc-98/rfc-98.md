@@ -51,7 +51,7 @@ The current implementation of Spark Datasource V2 integration is presented in th
 
 Hudi's write path is mature, and involves indexing, precombining, upsert/insert routing, file sizing, and table services (compaction/clustering/cleaning). 
 Also `HoodieSparkSqlWriter::write` handles schema evolution, partition encoding, metadata updates, and multi-writer concurrency.
-DSv2's `WriteBuilder` >> `BatchWrite` >> DataWriter API is too simplistic for this, and moving to this entirely would be a non-starter. Also, due to the flexibility of the V1 API in terms of allowing the writes to shuffle data after the `df.write.format....save` is invoked, Hudi supports a streaming DF write for its upsert operation. A good majority of Hudi jobs work this way today, and we cannot break all of these at once
+DSv2's `WriteBuilder` >> `BatchWrite` >> DataWriter API is too simplistic for this, and moving to this entirely would be a non-starter. Also, due to the flexibility of the V1 API in terms of allowing the writes to shuffle data after the `df.write.format....save` is invoked, Hudi supports a streaming DF write for its upsert operation. A good majority of Hudi jobs work this way today, and we cannot break all of these at once.
 
 The proposed approach is hybrid: DSv2 for reads, with a DSv1 fallback for writes (`V2TableWithV1Fallback`) in the current state.
 Later, if a DSv2 write path can be implemented without loss of performance or functionality, it may become possible to move to full DSv2 support.
@@ -262,6 +262,7 @@ All new classes go into package `org.apache.spark.sql.hudi.v2` inside `hudi-spar
 | `HoodieDataSourceV2`            | `TableProvider`, `DataSourceRegister`, `CreatableRelationProvider`                                                                | SPI entry point for `format("hudi_v2")`. `CreatableRelationProvider` enables DataFrame API writes via `df.write.format("hudi_v2")`.                                                                                                                                                |
 | `HoodieSparkV2Table`            | `Table`, `SupportsRead`, `SupportsWrite`, `V2TableWithV1Fallback`                                                                 | Routes reads to DSv2, writes to DSv1 fallback via `HoodieV1WriteBuilder`.                                                                                                                                                                                                          |
 | `HoodieScanBuilder`             | `ScanBuilder`, `SupportsPushDownFilters`, `SupportsPushDownRequiredColumns`, `PartialLimitPushDown`, `SupportsPushDownAggregates` | Collects filter, column pruning, limit, and aggregate pushdowns.                                                                                                                                                                                                                   |
+| `PartialLimitPushDown`          | extends `SupportsPushDownLimit`                                                                                                   | Custom Hudi Java interface providing `isPartiallyPushed() = true` as a default method. Avoids Scala `override` incompatibility between Spark 3.3 (method absent) and 3.4+ (default method present).                                                                               |
 | `HoodieBatchScan`               | `Scan`, `Batch`                                                                                                                   | Plans input partitions using existing `HoodieFileIndex`.                                                                                                                                                                                                                           |
 | `HoodieInputPartition`          | `InputPartition`                                                                                                                  | Serializable descriptor for file slices.                                                                                                                                                                                                                                           |
 | `HoodiePartitionReaderFactory`  | `PartitionReaderFactory`                                                                                                          | Creates readers on executors. Overrides `supportColumnarReads()` and `createColumnarReader()` for COW vectorized reads.                                                                                                                                                            |
@@ -290,7 +291,7 @@ In practice, `HoodieScanBuilder` declares all pushdown interfaces from the outse
 
 ## Rollout/Adoption Plan
 
-- The existing `format("hudi")` path is completely untouched, so there is no regression risk.
+- The existing `format("hudi")` path is completely untouched, so regression risk is minimized.
 - For DataFrame API, users opt in by using `format("hudi_v2")`. No config needed.
 - For SQL queries, users set `hoodie.datasource.read.use.v2=true` to route reads through DSv2.
 - Rollback: switch back to `format("hudi")` or set the config to `false`.
@@ -301,7 +302,7 @@ In `HoodieCatalog.loadTable()`, `v2ReadEnabled` is evaluated first and takes str
 
 | `hoodie.datasource.read.use.v2` | `hoodie.schema.on.read.enable` | Table returned                                           |
 |---------------------------------|--------------------------------|----------------------------------------------------------|
-| `true` (Spark ≥ 3.5)            | any                            | `HoodieSparkV2Table` (DSv2 read)                         |
+| `true`                          | any                            | `HoodieSparkV2Table` (DSv2 read)                         |
 | `false`                         | `true`                         | `HoodieInternalV2Table` (existing schema-evolution path) |
 | `false`                         | `false`                        | `V1Table` wrapper (existing default)                     |
 
@@ -322,7 +323,7 @@ The two configs are independent. When both are `true`, `v2ReadEnabled` wins.
 ## Future Work
 
 1. DSv2 read support using `hudi_v2` for the DataFrame API, and `hoodie.datasource.read.use.v2` for the SQL API (`false` by default).
-   These means that all stages from "Implementation phases" chapter are completed.
+   This means that all stages from "Implementation phases" chapter are completed.
 2. (Optional) DSv2 write support using `hudi_v2` for the DataFrame API, and `hoodie.datasource.write.use.v2` for the SQL API (`false` by default).
 3. `hoodie.datasource.read/write.use.v2` is `true` by default.
 4. Switch format short names: `hudi_v2` -> `hudi`, `hudi` -> `hudi_v1`.
