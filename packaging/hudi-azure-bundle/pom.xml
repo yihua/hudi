@@ -157,21 +157,18 @@
                                         <exclude>hbase-webapps/**</exclude>
                                     </excludes>
                                 </filter>
-                                <!-- Exclude Netty native transport classes and libraries.
-                                     After shading, JNI callbacks in native .so/.dylib files still
-                                     reference original class names (io.netty.channel.epoll.*), but
-                                     the Java classes are relocated to org.apache.hudi.io.netty.*.
-                                     This mismatch causes static initializer failures.
-                                     Excluding native transports forces reactor-netty to use Java NIO,
-                                     which works correctly with shaded classes. -->
+                                <!-- Exclude only Netty native .so/.dylib libraries (not Java classes).
+                                     After shading, JNI callbacks in native libraries still reference
+                                     original class names (io.netty.channel.epoll.*), but the Java
+                                     classes are relocated to org.apache.hudi.io.netty.*.
+                                     The epoll/kqueue Java classes are KEPT so that transport detection
+                                     (e.g., Epoll.isAvailable()) works — it returns false when the
+                                     native lib can't load, causing reactor-netty to fall back to NIO. -->
                                 <filter>
                                     <artifact>io.netty:*</artifact>
                                     <excludes>
                                         <exclude>META-INF/native/**</exclude>
                                         <exclude>META-INF/native-image/**</exclude>
-                                        <exclude>io/netty/channel/epoll/**</exclude>
-                                        <exclude>io/netty/channel/kqueue/**</exclude>
-                                        <exclude>io/netty/channel/unix/**</exclude>
                                     </excludes>
                                 </filter>
                             </filters>
