@@ -84,13 +84,10 @@
                                     <include>com.microsoft.azure:*</include>
                                     <include>com.nimbusds:*</include>
                                     <include>net.minidev:*</include>
-                                    <!-- Reactor -->
-                                    <include>io.projectreactor:*</include>
-                                    <include>io.projectreactor.netty:*</include>
-                                    <include>org.reactivestreams:reactive-streams</include>
-                                    <!-- Netty: bundled and shaded together with reactor-netty to avoid
-                                         version conflicts with Spark's Netty on the classpath -->
-                                    <include>io.netty:*</include>
+                                    <!-- Reactor, Netty, and Reactive Streams are NOT bundled.
+                                         They are provided at runtime via Dockerfile jars and Spark's classpath.
+                                         Shading Netty causes JNI native transport failures; instead we
+                                         control the exact versions externally. -->
                                     <!-- Misc -->
                                     <include>com.beust:jcommander</include>
                                     <include>commons-io:commons-io</include>
@@ -125,24 +122,9 @@
                                     <pattern>net.minidev.</pattern>
                                     <shadedPattern>org.apache.hudi.net.minidev.</shadedPattern>
                                 </relocation>
-                                <!-- Shade Netty, Reactor, and Reactive Streams to avoid classpath
-                                     conflicts with Spark's bundled Netty -->
-                                <relocation>
-                                    <pattern>io.netty.</pattern>
-                                    <shadedPattern>org.apache.hudi.io.netty.</shadedPattern>
-                                </relocation>
-                                <relocation>
-                                    <pattern>io.projectreactor.</pattern>
-                                    <shadedPattern>org.apache.hudi.io.projectreactor.</shadedPattern>
-                                </relocation>
-                                <relocation>
-                                    <pattern>reactor.</pattern>
-                                    <shadedPattern>org.apache.hudi.reactor.</shadedPattern>
-                                </relocation>
-                                <relocation>
-                                    <pattern>org.reactivestreams.</pattern>
-                                    <shadedPattern>org.apache.hudi.org.reactivestreams.</shadedPattern>
-                                </relocation>
+                                <!-- Netty, Reactor, and Reactive Streams are NOT shaded.
+                                     They use unshaded class names at runtime, provided by
+                                     Dockerfile jars and Spark's classpath. -->
                             </relocations>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
                             <filters>
@@ -155,20 +137,6 @@
                                         <exclude>META-INF/services/javax.*</exclude>
                                         <exclude>**/*.proto</exclude>
                                         <exclude>hbase-webapps/**</exclude>
-                                    </excludes>
-                                </filter>
-                                <!-- Exclude only Netty native .so/.dylib libraries (not Java classes).
-                                     After shading, JNI callbacks in native libraries still reference
-                                     original class names (io.netty.channel.epoll.*), but the Java
-                                     classes are relocated to org.apache.hudi.io.netty.*.
-                                     The epoll/kqueue Java classes are KEPT so that transport detection
-                                     (e.g., Epoll.isAvailable()) works — it returns false when the
-                                     native lib can't load, causing reactor-netty to fall back to NIO. -->
-                                <filter>
-                                    <artifact>io.netty:*</artifact>
-                                    <excludes>
-                                        <exclude>META-INF/native/**</exclude>
-                                        <exclude>META-INF/native-image/**</exclude>
                                     </excludes>
                                 </filter>
                             </filters>
