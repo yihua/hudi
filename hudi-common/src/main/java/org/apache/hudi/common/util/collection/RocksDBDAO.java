@@ -24,6 +24,7 @@ import org.apache.hudi.common.util.HoodieTimer;
 import org.apache.hudi.common.util.SerializationUtils;
 import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.common.util.ValidationUtils;
+import org.apache.hudi.common.util.VisibleForTesting;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.io.util.FileIOUtils;
@@ -42,6 +43,8 @@ import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
 import org.rocksdb.Statistics;
+import org.rocksdb.TickerType;
+import org.rocksdb.FlushOptions;
 import org.rocksdb.WriteBatch;
 import org.rocksdb.WriteOptions;
 
@@ -75,6 +78,7 @@ public class RocksDBDAO {
   private final String rocksDBBasePath;
   private final transient ConcurrentHashMap<String, CustomSerializer<?>> columnFamilySerializers;
   private transient WriteOptions defaultWriteOptions;
+  private transient Statistics statistics;
   private final boolean disableWALForWrites;
   @Getter
   private long totalBytesWritten;
@@ -113,9 +117,10 @@ public class RocksDBDAO {
       managedDescriptorMap = new ConcurrentHashMap<>();
 
       // If already present, loads the existing column-family handles
-
       final DBOptions dbOptions = new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true)
-          .setWalDir(rocksDBBasePath).setStatsDumpPeriodSec(300).setStatistics(new Statistics());
+          .setWalDir(rocksDBBasePath).setStatsDumpPeriodSec(300);
+      this.statistics = new Statistics();
+      dbOptions.setStatistics(statistics);
       dbOptions.setLogger(new org.rocksdb.Logger(dbOptions) {
         @Override
         protected void log(InfoLogLevel infoLogLevel, String logMsg) {
@@ -466,6 +471,32 @@ public class RocksDBDAO {
   }
 
   /**
+   * Retrieves a numeric property aggregated across all column families.
+   */
+  public synchronized long getLongProperty(String property) throws RocksDBException {
+    return closed ? 0L : getRocksDB().getAggregatedLongProperty(property);
+  }
+
+  /**
+   * Retrieves the current ticker count.
+   */
+  public synchronized long getTickerCount(TickerType tickerType) {
+    return closed || statistics == null ? 0L : statistics.getTickerCount(tickerType);
+  }
+
+  /**
+   * Flushes all pending data to SST files.
+   */
+  @VisibleForTesting
+  public void flush() {
+    try (FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
+      getRocksDB().flush(flushOptions, new ArrayList<>(managedHandlesMap.values()));
+    } catch (RocksDBException e) {
+      throw new HoodieException(e);
+    }
+  }
+
+  /**
    * Note : Does not delete from underlying DB. Just closes the handle.
    *
    * @param columnFamilyName Column Family Name
@@ -499,6 +530,10 @@ public class RocksDBDAO {
         defaultWriteOptions.close();
       }
       getRocksDB().close();
+      if (statistics != null) {
+        statistics.close();
+        statistics = null;
+      }
       try {
         FileIOUtils.deleteDirectory(new File(rocksDBBasePath));
       } catch (IOException e) {
