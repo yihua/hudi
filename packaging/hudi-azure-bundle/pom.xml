@@ -106,6 +106,25 @@
                                     <pattern>org.openjdk.jol.</pattern>
                                     <shadedPattern>org.apache.hudi.org.openjdk.jol.</shadedPattern>
                                 </relocation>
+                                <!-- Shade Azure SDK classes so they don't collide with other Azure
+                                     SDK versions on the classpath (e.g., azure-security-keyvault-secrets
+                                     which may pull a different azure-core version). -->
+                                <relocation>
+                                    <pattern>com.azure.</pattern>
+                                    <shadedPattern>org.apache.hudi.com.azure.</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>com.microsoft.azure.</pattern>
+                                    <shadedPattern>org.apache.hudi.com.microsoft.azure.</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>com.nimbusds.</pattern>
+                                    <shadedPattern>org.apache.hudi.com.nimbusds.</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>net.minidev.</pattern>
+                                    <shadedPattern>org.apache.hudi.net.minidev.</shadedPattern>
+                                </relocation>
                                 <!-- Shade Netty, Reactor, and Reactive Streams to avoid classpath
                                      conflicts with Spark's bundled Netty -->
                                 <relocation>
