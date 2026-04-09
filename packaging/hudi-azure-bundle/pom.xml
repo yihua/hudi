@@ -126,9 +126,9 @@
                                     <pattern>net.minidev.</pattern>
                                     <shadedPattern>org.apache.hudi.net.minidev.</shadedPattern>
                                 </relocation>
-                                <!-- Netty, Reactor, and Reactive Streams are NOT shaded.
-                                     They use unshaded class names at runtime, provided by
-                                     Dockerfile jars and Spark's classpath. -->
+                                <!-- Netty, Reactor, and Reactive Streams are NOT bundled (see above).
+                                     No relocation rules for io.netty, reactor, or org.reactivestreams —
+                                     they are provided at runtime via Dockerfile jars and Spark's classpath. -->
                             </relocations>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
                             <filters>
@@ -222,14 +222,62 @@
             <scope>provided</scope>
         </dependency>
         <dependency>
+            <groupId>io.projectreactor.netty</groupId>
+            <artifactId>reactor-netty-core</artifactId>
+            <version>1.0.10</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
             <groupId>io.projectreactor</groupId>
             <artifactId>reactor-core</artifactId>
             <version>3.4.38</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
+            <groupId>org.reactivestreams</groupId>
+            <artifactId>reactive-streams</artifactId>
+            <version>1.0.4</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-resolver-dns</artifactId>
+            <version>4.1.96.Final</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-codec-dns</artifactId>
+            <version>4.1.96.Final</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.dataformat</groupId>
+            <artifactId>jackson-dataformat-xml</artifactId>
+            <version>2.15.2</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.woodstox</groupId>
+            <artifactId>woodstox-core</artifactId>
+            <version>6.5.1</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.codehaus.woodstox</groupId>
+            <artifactId>stax2-api</artifactId>
+            <version>4.2.1</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
             <groupId>net.java.dev.jna</groupId>
             <artifactId>jna</artifactId>
+            <version>5.13.0</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna-platform</artifactId>
             <version>5.13.0</version>
             <scope>provided</scope>
         </dependency>
