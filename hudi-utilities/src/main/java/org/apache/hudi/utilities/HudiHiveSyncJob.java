@@ -20,6 +20,7 @@ package org.apache.hudi.utilities;
 
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.util.HoodieTimer;
+import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.hive.HiveSyncTool;
 
@@ -76,8 +77,17 @@ public class HudiHiveSyncJob {
     final Config cfg = new Config();
     new JCommander(cfg, null, args);
     LOG.info("Cfg received: {}", cfg);
-    JavaSparkContext jsc = UtilHelpers.buildSparkContext("HudiHiveSyncJob", "local[2]", true);
-    new HudiHiveSyncJob(jsc, cfg).run();
+    JavaSparkContext jsc;
+    if (StringUtils.isNullOrEmpty(cfg.sparkMaster)) {
+      jsc = UtilHelpers.buildSparkContext("HudiHiveSyncJob", cfg.sparkMaster, true);
+    } else {
+      jsc = UtilHelpers.buildSparkContext("HudiHiveSyncJob", "local[2]", true);
+    }
+    try {
+      new HudiHiveSyncJob(jsc, cfg).run();
+    } finally {
+      jsc.stop();
+    }
   }
 
   public void run() throws IOException {
@@ -106,11 +116,16 @@ public class HudiHiveSyncJob {
     @Parameter(names = {"--base-path", "-sp"}, description = "Base path for the table", required = true)
     public String basePath = null;
 
-    @Parameter(names = {"--base-file-format", "bff"}, description = "Base file format of the dataset")
+    @Parameter(names = {"--base-file-format", "-bff"}, description = "Base file format of the dataset")
     public String baseFileFormat = "PARQUET";
 
     @Parameter(names = {"--props-file-path"}, description = "Path to properties file on localfs or dfs.")
     public String propsFilePath = null;
+
+    @Parameter(names = {"--spark-master"},
+        description = "spark master to use, if not defined inherits from your environment taking into "
+            + "account Spark Configuration priority rules (e.g. not using spark-submit command).")
+    public String sparkMaster = "";
 
     @Parameter(names = {"--hoodie-conf"}, description = "Any configuration that can be set in the properties file "
         + "(using the CLI parameter \"--props\") can also be passed command line using this parameter. This can be repeated",
