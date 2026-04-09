@@ -161,7 +161,7 @@ public class TestHoodieMetadataWriteUtils {
   }
 
   @Test
-  public void testCreateMetadataWriteConfigRejectsStreamingWritesWithMultiWriter() {
+  public void testCreateMetadataWriteConfigForcesStreamingWritesOffWithMultiWriter() {
     HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
         .withPath("/tmp/base_path/")
         .withCleanConfig(HoodieCleanConfig.newBuilder()
@@ -172,13 +172,14 @@ public class TestHoodieMetadataWriteUtils {
             .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL).build())
         .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL)
         .withLockConfig(HoodieLockConfig.newBuilder()
-            .withLockProvider(InProcessLockProvider.class).build())
+            .withLockProvider(FileSystemBasedLockProvider.class).build())
         .build();
 
-    IllegalStateException ex = assertThrows(IllegalStateException.class, () ->
-        HoodieMetadataWriteUtils.createMetadataWriteConfig(
-            writeConfig, HoodieFailedWritesCleaningPolicy.EAGER, HoodieTableVersion.EIGHT));
-    assertTrue(ex.getMessage().contains("Streaming writes to metadata table must be disabled"));
+    HoodieWriteConfig metadataWriteConfig = HoodieMetadataWriteUtils.createMetadataWriteConfig(
+        writeConfig, HoodieFailedWritesCleaningPolicy.EAGER, HoodieTableVersion.EIGHT);
+    // Multi-writer takes precedence over streaming writes; streaming writes are forced off
+    validateMetadataWriteConfig(metadataWriteConfig, HoodieFailedWritesCleaningPolicy.LAZY,
+        WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL, FileSystemBasedLockProvider.class.getCanonicalName());
   }
 
   @Test

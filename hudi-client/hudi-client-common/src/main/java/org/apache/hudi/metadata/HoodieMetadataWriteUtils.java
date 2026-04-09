@@ -147,17 +147,16 @@ public class HoodieMetadataWriteUtils {
       HoodieWriteConfig writeConfig, HoodieFailedWritesCleaningPolicy failedWritesCleaningPolicy,
       HoodieTableVersion datatableVersion) {
     String tableName = writeConfig.getTableName() + METADATA_TABLE_NAME_SUFFIX;
-    boolean isStreamingWritesToMetadataEnabled = writeConfig.isMetadataStreamingWritesEnabled(datatableVersion);
     WriteConcurrencyMode metadataWriteConcurrencyMode =
         WriteConcurrencyMode.valueOf(writeConfig.getMetadataConfig().getWriteConcurrencyMode());
+    // Multi-writer on MDT is for separate table service execution; streaming writes are not compatible,
+    // so force it off to avoid confusing config mismatch errors.
+    boolean isStreamingWritesToMetadataEnabled = !metadataWriteConcurrencyMode.supportsMultiWriter()
+        && writeConfig.isMetadataStreamingWritesEnabled(datatableVersion);
 
     WriteConcurrencyMode concurrencyMode;
     HoodieLockConfig lockConfig;
     if (metadataWriteConcurrencyMode.supportsMultiWriter()) {
-      // Configuring Multi-writer directly on metadata table is intended for executing table service plans, not for writes.
-      checkState(!isStreamingWritesToMetadataEnabled,
-          "Streaming writes to metadata table must be disabled when using multi-writer concurrency mode "
-              + metadataWriteConcurrencyMode + ". Disable " + HoodieMetadataConfig.STREAMING_WRITE_ENABLED.key());
       checkState(metadataWriteConcurrencyMode == writeConfig.getWriteConcurrencyMode(),
           "If multiwriter is used on metadata table, its concurrency mode (" + metadataWriteConcurrencyMode
               + ") must match the data table concurrency mode (" + writeConfig.getWriteConcurrencyMode() + ")");
