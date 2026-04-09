@@ -115,6 +115,10 @@
                                     <shadedPattern>org.apache.hudi.com.microsoft.azure.</shadedPattern>
                                 </relocation>
                                 <relocation>
+                                    <pattern>com.microsoft.aad.</pattern>
+                                    <shadedPattern>org.apache.hudi.com.microsoft.aad.</shadedPattern>
+                                </relocation>
+                                <relocation>
                                     <pattern>com.nimbusds.</pattern>
                                     <shadedPattern>org.apache.hudi.com.nimbusds.</shadedPattern>
                                 </relocation>
@@ -184,6 +188,50 @@
             <groupId>org.apache.hudi</groupId>
             <artifactId>hudi-azure</artifactId>
             <version>${project.version}</version>
+        </dependency>
+
+        <!--
+          Runtime-required dependencies NOT bundled in this fat jar.
+          The shaded com.azure classes retain unshaded bytecode references to these packages.
+          They MUST be provided at runtime via Dockerfile jars or Spark's classpath.
+
+          Why not bundled: Shading Netty breaks JNI native transport (epoll) because native
+          .so libraries reference class names by string that the shade plugin cannot rewrite.
+          Instead, we rely on a single controlled version provided externally.
+
+          Required runtime jars (see Dockerfiles in onehouse-dataplane and spark-connect-server):
+            - reactor-netty-http-1.0.10.jar
+            - reactor-netty-core-1.0.10.jar
+            - reactor-core-3.4.38.jar
+            - reactive-streams-1.0.4.jar
+            - netty-resolver-dns-4.1.96.Final.jar
+            - netty-codec-dns-4.1.96.Final.jar
+            - jackson-dataformat-xml-2.15.2.jar
+            - woodstox-core-6.5.1.jar
+            - stax2-api-4.2.1.jar
+            - jna-5.13.0.jar
+            - jna-platform-5.13.0.jar
+
+          Spark 3.x ships unshaded io.netty.* in $SPARK_HOME/jars/ (Spark 2.x shaded Netty
+          as org.spark_project.io.netty.* — this bundle is NOT compatible with Spark 2.x).
+        -->
+        <dependency>
+            <groupId>io.projectreactor.netty</groupId>
+            <artifactId>reactor-netty-http</artifactId>
+            <version>1.0.10</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-core</artifactId>
+            <version>3.4.38</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>5.13.0</version>
+            <scope>provided</scope>
         </dependency>
 
         <!-- Parquet -->
