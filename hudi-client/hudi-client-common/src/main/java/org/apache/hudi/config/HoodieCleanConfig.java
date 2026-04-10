@@ -248,7 +248,7 @@ public class HoodieCleanConfig extends HoodieConfig {
       .key("hoodie.clean.max.commits.to.clean")
       .defaultValue(Long.MAX_VALUE)
       .markAdvanced()
-      .withDocumentation("Maximum Number of commits to clean in one clean commit. Applicable only when the clean policy is based on KEEP_LATEST_COMMITS or KEEP_LATEST_HOURS");
+      .withDocumentation("Maximum number of commits to clean in one clean commit. Applicable only when the clean policy is based on KEEP_LATEST_COMMITS or KEEP_LATEST_HOURS");
 
 
   /** @deprecated Use {@link #CLEANER_POLICY} and its methods instead */
@@ -430,6 +430,10 @@ public class HoodieCleanConfig extends HoodieConfig {
       cleanConfig.setDefaults(HoodieCleanConfig.class.getName());
       HoodieCleaningPolicy.valueOf(cleanConfig.getString(CLEANER_POLICY));
       HoodiePreWriteCleanerPolicy.fromString(cleanConfig.getString(PREWRITE_CLEANER_POLICY));
+      long maxCommitsToClean = cleanConfig.getLong(MAX_COMMITS_TO_CLEAN);
+      if (maxCommitsToClean < 1) {
+        throw new IllegalArgumentException(MAX_COMMITS_TO_CLEAN.key() + " must be >= 1, but was " + maxCommitsToClean);
+      }
       return cleanConfig;
     }
   }
