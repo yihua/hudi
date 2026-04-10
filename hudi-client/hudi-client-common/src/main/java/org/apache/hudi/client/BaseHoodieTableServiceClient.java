@@ -172,11 +172,15 @@ public abstract class BaseHoodieTableServiceClient<I, T, O> extends BaseHoodieCl
    *
    * @param metadata commit metadata for which pre commit is being invoked.
    */
-  protected void preCommit(HoodieCommitMetadata metadata) {
+  protected void preCommit(HoodieCommitMetadata metadata, boolean executeConflictResolution) {
     // Create a Hoodie table after startTxn which encapsulated the commits and files visible.
     // Important to create this after the lock to ensure the latest commits show up in the timeline without need for reload
     HoodieTable table = createTable(config, storageConf);
-    resolveWriteConflict(table, metadata, this.pendingInflightAndRequestedInstants);
+    if (executeConflictResolution) {
+      resolveWriteConflict(table, metadata, this.pendingInflightAndRequestedInstants);
+    }
+    // Merge rolling metadata after conflict resolution, still within the lock
+    mergeRollingMetadata(table, metadata);
   }
 
   /**
@@ -394,6 +398,7 @@ public abstract class BaseHoodieTableServiceClient<I, T, O> extends BaseHoodieCl
       final HoodieInstant compactionInstant = instantGenerator.getCompactionInflightInstant(compactionCommitTime);
       try {
         this.txnManager.beginStateChange(Option.of(compactionInstant), Option.empty());
+        preCommit(metadata, false);
         finalizeWrite(table, compactionCommitTime, writeStats);
         // commit to data table after committing to metadata table.
         writeToMetadataTable(table, compactionCommitTime, metadata, partialMetadataWriteStats);
@@ -465,7 +470,7 @@ public abstract class BaseHoodieTableServiceClient<I, T, O> extends BaseHoodieCl
         logCompactionCommitTime);
     try {
       this.txnManager.beginStateChange(Option.of(logCompactionInstant), Option.empty());
-      preCommit(metadata);
+      preCommit(metadata, true);
       finalizeWrite(table, logCompactionCommitTime, writeStats);
       // commit to data table after committing to metadata table.
       writeToMetadataTable(table, logCompactionCommitTime, metadata, partialMetadataWriteStats);
@@ -600,8 +605,8 @@ public abstract class BaseHoodieTableServiceClient<I, T, O> extends BaseHoodieCl
       finalizeWrite(table, clusteringCommitTime, writeStats);
       // Only in some cases conflict resolution needs to be performed.
       // So, check if preCommit method that does conflict resolution needs to be triggered.
-      if (isPreCommitRequired()) {
-        preCommit(replaceCommitMetadata);
+      if (isPreCommitRequired() || !config.getRollingMetadataKeys().isEmpty()) {
+        preCommit(replaceCommitMetadata, isPreCommitRequired());
       }
       // Update table's metadata (table)
       writeToMetadataTable(table, clusteringInstant.requestedTime(), replaceCommitMetadata, partialMetadataWriteStats);
