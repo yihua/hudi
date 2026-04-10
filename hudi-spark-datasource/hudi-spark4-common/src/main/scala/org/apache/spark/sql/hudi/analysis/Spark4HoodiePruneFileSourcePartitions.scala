@@ -105,19 +105,14 @@ private object Spark4HoodiePruneFileSourcePartitions extends PredicateHelper {
     Project(projects, withFilter)
   }
 
-  private def logicalAttributeName(attr: AttributeReference): String = {
-    HoodieFileIndex.stripExprIdSuffix(attr.name)
-  }
-
   /**
    * Returns true if the given attribute references a partition column. An attribute references a
-   * partition column if its logical name (without #exprId) equals a partition column name or
-   * is the struct parent of a nested partition path (e.g. nested_record for nested_record.level).
+   * partition column if its name equals a partition column name or is the struct parent of a
+   * nested partition path (e.g. nested_record for nested_record.level).
    */
   private def isPartitionColumnReference(attr: AttributeReference, partitionSchema: StructType): Boolean = {
-    val logicalName = logicalAttributeName(attr)
-    partitionSchema.names.contains(logicalName) ||
-      partitionSchema.names.exists(_.startsWith(logicalName + "."))
+    partitionSchema.names.contains(attr.name) ||
+      partitionSchema.names.exists(_.startsWith(attr.name + "."))
   }
 
   def getPartitionFiltersAndDataFilters(partitionSchema: StructType,

@@ -647,7 +647,7 @@ object HoodieFileIndex extends Logging {
       //    (guards against mixed expressions like "nested_record.level = 'INFO' AND int_field > 0")
       structFieldPaths.nonEmpty &&
         structFieldPaths.forall(partitionColumnNames.contains) &&
-        expr.references.map(r => stripExprIdSuffix(r.name)).forall(partitionColumnRoots.contains)
+        expr.references.map(_.name).forall(partitionColumnRoots.contains)
     }
   }
 
@@ -674,18 +674,11 @@ object HoodieFileIndex extends Logging {
    */
   private[hudi] def resolveGetStructFieldPath(expr: Expression): Option[String] = expr match {
     case GetStructField(child: AttributeReference, _, Some(fieldName)) =>
-      Some(stripExprIdSuffix(child.name) + "." + fieldName)
+      Some(child.name + "." + fieldName)
     case GetStructField(child: GetStructField, _, Some(fieldName)) =>
       resolveGetStructFieldPath(child).map(_ + "." + fieldName)
     case _ => None
   }
-
-  /**
-   * Strips Spark's internal exprId suffix (e.g. `#136`) from an attribute name.
-   * Filter expressions may reference columns with these suffixed names (e.g. `nested_record#136`),
-   * while partition schema uses logical names (e.g. `nested_record`).
-   */
-  private[hudi] def stripExprIdSuffix(name: String): String = name.replaceAll("#\\d+$", "")
 
   def collectReferencedColumns(spark: SparkSession, queryFilters: Seq[Expression], schema: StructType): Seq[String] = {
     val resolver = spark.sessionState.analyzer.resolver
