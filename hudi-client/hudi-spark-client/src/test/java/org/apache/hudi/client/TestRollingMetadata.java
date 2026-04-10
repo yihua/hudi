@@ -333,7 +333,7 @@ class TestRollingMetadata extends SparkClientFunctionalTestHarness {
           Option.empty(), metaClient.getCommitActionType());
     }
 
-    // Then: Verify that commit 2 and 3 have the rolling metadata (within walkback limit)
+    // Then: Verify that commits 2 and 3 do NOT have rolling metadata (written with configNoRollingMetadata)
     metaClient = HoodieTableMetaClient.reload(metaClient);
     List<HoodieInstant> commits = metaClient.getActiveTimeline().getCommitsTimeline().filterCompletedInstants().getInstantsAsStream()
         .collect(Collectors.toList());

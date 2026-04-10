@@ -402,12 +402,11 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
       }
 
       // Add found rolling metadata to current commit
-      int rolledForwardCount = 0;
       for (Map.Entry<String, String> entry : foundRollingMetadata.entrySet()) {
         metadata.addMetadata(entry.getKey(), entry.getValue());
-        rolledForwardCount++;
       }
 
+      int rolledForwardCount = foundRollingMetadata.size();
       int updatedCount = rollingKeys.size() - remainingKeys.size() - rolledForwardCount;
 
       if (rolledForwardCount > 0 || updatedCount > 0 || !remainingKeys.isEmpty()) {
@@ -422,10 +421,8 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
       }
 
     } catch (IOException e) {
-      log.error("Failed to read previous commit metadata for rolling metadata keys: {}. "
-          +
-          "Rolling metadata will not be carried forward for this commit.", rollingKeys, e);
-      // Don't fail the commit - rolling metadata is a convenience feature
+      log.error("Failed to read previous commit metadata for rolling metadata keys: {}.", rollingKeys, e);
+      throw new HoodieIOException("Failed to read previous commit metadata for rolling metadata keys: " + rollingKeys, e);
     }
   }
 }

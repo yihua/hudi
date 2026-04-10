@@ -101,6 +101,14 @@ public class TestRollingMetadataSpark extends SparkClientFunctionalTestHarness {
         .anyMatch(i -> i.getAction().equals(HoodieTimeline.COMMIT_ACTION));
     assertTrue(hasCompaction, "Inline compaction should have been triggered");
 
+    // Then: Verify the compaction commit itself carries the rolling metadata
+    HoodieInstant compactionInstant = writeTimeline.getInstantsAsStream()
+        .filter(i -> i.getAction().equals(HoodieTimeline.COMMIT_ACTION))
+        .reduce((a, b) -> b).get();
+    HoodieCommitMetadata compactionMetadata = TimelineUtils.getCommitMetadata(compactionInstant, metaClient.getActiveTimeline());
+    assertEquals("1000", compactionMetadata.getMetadata("checkpoint.offset"),
+        "Compaction commit itself should contain rolling metadata");
+
     // When: Third delta commit after compaction, no rolling metadata provided
     String instant3 = client.createNewInstantTime(false);
     List<HoodieRecord> records3 = dataGen.generateInserts(instant3, 10);
@@ -135,6 +143,7 @@ public class TestRollingMetadataSpark extends SparkClientFunctionalTestHarness {
     HoodieWriteConfig config = getConfigBuilder(true)
         .withPath(metaClient.getBasePath())
         .withRollingMetadataKeys("checkpoint.offset,checkpoint.partition")
+        .withRollingMetadataTimelineLookbackCommits(1)
         .withClusteringConfig(HoodieClusteringConfig.newBuilder()
             .withClusteringMaxNumGroups(10)
             .withClusteringTargetPartitions(0)
@@ -182,18 +191,18 @@ public class TestRollingMetadataSpark extends SparkClientFunctionalTestHarness {
         .anyMatch(i -> i.getAction().equals(HoodieTimeline.REPLACE_COMMIT_ACTION)
             || i.getAction().equals(HoodieTimeline.CLUSTERING_ACTION));
 
-    if (hasClustering) {
-      // Find the clustering commit and verify it has rolling metadata
-      HoodieInstant clusteringInstant = writeTimeline.getInstantsAsStream()
-          .filter(i -> i.getAction().equals(HoodieTimeline.REPLACE_COMMIT_ACTION)
-              || i.getAction().equals(HoodieTimeline.CLUSTERING_ACTION))
-          .reduce((a, b) -> b).get();
-      HoodieCommitMetadata clusteringMetadata = TimelineUtils.getCommitMetadata(clusteringInstant, metaClient.getActiveTimeline());
-      assertEquals("6000", clusteringMetadata.getMetadata("checkpoint.offset"),
-          "Clustering commit should carry forward latest rolling metadata");
-      assertEquals("p1", clusteringMetadata.getMetadata("checkpoint.partition"),
-          "Clustering commit should carry forward rolling metadata from earlier commits");
-    }
+    assertTrue(hasClustering, "Inline clustering should have been triggered");
+
+    // Find the clustering commit and verify it has rolling metadata
+    HoodieInstant clusteringInstant = writeTimeline.getInstantsAsStream()
+        .filter(i -> i.getAction().equals(HoodieTimeline.REPLACE_COMMIT_ACTION)
+            || i.getAction().equals(HoodieTimeline.CLUSTERING_ACTION))
+        .reduce((a, b) -> b).get();
+    HoodieCommitMetadata clusteringMetadata = TimelineUtils.getCommitMetadata(clusteringInstant, metaClient.getActiveTimeline());
+    assertEquals("6000", clusteringMetadata.getMetadata("checkpoint.offset"),
+        "Clustering commit should carry forward latest rolling metadata");
+    assertEquals("p1", clusteringMetadata.getMetadata("checkpoint.partition"),
+        "Clustering commit should carry forward rolling metadata from earlier commits");
 
     // When: Third commit after clustering, no rolling metadata provided
     String instant3 = client.createNewInstantTime(false);
