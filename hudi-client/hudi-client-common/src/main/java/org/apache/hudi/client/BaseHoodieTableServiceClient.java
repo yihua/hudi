@@ -1198,6 +1198,11 @@ public abstract class BaseHoodieTableServiceClient<I, T, O> extends BaseHoodieCl
                 .findFirst()).isEmpty()) {
               // Assume rollback is already executed since the commit is no longer present in the timeline
               return false;
+            } else {
+              // No pending rollback and commit is present — schedule a fresh rollback
+              rollbackInstantTimeOpt = suppliedRollbackInstantTime.or(() -> Option.of(createNewInstantTime(false)));
+              heartbeatClient.start(rollbackInstantTimeOpt.get());
+              rollbackPlanOption = table.scheduleRollback(context, rollbackInstantTimeOpt.get(), commitInstantOpt.get(), false, config.shouldRollbackUsingMarkers(), false);
             }
           } else {
             // Case where no pending rollback is present,
@@ -1206,9 +1211,6 @@ public abstract class BaseHoodieTableServiceClient<I, T, O> extends BaseHoodieCl
               return false;
             }
             rollbackInstantTimeOpt = suppliedRollbackInstantTime.or(() -> Option.of(createNewInstantTime(false)));
-            if (config.isExclusiveRollbackEnabled()) {
-              heartbeatClient.start(rollbackInstantTimeOpt.get());
-            }
             rollbackPlanOption = table.scheduleRollback(context, rollbackInstantTimeOpt.get(), commitInstantOpt.get(), false, config.shouldRollbackUsingMarkers(), false);
           }
         } finally {
