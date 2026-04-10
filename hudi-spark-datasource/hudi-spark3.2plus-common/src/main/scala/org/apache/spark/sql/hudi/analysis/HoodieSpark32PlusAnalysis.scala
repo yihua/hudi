@@ -17,11 +17,12 @@
 
 package org.apache.spark.sql.hudi.analysis
 
-import org.apache.hadoop.fs.Path
 import org.apache.hudi.{DataSourceReadOptions, DefaultSource, SparkAdapterSupport}
+
+import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.HoodieSpark3CatalystPlanUtils.MatchResolvedTable
 import org.apache.spark.sql.catalyst.analysis.SimpleAnalyzer.resolveExpressionByPlanChildren
-import org.apache.spark.sql.catalyst.analysis.{AnalysisErrorAt, EliminateSubqueryAliases, NamedRelation, UnresolvedAttribute, UnresolvedPartitionSpec}
+import org.apache.spark.sql.catalyst.analysis.{EliminateSubqueryAliases, NamedRelation, UnresolvedAttribute, UnresolvedPartitionSpec}
 import org.apache.spark.sql.catalyst.catalog.{CatalogTable, CatalogUtils}
 import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.catalyst.plans.logcal.{HoodieQuery, HoodieTableChanges, HoodieTableChangesOptionsParser}
@@ -30,6 +31,7 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.connector.catalog.CatalogV2Implicits.IdentifierHelper
 import org.apache.spark.sql.connector.catalog.{Table, V1Table}
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
+import org.apache.spark.sql.execution.command.DescribeTableCommand
 import org.apache.spark.sql.execution.datasources.{DataSource, LogicalRelation}
 import org.apache.spark.sql.hudi.HoodieSqlCommonUtils.isMetaField
 import org.apache.spark.sql.hudi.ProvidesHoodieConfig
@@ -138,7 +140,14 @@ case class HoodieSpark32PlusResolveReferences(spark: SparkSession) extends Rule[
       lazy val analyzer = spark.sessionState.analyzer
       val targetTable = if (targetTableO.resolved) targetTableO else analyzer.execute(targetTableO)
       val sourceTable = if (sourceTableO.resolved) sourceTableO else analyzer.execute(sourceTableO)
-      val m = mO.asInstanceOf[MergeIntoTable].copy(targetTable = targetTable, sourceTable = sourceTable)
+      val mergeIntoTable = mO.asInstanceOf[MergeIntoTable]
+      // Use positional parameters to avoid NoSuchMethodError when method signature changes between Spark versions
+      val m = mergeIntoTable.copy(
+        targetTable = targetTable,
+        sourceTable = sourceTable,
+        mergeCondition = mergeIntoTable.mergeCondition,
+        matchedActions = mergeIntoTable.matchedActions,
+        notMatchedActions = mergeIntoTable.notMatchedActions)
       // END: custom Hudi change
       EliminateSubqueryAliases(targetTable) match {
         case r: NamedRelation if r.skipSchemaResolution =>
@@ -279,6 +288,9 @@ case class HoodieSpark32PlusPostAnalysisRule(sparkSession: SparkSession) extends
           purge,
           retainData = true
         )
+
+      case DescribeRelation(MatchResolvedTable(_, id, HoodieV1OrV2Table(_)), partitionSpec, isExtended, output) =>
+        DescribeTableCommand(id.asTableIdentifier, partitionSpec, isExtended, output)
 
       case _ => plan
     }

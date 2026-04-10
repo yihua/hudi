@@ -18,12 +18,17 @@
 
 package org.apache.parquet.avro;
 
+import org.apache.hudi.common.util.Option;
+
+import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericData;
 import org.apache.avro.specific.SpecificData;
 import org.apache.hadoop.fs.Path;
 import org.apache.parquet.hadoop.ParquetReader;
 import org.apache.parquet.hadoop.api.ReadSupport;
 import org.apache.parquet.io.InputFile;
+
+import static org.apache.parquet.avro.HoodieAvroParquetSchemaConverter.getAvroSchemaConverter;
 
 /**
  * Copy from org.apache.parquet.avro.AvroParquetReader.Builder.
@@ -35,10 +40,13 @@ public class HoodieAvroParquetReaderBuilder<T> extends ParquetReader.Builder<T> 
   private GenericData model = null;
   private boolean enableCompatibility = true;
   private boolean isReflect = true;
+  private boolean isLogicalTimestampRepairNeeded;
+  private Schema tableSchema = null;
 
   @Deprecated
-  public HoodieAvroParquetReaderBuilder(Path path) {
+  public HoodieAvroParquetReaderBuilder(Path path, boolean isLogicalTimestampRepairNeeded) {
     super(path);
+    this.isLogicalTimestampRepairNeeded = isLogicalTimestampRepairNeeded;
   }
 
   public HoodieAvroParquetReaderBuilder(InputFile file) {
@@ -67,6 +75,11 @@ public class HoodieAvroParquetReaderBuilder<T> extends ParquetReader.Builder<T> 
     return this;
   }
 
+  public HoodieAvroParquetReaderBuilder<T> withTableSchema(Schema tableSchema) {
+    this.tableSchema = tableSchema;
+    return this;
+  }
+
   @Override
   protected ReadSupport<T> getReadSupport() {
     if (isReflect) {
@@ -74,6 +87,7 @@ public class HoodieAvroParquetReaderBuilder<T> extends ParquetReader.Builder<T> 
     } else {
       conf.setBoolean(AvroReadSupport.AVRO_COMPATIBILITY, enableCompatibility);
     }
-    return new HoodieAvroReadSupport<>(model);
+    return new HoodieAvroReadSupport<>(model, Option.ofNullable(tableSchema).map(schema -> getAvroSchemaConverter(conf).convert(schema)),
+        isLogicalTimestampRepairNeeded);
   }
 }
