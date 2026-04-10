@@ -16,9 +16,9 @@
  * limitations under the License.
  */
 {
-  "type": "record",
-  "name": "triprec",
-  "fields": [
+  "type" : "record",
+  "name" : "triprec",
+  "fields" : [
     {
       "name": "timestamp",
       "type": "long"
@@ -33,7 +33,16 @@
     },
     {
       "name": "trip_type",
-      "type": "string"
+      "type": {
+        "type": "enum",
+        "name": "TripType",
+        "symbols": [
+          "UNKNOWN",
+          "UBERX",
+          "BLACK"
+        ],
+        "default": "UNKNOWN"
+      }
     },
     {
       "name": "rider",
@@ -84,14 +93,16 @@
     },
     {
       "name": "current_ts",
-      "type": "long"
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      }
     },
     {
       "name": "height",
       "type": {
         "type": "fixed",
-        "name": "fixed",
-        "namespace": "triprec.height",
+        "name": "abc",
         "size": 5,
         "logicalType": "decimal",
         "precision": 10,
@@ -110,7 +121,6 @@
       "type": {
         "type": "record",
         "name": "fare",
-        "namespace": "triprec",
         "fields": [
           {
             "name": "amount",
@@ -130,7 +140,6 @@
         "items": {
           "type": "record",
           "name": "tip_history",
-          "namespace": "triprec",
           "fields": [
             {
               "name": "amount",
@@ -146,15 +155,8 @@
     },
     {
       "name": "_hoodie_is_deleted",
-      "type": "boolean"
-    },
-    {
-      "name": "evoluted_optional_union_field",
-      "type": [
-        "null",
-        "string"
-      ],
-      "default": null
+      "type": "boolean",
+      "default": false
     }
   ]
 }

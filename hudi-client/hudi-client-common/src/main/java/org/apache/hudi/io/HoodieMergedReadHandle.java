@@ -19,6 +19,7 @@
 
 package org.apache.hudi.io;
 
+import org.apache.hudi.avro.AvroSchemaUtils;
 import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieLogFile;
@@ -54,14 +55,16 @@ public class HoodieMergedReadHandle<T, I, K, O> extends HoodieReadHandle<T, I, K
   protected final Schema readerSchema;
   protected final Schema baseFileReaderSchema;
 
-  public HoodieMergedReadHandle(HoodieWriteConfig config,
-                                Option<String> instantTime,
-                                HoodieTable<T, I, K, O> hoodieTable,
-                                Pair<String, String> partitionPathFileIDPair) {
+  public HoodieMergedReadHandle(HoodieWriteConfig config, Option<String> instantTime,
+                                HoodieTable<T, I, K, O> hoodieTable, Pair<String, String> partitionPathFileIDPair,
+                                boolean hasTimestampFields) {
     super(config, instantTime, hoodieTable, partitionPathFileIDPair);
-    readerSchema = HoodieAvroUtils.addMetadataFields(new Schema.Parser().parse(config.getSchema()), config.allowOperationMetadataField());
+    Schema orignalReaderSchema = HoodieAvroUtils.addMetadataFields(new Schema.Parser().parse(config.getSchema()), config.allowOperationMetadataField());
     // config.getSchema is not canonicalized, while config.getWriteSchema is canonicalized. So, we have to use the canonicalized schema to read the existing data.
-    baseFileReaderSchema = HoodieAvroUtils.addMetadataFields(new Schema.Parser().parse(config.getWriteSchema()), config.allowOperationMetadataField());
+    this.baseFileReaderSchema = HoodieAvroUtils.addMetadataFields(new Schema.Parser().parse(config.getWriteSchema()), config.allowOperationMetadataField());
+    // Repair reader schema.
+    // Assume writer schema should be correct. If not, no repair happens.
+    readerSchema = hasTimestampFields ? AvroSchemaUtils.getRepairedSchema(orignalReaderSchema, this.baseFileReaderSchema) : orignalReaderSchema;
   }
 
   public List<HoodieRecord<T>> getMergedRecords() {
