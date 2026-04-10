@@ -81,7 +81,7 @@ case class Spark4HoodiePruneFileSourcePartitions(spark: SparkSession) extends Ru
 
 }
 
-private object Spark4HoodiePruneFileSourcePartitions extends PredicateHelper {
+private[analysis] object Spark4HoodiePruneFileSourcePartitions extends PredicateHelper {
 
   private val exprUtils = sparkAdapter.getCatalystExpressionUtils
 
@@ -106,13 +106,13 @@ private object Spark4HoodiePruneFileSourcePartitions extends PredicateHelper {
   }
 
   /**
-   * Returns true if the given attribute references a partition column. An attribute references a
-   * partition column if its name equals a partition column name or is the struct parent of a
-   * nested partition path (e.g. nested_record for nested_record.level).
+   * Returns true if the given attribute references a partition column. For nested partition columns
+   * (e.g. `nested_record.level`), `partitionSchema` is the nested [[StructType]] from
+   * `partitionSchemaForSpark`, so the top-level name is the struct root (e.g. `nested_record`),
+   * which matches `attr.name` directly via `contains`.
    */
   private def isPartitionColumnReference(attr: AttributeReference, partitionSchema: StructType): Boolean = {
-    partitionSchema.names.contains(attr.name) ||
-      partitionSchema.names.exists(_.startsWith(attr.name + "."))
+    partitionSchema.names.contains(attr.name)
   }
 
   def getPartitionFiltersAndDataFilters(partitionSchema: StructType,

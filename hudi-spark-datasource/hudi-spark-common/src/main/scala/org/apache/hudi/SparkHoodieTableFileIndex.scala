@@ -46,7 +46,7 @@ import org.apache.spark.api.java.JavaSparkContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.{expressions, InternalRow}
-import org.apache.spark.sql.catalyst.expressions.{AttributeReference, BasePredicate, BoundReference, EmptyRow, EqualTo, Expression, GetStructField, InterpretedPredicate, IsNotNull, IsNull, Literal}
+import org.apache.spark.sql.catalyst.expressions.{AttributeReference, BasePredicate, BoundReference, EmptyRow, EqualTo, Expression, GetStructField, InterpretedPredicate, Literal}
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.execution.datasources.{FileStatusCache, NoopCache}
 import org.apache.spark.sql.internal.SQLConf
@@ -257,15 +257,34 @@ class SparkHoodieTableFileIndex(spark: SparkSession,
   def listMatchingPartitionPaths(predicates: Seq[Expression]): Seq[PartitionPath] = {
     val resolve = spark.sessionState.analyzer.resolver
     val partitionColumnNames = getPartitionColumns
-    val partitionPruningPredicates = predicates.filter {
-      _.references.map(_.name).forall { ref =>
-        // NOTE: We're leveraging Spark's resolver here to appropriately handle case-sensitivity.
-        // For nested partition columns (e.g. nested_record.level), ref may be the struct root
-        // (e.g. nested_record); match when ref equals partCol or is a prefix of partCol.
-        partitionColumnNames.exists(partCol =>
-          resolve(ref, partCol) || partCol.startsWith(ref + "."))
-      }
+
+    // Resolve a GetStructField chain to its full dot-path (e.g. "nested_record.level").
+    def getFieldPath(expr: Expression): Option[String] = expr match {
+      case a: AttributeReference => Some(a.name)
+      case GetStructField(child, _, Some(fieldName)) =>
+        getFieldPath(child).map(_ + "." + fieldName)
+      case _ => None
     }
+
+    // Returns true if every column reference in the expression resolves to a partition column.
+    // For flat columns (e.g. "country"), checks AttributeReference.name directly.
+    // For nested columns (e.g. "nested_record.level"), walks GetStructField chains to build
+    // the full dot-path and checks whether it matches a partition column name.
+    // This avoids the overly broad struct-parent prefix matching that would misclassify
+    // filters on non-partition nested fields (e.g. "nested_record.nested_int") as partition filters.
+    def referencesOnlyPartitionColumns(expr: Expression): Boolean = expr match {
+      case g: GetStructField =>
+        getFieldPath(g).exists(path => partitionColumnNames.exists(pc => resolve(path, pc)))
+      case _: AttributeReference =>
+        // Flat attribute — check if it's a partition column directly
+        partitionColumnNames.exists(pc => resolve(expr.asInstanceOf[AttributeReference].name, pc))
+      case _ =>
+        // For compound expressions (And, Or, EqualTo, etc.), all children must reference
+        // only partition columns. Literals have no children and pass vacuously.
+        expr.children.forall(referencesOnlyPartitionColumns)
+    }
+
+    val partitionPruningPredicates = predicates.filter(referencesOnlyPartitionColumns)
 
     if (partitionPruningPredicates.isEmpty) {
       val queryPartitionPaths = getAllQueryPartitionPaths.asScala.toSeq
@@ -292,38 +311,13 @@ class SparkHoodieTableFileIndex(spark: SparkSession,
       if (haveProperPartitionValues(partitionPaths.toSeq) && partitionSchema.nonEmpty) {
         val predicate = partitionPruningPredicates.reduce(expressions.And)
         val partitionFieldNames = partitionSchema.fieldNames
-        def getPartitionColumnPath(expr: Expression): Option[String] = expr match {
-          case a: AttributeReference =>
-            Some(a.name)
-          case GetStructField(child, _, Some(fieldName)) =>
-            getPartitionColumnPath(child).map(_ + "." + fieldName)
-          case _ => None
-        }
         val transformedPredicate = predicate.transform {
           case g @ GetStructField(_, _, Some(_)) =>
-            getPartitionColumnPath(g).flatMap { path =>
-              val idx = partitionFieldNames.indexOf(path)
+            getFieldPath(g).flatMap { path =>
+              val idx = partitionFieldNames.indexWhere(name => resolve(path, name))
               if (idx >= 0) Some(BoundReference(idx, partitionSchema(idx).dataType, nullable = true))
               else None
             }.getOrElse(g)
-          // NOTE: Spark's optimizer auto-adds IsNotNull(struct_attr) when a nested field is
-          // filtered (e.g. IsNotNull(nested_record) for filter nested_record.level = 'INFO').
-          // The struct attribute cannot be directly bound to a flat partition value.
-          // Since partition rows are parsed from partition paths they are never null, so
-          // IsNotNull for any expression whose references are all struct-parents of nested
-          // partition columns is always true (and IsNull always false).
-          // We match on the expression's references rather than requiring the child to be a
-          // plain AttributeReference, because the optimizer may wrap it in casts or other nodes.
-          case n @ IsNotNull(_)
-            if n.references.map(_.name).nonEmpty &&
-               n.references.map(_.name).forall { ref =>
-                 partitionFieldNames.exists(_.startsWith(ref + "."))
-               } => Literal(true)
-          case n @ IsNull(_)
-            if n.references.map(_.name).nonEmpty &&
-               n.references.map(_.name).forall { ref =>
-                 partitionFieldNames.exists(_.startsWith(ref + "."))
-               } => Literal(false)
           case a: AttributeReference =>
             val index = partitionSchema.indexWhere(sf => resolve(a.name, sf.name))
             if (index >= 0) BoundReference(index, partitionSchema(index).dataType, nullable = true)
