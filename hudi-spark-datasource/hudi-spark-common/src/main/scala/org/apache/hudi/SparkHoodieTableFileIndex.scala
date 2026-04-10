@@ -150,11 +150,8 @@ class SparkHoodieTableFileIndex(spark: SparkSession,
         val partitionFields: Array[StructField] = partitionColumns.get().map(column => StructField(column, StringType))
         StructType(partitionFields)
       } else {
-        // Use full partition path (e.g. "nested_record.level") as the partition column name so that
-        // data schema does not exclude a same-named top-level column (e.g. "level") when partition
-        // path is a nested field. Otherwise partition value would overwrite the data column on read.
         val partitionFields: Array[StructField] = partitionColumns.get().filter(column => nameFieldMap.contains(column))
-          .map(column => StructField(column, nameFieldMap.apply(column).dataType))
+          .map(column => nameFieldMap.apply(column))
 
         if (partitionFields.length != partitionColumns.get().length) {
           val isBootstrapTable = tableConfig.getBootstrapBasePath.isPresent
@@ -262,12 +259,11 @@ class SparkHoodieTableFileIndex(spark: SparkSession,
     val partitionColumnNames = getPartitionColumns
     val partitionPruningPredicates = predicates.filter {
       _.references.map(_.name).forall { ref =>
-        val logicalRef = HoodieFileIndex.stripExprIdSuffix(ref)
         // NOTE: We're leveraging Spark's resolver here to appropriately handle case-sensitivity.
         // For nested partition columns (e.g. nested_record.level), ref may be the struct root
-        // (e.g. nested_record#136); match when logicalRef equals partCol or is a prefix of partCol.
+        // (e.g. nested_record); match when ref equals partCol or is a prefix of partCol.
         partitionColumnNames.exists(partCol =>
-          resolve(logicalRef, partCol) || partCol.startsWith(logicalRef + "."))
+          resolve(ref, partCol) || partCol.startsWith(ref + "."))
       }
     }
 
@@ -298,7 +294,7 @@ class SparkHoodieTableFileIndex(spark: SparkSession,
         val partitionFieldNames = partitionSchema.fieldNames
         def getPartitionColumnPath(expr: Expression): Option[String] = expr match {
           case a: AttributeReference =>
-            Some(HoodieFileIndex.stripExprIdSuffix(a.name))
+            Some(a.name)
           case GetStructField(child, _, Some(fieldName)) =>
             getPartitionColumnPath(child).map(_ + "." + fieldName)
           case _ => None
@@ -321,18 +317,15 @@ class SparkHoodieTableFileIndex(spark: SparkSession,
           case n @ IsNotNull(_)
             if n.references.map(_.name).nonEmpty &&
                n.references.map(_.name).forall { ref =>
-                 val logicalName = HoodieFileIndex.stripExprIdSuffix(ref)
-                 partitionFieldNames.exists(_.startsWith(logicalName + "."))
+                 partitionFieldNames.exists(_.startsWith(ref + "."))
                } => Literal(true)
           case n @ IsNull(_)
             if n.references.map(_.name).nonEmpty &&
                n.references.map(_.name).forall { ref =>
-                 val logicalName = HoodieFileIndex.stripExprIdSuffix(ref)
-                 partitionFieldNames.exists(_.startsWith(logicalName + "."))
+                 partitionFieldNames.exists(_.startsWith(ref + "."))
                } => Literal(false)
           case a: AttributeReference =>
-            val logicalName = HoodieFileIndex.stripExprIdSuffix(a.name)
-            val index = partitionSchema.indexWhere(sf => resolve(logicalName, sf.name))
+            val index = partitionSchema.indexWhere(sf => resolve(a.name, sf.name))
             if (index >= 0) BoundReference(index, partitionSchema(index).dataType, nullable = true)
             else a
         }
@@ -674,13 +667,22 @@ object SparkHoodieTableFileIndex extends SparkAdapterSupport {
    *   "a.c" -> StructField("c", IntType),
    * </pre>
    */
+  /**
+   * Builds a map from dot-path field names to [[StructField]]s for all leaf fields in a schema.
+   * For nested structs, both the key and the [[StructField.name]] use the full dot-path.
+   * E.g. for schema `StructType(StructField("a", StructType(StructField("b", IntegerType))))`,
+   * returns `Map("a.b" -> StructField("a.b", IntegerType))`.
+   */
   private def generateFieldMap(structType: StructType) : Map[String, StructField] = {
     def traverse(structField: Either[StructField, StructType]) : Map[String, StructField] = {
       structField match {
         case Right(struct) => struct.fields.flatMap(f => traverse(Left(f))).toMap
         case Left(field) => field.dataType match {
           case struct: StructType => traverse(Right(struct)).map {
-            case (key, structField)  => (s"${field.name}.$key", structField)
+            case (key, structField)  => {
+              val fullPath = s"${field.name}.$key"
+              (fullPath, structField.copy(name = fullPath))
+            }
           }
           case _ => Map(field.name -> field)
         }
