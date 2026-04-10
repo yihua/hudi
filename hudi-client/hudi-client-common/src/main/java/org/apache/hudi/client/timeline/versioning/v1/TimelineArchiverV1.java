@@ -289,8 +289,8 @@ public class TimelineArchiverV1<T extends HoodieAvroPayload, I, K, O> implements
                   cleanMetadata.getEarliestCommitToRetain(), lastCleanInstant.get().requestedTime());
             }
           } catch (IOException e) {
-            log.warn("Failed to read clean metadata for {}, skipping ECTR check", lastCleanInstant.get(), e);
-            throw new HoodieIOException("Failed to read clean metadata for " + lastCleanInstant.get() + ", skipping ECTR check", e);
+            log.warn("Failed to read clean metadata for {}", lastCleanInstant.get(), e);
+            throw new HoodieIOException("Failed to read clean metadata for " + lastCleanInstant.get(), e);
           }
         }
       }
