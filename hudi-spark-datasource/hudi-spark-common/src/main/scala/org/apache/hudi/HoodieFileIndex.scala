@@ -191,11 +191,20 @@ case class HoodieFileIndex(spark: SparkSession,
   override def listFiles(partitionFilters: Seq[Expression], dataFilters: Seq[Expression]): Seq[PartitionDirectory] = {
     // When partitionFilters is empty and the table has nested partition columns, the nested
     // partition predicates were misclassified into dataFilters by FileSourceScanExec (because
-    // the flat dot-path partition schema cannot match GetStructField expressions).  Pass
-    // dataFilters as the partition filters so that listMatchingPartitionPaths can extract
-    // and apply the nested partition predicates.
+    // the flat dot-path partition schema cannot match GetStructField expressions).  Extract
+    // only the data filters that reference nested partition columns and use those for partition
+    // pruning.  We must not pass unrelated data filters as partition filters, because
+    // prunePartitionsAndGetFileSlices branches on partitionFilters.nonEmpty — passing non-empty
+    // but partition-irrelevant filters would skip the PARTITION_STATS index pruning path.
     val effectivePartitionFilters = if (partitionFilters.isEmpty && hasNestedPartitionColumns) {
-      dataFilters
+      val partitionColumnNames = getPartitionColumns
+      dataFilters.filter { expr =>
+        expr.references.nonEmpty && expr.references.map(_.name).forall { ref =>
+          val logicalRef = ref.replaceAll("#\\d+$", "")
+          partitionColumnNames.exists(partCol =>
+            partCol.startsWith(logicalRef + ".") || spark.sessionState.analyzer.resolver(logicalRef, partCol))
+        }
+      }
     } else {
       partitionFilters
     }
