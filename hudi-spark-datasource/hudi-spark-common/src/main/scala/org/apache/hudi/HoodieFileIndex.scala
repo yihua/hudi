@@ -204,12 +204,10 @@ case class HoodieFileIndex(spark: SparkSession,
    * == Performance ==
    *
    * [[HoodiePruneFileSourcePartitions]] also calls [[filterFileSlices]] during logical
-   * optimization (for plan statistics), so partition pruning and data skipping may run twice —
-   * once during planning and once here during execution.  This is the same behavior as regular
-   * (non-nested) partition columns.  Partition path listing is cached internally by
-   * [[SparkHoodieTableFileIndex]], but metadata table lookups for data skipping are not cached
-   * and will execute twice.  A future optimization could cache the data-skipping result keyed
-   * by the query execution ID to avoid the redundant metadata table lookup.
+   * optimization, but with `isPartitionPruneOnly = true` which skips the expensive metadata
+   * table lookup for data skipping.  Data skipping runs only once — here during execution.
+   * Partition path listing may run twice (planning + execution) but is cached internally by
+   * [[SparkHoodieTableFileIndex]].
    */
   override def listFiles(partitionFilters: Seq[Expression], dataFilters: Seq[Expression]): Seq[PartitionDirectory] = {
     // When partitionFilters is empty and the table has nested partition columns, the nested
@@ -286,9 +284,13 @@ case class HoodieFileIndex(spark: SparkSession,
    *
    * @param dataFilters data columns filters
    * @param partitionFilters partition column filters
+   * @param isPartitionPruneOnly when true, skip data skipping (metadata table lookup) and only prune partitions.
+   *                             Set to true by [[HoodiePruneFileSourcePartitions]] which only needs partition
+   *                             pruning for plan statistics — data skipping will run later in [[listFiles]].
    * @return A sequence of pruned partitions and corresponding filtered file slices
    */
-  def filterFileSlices(dataFilters: Seq[Expression], partitionFilters: Seq[Expression])
+  def filterFileSlices(dataFilters: Seq[Expression], partitionFilters: Seq[Expression],
+                       isPartitionPruneOnly: Boolean = false)
   : Seq[(Option[BaseHoodieTableFileIndex.PartitionPath], Seq[FileSlice])] = {
 
     val (isPruned, prunedPartitionsAndFileSlices) =
@@ -296,8 +298,11 @@ case class HoodieFileIndex(spark: SparkSession,
     hasPushedDownPartitionPredicates = true
 
     // If there are no data filters, return all the file slices.
+    // If isPartitionPruneOnly is true, this is called from HoodiePruneFileSourcePartitions for plan
+    // statistics only — skip the expensive metadata table lookup for data skipping, which will run
+    // later when listFiles calls filterFileSlices during execution.
     // If there are no file slices, return empty list.
-    val result = if (prunedPartitionsAndFileSlices.isEmpty || dataFilters.isEmpty) {
+    val result = if (prunedPartitionsAndFileSlices.isEmpty || dataFilters.isEmpty || isPartitionPruneOnly) {
       prunedPartitionsAndFileSlices
     } else {
       // Look up candidate files names in the col-stats or record level index, if all of the following conditions are true
