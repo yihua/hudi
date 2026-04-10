@@ -106,13 +106,14 @@ case class HoodieFileIndex(spark: SparkSession,
   @transient protected var hasPushedDownPartitionPredicates: Boolean = false
 
   /**
-   * Partition-pruned file slices cached by [[HoodiePruneFileSourcePartitions]] (called before
-   * [[listFiles]]).  Non-null only when the optimizer rule has already run.  Used in
-   * [[listFiles]] to avoid re-running partition pruning from scratch for tables with nested
-   * partition columns where Spark's [[FileSourceScanExec]] passes empty `partitionFilters`
-   * (because the flat dot-path partition schema cannot match [[GetStructField]] expressions).
+   * True when any partition column name contains a dot, indicating a nested field path
+   * (e.g. "nested_record.level"). For such columns, Spark's [[FileSourceScanExec]] cannot
+   * match [[GetStructField]]-based filter references against the flat dot-path partition schema
+   * exposed by [[HadoopFsRelation]], and therefore passes empty `partitionFilters` to
+   * [[listFiles]]. We detect this and re-extract partition predicates from `dataFilters`.
    */
-  @transient private var cachedPrunedSlices: Option[Seq[(Option[PartitionPath], Seq[FileSlice])]] = None
+  private val hasNestedPartitionColumns: Boolean =
+    getPartitionColumns.exists(_.contains("."))
 
   /**
    * NOTE: [[indicesSupport]] is a transient state, since it's only relevant while logical plan
@@ -176,54 +177,35 @@ case class HoodieFileIndex(spark: SparkSession,
   /**
    * Invoked by Spark to fetch list of latest base files per partition.
    *
-   * When [[HoodiePruneFileSourcePartitions]] has already pushed down partition predicates and
-   * cached partition-pruned file slices, those cached slices are reused directly.  This is
-   * required for tables with nested partition columns (e.g. `nested_record.level`): because
-   * [[org.apache.spark.sql.execution.datasources.HadoopFsRelation]] exposes a flat dot-path partition schema, Spark's
-   * [[org.apache.spark.sql.execution.datasources.FileSourceScanExec]] cannot match
-   * [[org.apache.spark.sql.catalyst.expressions.GetStructField]]-based filter references against it and therefore passes empty
-   * `partitionFilters` here — which would cause all partitions to be scanned.
+   * For tables with nested partition columns (e.g. `nested_record.level`),
+   * [[org.apache.spark.sql.execution.datasources.HadoopFsRelation]] exposes a flat dot-path
+   * partition schema that Spark's [[org.apache.spark.sql.execution.datasources.FileSourceScanExec]]
+   * cannot match against [[org.apache.spark.sql.catalyst.expressions.GetStructField]]-based filter
+   * references, so it passes empty `partitionFilters` here.  In that case the nested partition
+   * predicates end up in `dataFilters` instead; we pass them through to [[filterFileSlices]] where
+   * [[listMatchingPartitionPaths]] knows how to extract and apply them for partition pruning.
+   *
+   * This approach is fully stateless — every call recomputes from the provided expressions —
+   * so it is safe under AQE re-planning, subqueries, and FileIndex instance reuse across queries.
    */
   override def listFiles(partitionFilters: Seq[Expression], dataFilters: Seq[Expression]): Seq[PartitionDirectory] = {
-    // Use the cached result from HoodiePruneFileSourcePartitions ONLY when FileSourceScanExec
-    // passes empty partitionFilters.  This is the signature of the nested-partition-column case:
-    // because HadoopFsRelation exposes a flat dot-path partition schema, FileSourceScanExec
-    // cannot match GetStructField-based filter references and therefore passes partitionFilters=[]
-    // here, which would cause all partitions to be scanned without the cache.
-    //
-    // For regular partition columns FileSourceScanExec always passes non-empty partitionFilters,
-    // so we call filterFileSlices fresh regardless of the cache.  This is critical for correctness:
-    // the cache may have been populated by a *different* query's HoodiePruneFileSourcePartitions
-    // run (e.g. from a .executedPlan.toString() call that triggers planning but not execution,
-    // leaving hasPushedDownPartitionPredicates=true with stale slices), and using it would return
-    // wrong rows for a query with different filters.
-    val usedCache = partitionFilters.isEmpty && cachedPrunedSlices.isDefined
-    val slices = if (usedCache) {
-      cachedPrunedSlices.get.flatMap { case (partitionOpt, fileSlices) =>
+    // When partitionFilters is empty and the table has nested partition columns, the nested
+    // partition predicates were misclassified into dataFilters by FileSourceScanExec (because
+    // the flat dot-path partition schema cannot match GetStructField expressions).  Pass
+    // dataFilters as the partition filters so that listMatchingPartitionPaths can extract
+    // and apply the nested partition predicates.
+    val effectivePartitionFilters = if (partitionFilters.isEmpty && hasNestedPartitionColumns) {
+      dataFilters
+    } else {
+      partitionFilters
+    }
+
+    val slices = filterFileSlices(dataFilters, effectivePartitionFilters).flatMap(
+      { case (partitionOpt, fileSlices) =>
         fileSlices.filter(!_.isEmpty).map(fs => (InternalRow.fromSeq(partitionOpt.get.getValues), fs))
       }
-    } else {
-      // A non-empty partitionFilters means we are on the regular-partition path and must compute
-      // fresh results.  Discard any stale cache so it cannot be picked up by a later
-      // nested-partition query on the same file-index instance.
-      cachedPrunedSlices = None
-      filterFileSlices(dataFilters, partitionFilters).flatMap(
-        { case (partitionOpt, fileSlices) =>
-          fileSlices.filter(!_.isEmpty).map(fs => (InternalRow.fromSeq(partitionOpt.get.getValues), fs))
-        }
-      )
-    }
-    val result = prepareFileSlices(slices)
-    if (usedCache) {
-      // Reset so that if this file-index instance is reused for a subsequent query execution
-      // (possible because HoodieTableMetaClient.equals is content-based, causing Spark's optimizer
-      // to treat two independently-created file indexes for the same table as equivalent and reuse
-      // one plan for both), HoodiePruneFileSourcePartitions will re-run and repopulate the cache
-      // with a fresh read of the table state rather than serving stale pre-mutation data.
-      hasPushedDownPartitionPredicates = false
-      cachedPrunedSlices = None
-    }
-    result
+    )
+    prepareFileSlices(slices)
   }
 
   protected def prepareFileSlices(slices: Seq[(InternalRow, FileSlice)]): Seq[PartitionDirectory] = {
@@ -263,10 +245,9 @@ case class HoodieFileIndex(spark: SparkSession,
    *
    * @param dataFilters data columns filters
    * @param partitionFilters partition column filters
-   * @param partitionPrune for HoodiePruneFileSourcePartitions rule only prune partitions
    * @return A sequence of pruned partitions and corresponding filtered file slices
    */
-  def filterFileSlices(dataFilters: Seq[Expression], partitionFilters: Seq[Expression], isPartitionPruned: Boolean = false)
+  def filterFileSlices(dataFilters: Seq[Expression], partitionFilters: Seq[Expression])
   : Seq[(Option[BaseHoodieTableFileIndex.PartitionPath], Seq[FileSlice])] = {
 
     val (isPruned, prunedPartitionsAndFileSlices) =
@@ -335,14 +316,6 @@ case class HoodieFileIndex(spark: SparkSession,
         s"skipping percentage $skippingRatio")
 
       prunedPartitionsAndFilteredFileSlices
-    }
-
-    // Cache the post-data-skipping slices so that the subsequent listFiles call (from
-    // FileSourceScanExec) can reuse them for tables with nested partition columns.
-    // The cache must be populated after data skipping so that listFiles does not re-read
-    // files that were already eliminated by column-stats.
-    if (isPartitionPruned) {
-      cachedPrunedSlices = Some(result)
     }
 
     result
