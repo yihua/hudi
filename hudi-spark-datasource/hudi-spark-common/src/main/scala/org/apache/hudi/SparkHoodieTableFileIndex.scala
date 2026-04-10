@@ -260,11 +260,9 @@ class SparkHoodieTableFileIndex(spark: SparkSession,
   def listMatchingPartitionPaths(predicates: Seq[Expression]): Seq[PartitionPath] = {
     val resolve = spark.sessionState.analyzer.resolver
     val partitionColumnNames = getPartitionColumns
-    // Strip Spark's internal exprId suffix (e.g. #136) so nested_record#136 matches nested_record.level
-    def logicalRefName(ref: String): String = ref.replaceAll("#\\d+$", "")
     val partitionPruningPredicates = predicates.filter {
       _.references.map(_.name).forall { ref =>
-        val logicalRef = logicalRefName(ref)
+        val logicalRef = HoodieFileIndex.stripExprIdSuffix(ref)
         // NOTE: We're leveraging Spark's resolver here to appropriately handle case-sensitivity.
         // For nested partition columns (e.g. nested_record.level), ref may be the struct root
         // (e.g. nested_record#136); match when logicalRef equals partCol or is a prefix of partCol.
@@ -300,7 +298,7 @@ class SparkHoodieTableFileIndex(spark: SparkSession,
         val partitionFieldNames = partitionSchema.fieldNames
         def getPartitionColumnPath(expr: Expression): Option[String] = expr match {
           case a: AttributeReference =>
-            Some(a.name.replaceAll("#\\d+$", ""))
+            Some(HoodieFileIndex.stripExprIdSuffix(a.name))
           case GetStructField(child, _, Some(fieldName)) =>
             getPartitionColumnPath(child).map(_ + "." + fieldName)
           case _ => None
@@ -323,17 +321,17 @@ class SparkHoodieTableFileIndex(spark: SparkSession,
           case n @ IsNotNull(_)
             if n.references.map(_.name).nonEmpty &&
                n.references.map(_.name).forall { ref =>
-                 val logicalName = ref.replaceAll("#\\d+$", "")
+                 val logicalName = HoodieFileIndex.stripExprIdSuffix(ref)
                  partitionFieldNames.exists(_.startsWith(logicalName + "."))
                } => Literal(true)
           case n @ IsNull(_)
             if n.references.map(_.name).nonEmpty &&
                n.references.map(_.name).forall { ref =>
-                 val logicalName = ref.replaceAll("#\\d+$", "")
+                 val logicalName = HoodieFileIndex.stripExprIdSuffix(ref)
                  partitionFieldNames.exists(_.startsWith(logicalName + "."))
                } => Literal(false)
           case a: AttributeReference =>
-            val logicalName = a.name.replaceAll("#\\d+$", "")
+            val logicalName = HoodieFileIndex.stripExprIdSuffix(a.name)
             val index = partitionSchema.indexWhere(sf => resolve(logicalName, sf.name))
             if (index >= 0) BoundReference(index, partitionSchema(index).dataType, nullable = true)
             else a

@@ -105,13 +105,8 @@ private object Spark3HoodiePruneFileSourcePartitions extends PredicateHelper {
     Project(projects, withFilter)
   }
 
-  /**
-   * Returns the logical name of an attribute by stripping Spark's internal exprId suffix (e.g. #136).
-   * Filter expressions may reference columns with these suffixed names (e.g. nested_record#136.level),
-   * while partition schema uses logical names (e.g. nested_record.level).
-   */
   private def logicalAttributeName(attr: AttributeReference): String = {
-    attr.name.replaceAll("#\\d+$", "")
+    HoodieFileIndex.stripExprIdSuffix(attr.name)
   }
 
   /**
