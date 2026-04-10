@@ -29,7 +29,10 @@ import org.apache.hudi.common.table.timeline.versioning.v2.InstantComparatorV2;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -196,27 +199,43 @@ class TestCleanerUtils {
 
   @Test
   void testGetEarliestCommitToRetain_WithMaxCommitsToClean_KeepLatestByHours() {
-    // Test scenario: KEEP_LATEST_BY_HOURS policy with capping
-    // We're testing that the capping logic is invoked for KEEP_LATEST_BY_HOURS policy
-    // Since KEEP_LATEST_BY_HOURS may return empty for test timelines, we just verify no exception
-    HoodieTimeline timeline = createMockTimeline(100);
+    // Test scenario: 100 commits spanning 10 hours, retain last 2 hours, maxCommitsToClean=10
+    // Commits are spaced ~6 min apart (100 commits over 10 hours).
+    // With hoursRetained=2, the BY_HOURS policy calculates an earliest commit to retain ~80% through the timeline.
+    // The previous clean was at commit 0, so all commits before the calculated earliest are eligible for cleaning.
+    // With maxCommitsToClean=10, capping should kick in and only allow cleaning 10 commits from commit 0.
+    Instant now = Instant.now();
+    ZonedDateTime nowUtc = ZonedDateTime.ofInstant(now, ZoneId.of("UTC"));
+    int numCommits = 100;
+    int totalHoursSpan = 10;
+
+    // Generate timestamps: commit 0 is 10 hours ago, commit 99 is now
+    List<String> timestamps = new ArrayList<>();
+    for (int i = 0; i < numCommits; i++) {
+      ZonedDateTime commitTime = nowUtc.minusHours(totalHoursSpan).plusMinutes((long) i * totalHoursSpan * 60 / numCommits);
+      String ts = org.apache.hudi.common.table.timeline.TimelineUtils.formatDate(Date.from(commitTime.toInstant()));
+      timestamps.add(ts);
+    }
+
+    HoodieTimeline timeline = createMockTimelineWithTimestamps(timestamps);
+    String previousCleanEarliestCommit = timestamps.get(0);
 
     Option<HoodieInstant> result = CleanerUtils.getEarliestCommitToRetain(
         timeline,
         HoodieCleaningPolicy.KEEP_LATEST_BY_HOURS,
         12, // commits to retain (not used for BY_HOURS)
-        Instant.now(),
-        1, // 1 hour retained - will likely return empty for mock timestamps
+        now,
+        2, // retain last 2 hours
         HoodieTimelineTimeZone.UTC,
-        Option.of("20000000000000"), // previous clean at first commit
-        20L // maxCommitsToClean
+        Option.of(previousCleanEarliestCommit),
+        10L // maxCommitsToClean
     );
 
-    // For KEEP_LATEST_BY_HOURS with mock timestamps, result may be empty
-    // The important thing is that the method executes without error and capping logic is available
-    // The actual capping behavior for KEEP_LATEST_BY_HOURS is tested in integration tests
-    // This unit test just verifies the code path doesn't throw exceptions
-    assertFalse(result.isPresent() && result.get().requestedTime().isEmpty());
+    assertTrue(result.isPresent());
+    // The BY_HOURS policy would calculate an earliest commit to retain ~80 commits in (retaining ~last 20).
+    // With maxCommitsToClean=10, capping adjusts to only clean 10 commits from the previous clean point.
+    // So the result should be commit at index 10.
+    assertEquals(timestamps.get(10), result.get().requestedTime());
   }
 
   /**
@@ -224,12 +243,23 @@ class TestCleanerUtils {
    * Commits are named as "20000000000000", "20000000000001", etc.
    */
   private HoodieTimeline createMockTimeline(int numCommits) {
+    List<String> timestamps = new ArrayList<>();
+    for (int i = 0; i < numCommits; i++) {
+      timestamps.add(String.format("200000000%05d", i));
+    }
+    return createMockTimelineWithTimestamps(timestamps);
+  }
+
+  /**
+   * Helper method to create a mock timeline with specified timestamps.
+   */
+  private HoodieTimeline createMockTimelineWithTimestamps(List<String> timestamps) {
+    int numCommits = timestamps.size();
     HoodieTimeline timeline = mock(HoodieTimeline.class);
     HoodieTimeline completedTimeline = mock(HoodieTimeline.class);
 
     List<HoodieInstant> instants = new ArrayList<>();
-    for (int i = 0; i < numCommits; i++) {
-      String timestamp = String.format("200000000%05d", i);
+    for (String timestamp : timestamps) {
       HoodieInstant instant = new HoodieInstant(HoodieInstant.State.COMPLETED,
           HoodieTimeline.COMMIT_ACTION, timestamp, InstantComparatorV2.COMPLETION_TIME_BASED_COMPARATOR);
       instants.add(instant);
@@ -237,7 +267,7 @@ class TestCleanerUtils {
 
     when(timeline.filterCompletedInstants()).thenReturn(completedTimeline);
     when(completedTimeline.countInstants()).thenReturn(numCommits);
-    when(completedTimeline.getInstantsAsStream()).thenReturn(instants.stream());
+    when(completedTimeline.getInstantsAsStream()).thenAnswer(invocation -> instants.stream());
 
     // Mock nthInstant to return the nth instant from the list
     for (int i = 0; i < numCommits; i++) {
@@ -253,7 +283,7 @@ class TestCleanerUtils {
           List<HoodieInstant> beforeInstants = instants.stream()
               .filter(i -> i.requestedTime().compareTo(timestamp) < 0)
               .collect(Collectors.toList());
-          when(beforeTimeline.getInstantsAsStream()).thenReturn(beforeInstants.stream());
+          when(beforeTimeline.getInstantsAsStream()).thenAnswer(inv -> beforeInstants.stream());
           return beforeTimeline;
         });
 
