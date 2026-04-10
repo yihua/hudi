@@ -29,9 +29,7 @@ import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.ReflectionUtils;
-import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.common.util.collection.Pair;
-import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.io.HoodieParquetConfigInjector;
 import org.apache.hudi.io.compress.CompressionCodec;
 import org.apache.hudi.io.storage.HoodieAvroHFileReaderImplBase;
@@ -68,21 +66,9 @@ public class HoodieAvroFileWriterFactory extends HoodieFileWriterFactory {
       TaskContextSupplier taskContextSupplier) throws IOException {
     boolean populateMetaFields = config.getBooleanOrDefault(HoodieTableConfig.POPULATE_META_FIELDS);
 
-    // Support for custom Parquet config injector
-    String configInjectorClass = config.getStringOrDefault(HoodieStorageConfig.HOODIE_PARQUET_CONFIG_INJECTOR_CLASS, StringUtils.EMPTY_STRING);
-
-    StorageConfiguration storageConfiguration = storage.getConf();
-    HoodieConfig hoodieConfig = config;
-    if (!StringUtils.isNullOrEmpty(configInjectorClass)) {
-      try {
-        HoodieParquetConfigInjector injector = (HoodieParquetConfigInjector) ReflectionUtils.loadClass(configInjectorClass);
-        Pair<StorageConfiguration, HoodieConfig> modifiedConfigs = injector.withProps(path, storageConfiguration, hoodieConfig);
-        storageConfiguration = modifiedConfigs.getLeft();
-        hoodieConfig = modifiedConfigs.getRight();
-      } catch (Exception e) {
-        throw new HoodieException("Failed to instantiate or invoke parquet config injector class: " + configInjectorClass, e);
-      }
-    }
+    Pair<StorageConfiguration, HoodieConfig> injectedConfigs = HoodieParquetConfigInjector.applyConfigInjector(path, storage.getConf(), config);
+    StorageConfiguration storageConfiguration = injectedConfigs.getLeft();
+    HoodieConfig hoodieConfig = injectedConfigs.getRight();
 
     HoodieAvroWriteSupport writeSupport = getHoodieAvroWriteSupport(schema, hoodieConfig, storageConfiguration, enableBloomFilter(populateMetaFields, hoodieConfig));
 

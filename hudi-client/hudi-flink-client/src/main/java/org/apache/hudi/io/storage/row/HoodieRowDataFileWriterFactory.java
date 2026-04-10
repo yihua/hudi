@@ -26,10 +26,8 @@ import org.apache.hudi.common.engine.TaskContextSupplier;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.util.ReflectionUtils;
-import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.config.HoodieWriteConfig;
-import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.io.HoodieParquetConfigInjector;
 import org.apache.hudi.io.storage.HoodieFileWriter;
 import org.apache.hudi.io.storage.HoodieFileWriterFactory;
@@ -123,23 +121,11 @@ public class HoodieRowDataFileWriterFactory extends HoodieFileWriterFactory {
     boolean populateMetaFields = config.getBooleanOrDefault(HoodieTableConfig.POPULATE_META_FIELDS);
     boolean withOperation = config.getBooleanOrDefault(HoodieWriteConfig.ALLOW_OPERATION_METADATA_FIELD);
 
-    // Support for custom Parquet config injector
-    String configInjectorClass = config.getStringOrDefault(HoodieStorageConfig.HOODIE_PARQUET_CONFIG_INJECTOR_CLASS, StringUtils.EMPTY_STRING);
+    Pair<StorageConfiguration, HoodieConfig> injectedConfigs = HoodieParquetConfigInjector.applyConfigInjector(storagePath, storage.getConf(), config);
+    StorageConfiguration storageConfiguration = injectedConfigs.getLeft();
+    HoodieConfig hoodieConfig = injectedConfigs.getRight();
 
-    StorageConfiguration storageConfiguration = storage.getConf();
-    HoodieConfig hoodieConfig = config;
-    if (!StringUtils.isNullOrEmpty(configInjectorClass)) {
-      try {
-        HoodieParquetConfigInjector injector = (HoodieParquetConfigInjector) ReflectionUtils.loadClass(configInjectorClass);
-        Pair<StorageConfiguration, HoodieConfig> modifiedConfigs = injector.withProps(storagePath, storageConfiguration, hoodieConfig);
-        storageConfiguration = modifiedConfigs.getLeft();
-        hoodieConfig = modifiedConfigs.getRight();
-      } catch (Exception e) {
-        throw new HoodieException("Failed to instantiate or invoke parquet config injector class: " + configInjectorClass, e);
-      }
-    }
-
-    Configuration conf = storageConfiguration.unwrapAs(Configuration.class);
+    Configuration conf = (Configuration) storageConfiguration.unwrapAs(Configuration.class);
     BloomFilter filter = createBloomFilter(hoodieConfig);
     HoodieRowDataParquetWriteSupport writeSupport = (HoodieRowDataParquetWriteSupport) ReflectionUtils.loadClass(
         hoodieConfig.getStringOrDefault(HoodieStorageConfig.HOODIE_PARQUET_FLINK_ROW_DATA_WRITE_SUPPORT_CLASS),

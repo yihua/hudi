@@ -33,6 +33,7 @@ import org.apache.hudi.storage.StoragePath;
 
 import org.apache.avro.generic.GenericRecord;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
 import org.apache.parquet.column.Encoding;
 import org.apache.parquet.hadoop.ParquetFileReader;
 import org.apache.parquet.hadoop.metadata.BlockMetaData;
@@ -62,10 +63,9 @@ public class TestHoodieAvroParquetConfigInjector {
    */
   public static class DisableDictionaryInjector implements HoodieParquetConfigInjector {
     @Override
-    public Pair<StorageConfiguration, HoodieConfig> withProps(StoragePath path,
+    public Pair<StorageConfiguration, HoodieConfig> injectConfig(StoragePath path,
                                                                StorageConfiguration storageConf,
                                                                HoodieConfig hoodieConfig) {
-      // Modify the Hudi config to disable dictionary encoding
       hoodieConfig.setValue(HoodieStorageConfig.PARQUET_DICTIONARY_ENABLED, "false");
       return Pair.of(storageConf, hoodieConfig);
     }
@@ -106,7 +106,7 @@ public class TestHoodieAvroParquetConfigInjector {
 
     // Read parquet metadata and verify dictionary encoding is disabled
     Configuration hadoopConf = new Configuration();
-    org.apache.hadoop.fs.Path hadoopPath = new org.apache.hadoop.fs.Path(parquetPath.toUri());
+    Path hadoopPath = new Path(parquetPath.toUri());
     ParquetFileReader reader = ParquetFileReader.open(hadoopConf, hadoopPath);
     ParquetMetadata metadata = reader.getFooter();
     reader.close();

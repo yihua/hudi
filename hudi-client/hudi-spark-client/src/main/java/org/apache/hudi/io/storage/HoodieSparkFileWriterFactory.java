@@ -25,10 +25,7 @@ import org.apache.hudi.common.engine.TaskContextSupplier;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.util.Option;
-import org.apache.hudi.common.util.ReflectionUtils;
-import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.common.util.collection.Pair;
-import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.io.HoodieParquetConfigInjector;
 import org.apache.hudi.io.storage.row.HoodieRowParquetConfig;
@@ -57,25 +54,15 @@ public class HoodieSparkFileWriterFactory extends HoodieFileWriterFactory {
       String instantTime, StoragePath path, HoodieConfig config, HoodieSchema schema,
       TaskContextSupplier taskContextSupplier) throws IOException {
     boolean populateMetaFields = config.getBooleanOrDefault(HoodieTableConfig.POPULATE_META_FIELDS);
-    String compressionCodecName = config.getStringOrDefault(HoodieStorageConfig.PARQUET_COMPRESSION_CODEC_NAME);
+
+    Pair<StorageConfiguration, HoodieConfig> injectedConfigs = HoodieParquetConfigInjector.applyConfigInjector(path, storage.getConf(), config);
+    StorageConfiguration storageConfiguration = injectedConfigs.getLeft();
+    HoodieConfig hoodieConfig = injectedConfigs.getRight();
+
+    String compressionCodecName = hoodieConfig.getStringOrDefault(HoodieStorageConfig.PARQUET_COMPRESSION_CODEC_NAME);
     // Support PARQUET_COMPRESSION_CODEC_NAME is ""
     if (compressionCodecName.isEmpty()) {
       compressionCodecName = null;
-    }
-
-    String configInjectorClass = config.getStringOrDefault(HoodieStorageConfig.HOODIE_PARQUET_CONFIG_INJECTOR_CLASS, StringUtils.EMPTY_STRING);
-
-    StorageConfiguration storageConfiguration = storage.getConf();
-    HoodieConfig hoodieConfig = config;
-    if (!StringUtils.isNullOrEmpty(configInjectorClass)) {
-      try {
-        HoodieParquetConfigInjector injector = (HoodieParquetConfigInjector) ReflectionUtils.loadClass(configInjectorClass);
-        Pair<StorageConfiguration, HoodieConfig> modifiedConfigs = injector.withProps(path, storageConfiguration, hoodieConfig);
-        storageConfiguration = modifiedConfigs.getLeft();
-        hoodieConfig = modifiedConfigs.getRight();
-      } catch (Exception e) {
-        throw new HoodieException("Failed to instantiate or invoke parquet config injector class: " + configInjectorClass, e);
-      }
     }
 
     HoodieRowParquetWriteSupport writeSupport = getHoodieRowParquetWriteSupport(storageConfiguration, schema,

@@ -73,7 +73,7 @@ public class TestHoodieRowDataParquetConfigInjector extends HoodieFlinkClientTes
    */
   public static class DisableDictionaryInjector implements HoodieParquetConfigInjector {
     @Override
-    public Pair<StorageConfiguration, HoodieConfig> withProps(StoragePath path,
+    public Pair<StorageConfiguration, HoodieConfig> injectConfig(StoragePath path,
                                                                StorageConfiguration storageConf,
                                                                HoodieConfig hoodieConfig) {
       // Modify the Hudi config to disable dictionary encoding
@@ -87,7 +87,7 @@ public class TestHoodieRowDataParquetConfigInjector extends HoodieFlinkClientTes
    */
   public static class ParquetBloomFilterInjector implements HoodieParquetConfigInjector {
     @Override
-    public Pair<StorageConfiguration, HoodieConfig> withProps(StoragePath path,
+    public Pair<StorageConfiguration, HoodieConfig> injectConfig(StoragePath path,
                                                                StorageConfiguration storageConf,
                                                                HoodieConfig hoodieConfig) {
       // Enable native Parquet bloom filter on a specific column
