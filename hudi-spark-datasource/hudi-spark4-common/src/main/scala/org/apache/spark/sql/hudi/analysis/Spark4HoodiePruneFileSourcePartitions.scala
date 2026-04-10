@@ -52,7 +52,7 @@ case class Spark4HoodiePruneFileSourcePartitions(spark: SparkSession) extends Ru
 
       // [[HudiFileIndex]] is a caching one, therefore we don't need to reconstruct new relation,
       // instead we simply just refresh the index and update the stats
-      fileIndex.filterFileSlices(dataFilters, partitionPruningFilters, isPartitionPruned = true)
+      fileIndex.filterFileSlices(dataFilters, partitionPruningFilters)
 
       if (partitionPruningFilters.nonEmpty) {
         // Change table stats based on the sizeInBytes of pruned files
