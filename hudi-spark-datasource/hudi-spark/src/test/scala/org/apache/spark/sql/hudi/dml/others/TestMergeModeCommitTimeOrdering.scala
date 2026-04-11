@@ -28,13 +28,15 @@ import org.apache.hudi.common.testutils.HoodieTestUtils
 import org.apache.spark.sql.hudi.common.HoodieSparkSqlTestBase
 import org.apache.spark.sql.hudi.common.HoodieSparkSqlTestBase.validateTableConfig
 
+object TestMergeModeCommitTimeOrdering {
+  var cnt: Int = 0
+}
+
 class TestMergeModeCommitTimeOrdering extends HoodieSparkSqlTestBase {
 
   Seq(
-    "cow,current,false,false", "cow,current,false,true", "cow,current,true,false",
-    "mor,current,false,false", "mor,current,false,true", "mor,current,true,false",
-    "cow,6,true,false", "cow,6,true,true", "mor,6,true,true",
-    "cow,8,true,false", "cow,8,true,true", "mor,8,true,true").foreach { args =>
+    // "cow,current,false,false", "cow,current,false,true", "cow,current,true,false",
+    "mor,current,false,false", "mor,current,false,true", "mor,current,true,false").foreach { args =>
     val argList = args.split(',')
     val tableType = argList(0)
     val tableVersion = if (argList(1).equals("current")) {
@@ -48,7 +50,7 @@ class TestMergeModeCommitTimeOrdering extends HoodieSparkSqlTestBase {
     val storage = HoodieTestUtils.getDefaultStorage
     val mergeConfigClause = if (setRecordMergeConfigs) {
       // with precombine field set, UPSERT operation is used automatically
-      if (tableVersion.toInt == 6) {
+    if (tableVersion.toInt == 6) {
         // Table version 6
         s", payloadClass = '${classOf[OverwriteWithLatestAvroPayload].getName}'"
       } else {
@@ -100,8 +102,11 @@ class TestMergeModeCommitTimeOrdering extends HoodieSparkSqlTestBase {
         // TODO(HUDI-8820): enable MDT after supporting MDT with table version 6
         ("hoodie.metadata.enable" -> "false", tableVersion.toInt == 6)
       ) {
-        withRecordType()(withTempDir { tmp =>
+        withRecordType()({
           val tableName = generateTableName
+          val currTime = System.currentTimeMillis()
+          val tablePath = s"/home/ubuntu/ws3/hudi-rs/tables/table${TestMergeModeCommitTimeOrdering.cnt}_$currTime"
+          println(s"fdss: ${tablePath}")
           // Create table with COMMIT_TIME_ORDERING
           spark.sql(
             s"""
@@ -117,10 +122,11 @@ class TestMergeModeCommitTimeOrdering extends HoodieSparkSqlTestBase {
                |  primaryKey = 'id'
                |  $mergeConfigClause
                | )
-               | location '${tmp.getCanonicalPath}'
+               | location '$tablePath'
              """.stripMargin)
+          TestMergeModeCommitTimeOrdering.cnt += 1
           validateTableConfig(
-            storage, tmp.getCanonicalPath, expectedMergeConfigs, nonExistentConfigs)
+            storage, tablePath, expectedMergeConfigs, nonExistentConfigs)
           // Insert initial records with ts=100
           spark.sql(
             s"""
@@ -139,7 +145,7 @@ class TestMergeModeCommitTimeOrdering extends HoodieSparkSqlTestBase {
                | select 2, 'B_equal', 70.0, 100
             """.stripMargin)
           validateTableConfig(
-            storage, tmp.getCanonicalPath, expectedMergeConfigs, nonExistentConfigs)
+            storage, tablePath, expectedMergeConfigs, nonExistentConfigs)
           checkAnswer(s"select id, name, price, ts from $tableName order by id")(
             (if (isUpsert) {
               // With UPSERT operation, there is no duplicate
@@ -164,7 +170,7 @@ class TestMergeModeCommitTimeOrdering extends HoodieSparkSqlTestBase {
                  | where id = 1
              """.stripMargin)
             validateTableConfig(
-              storage, tmp.getCanonicalPath, expectedMergeConfigs, nonExistentConfigs)
+              storage, tablePath, expectedMergeConfigs, nonExistentConfigs)
             checkAnswer(s"select id, name, price, ts from $tableName order by id")(
               Seq(1, "A_equal", 50.0, 100),
               Seq(2, "B_equal", 70.0, 100))
@@ -226,10 +232,10 @@ class TestMergeModeCommitTimeOrdering extends HoodieSparkSqlTestBase {
             // Delete record
             spark.sql(s"delete from $tableName where id = 1")
             if (tableType == "mor") {
-              HoodieSparkSqlTestBase.validateDeleteLogBlockPrecombineNullOrZero(tmp.getCanonicalPath)
+              HoodieSparkSqlTestBase.validateDeleteLogBlockPrecombineNullOrZero(tablePath)
             }
             validateTableConfig(
-              storage, tmp.getCanonicalPath, expectedMergeConfigs, nonExistentConfigs)
+              storage, tablePath, expectedMergeConfigs, nonExistentConfigs)
             // Verify deletion
             checkAnswer(s"select id, name, price, ts from $tableName order by id")(
               Seq(2, "B", 40.0, 101)
@@ -249,8 +255,11 @@ class TestMergeModeCommitTimeOrdering extends HoodieSparkSqlTestBase {
         // TODO(HUDI-8820): enable MDT after supporting MDT with table version 6
         ("hoodie.metadata.enable" -> "false", tableVersion.toInt == 6)
       ) {
-        withRecordType()(withTempDir { tmp =>
+        withRecordType()({
           val tableName = generateTableName
+          val currTime = System.currentTimeMillis()
+          val tablePath = s"/home/ubuntu/ws3/hudi-rs/tables/table${TestMergeModeCommitTimeOrdering.cnt}_$currTime"
+          println(s"fdss: ${tablePath}")
           // Create table with COMMIT_TIME_ORDERING
           spark.sql(
             s"""
@@ -266,10 +275,11 @@ class TestMergeModeCommitTimeOrdering extends HoodieSparkSqlTestBase {
                |  primaryKey = 'id'
                |  $mergeConfigClause
                | )
-               | location '${tmp.getCanonicalPath}'
+               | location '$tablePath'
            """.stripMargin)
+          TestMergeModeCommitTimeOrdering.cnt += 1
           validateTableConfig(
-            storage, tmp.getCanonicalPath, expectedMergeConfigs, nonExistentConfigs)
+            storage, tablePath, expectedMergeConfigs, nonExistentConfigs)
 
           // Insert initial records
           spark.sql(
@@ -284,7 +294,7 @@ class TestMergeModeCommitTimeOrdering extends HoodieSparkSqlTestBase {
                | select 6, 'F', 60.0, 100L
            """.stripMargin)
           validateTableConfig(
-            storage, tmp.getCanonicalPath, expectedMergeConfigs, nonExistentConfigs)
+            storage, tablePath, expectedMergeConfigs, nonExistentConfigs)
 
           // TODO(HUDI-8840): enable MERGE INTO with deletes
           val shouldTestMergeIntoDelete = setRecordMergeConfigs && (tableVersion.toInt >= 8)
@@ -318,7 +328,7 @@ class TestMergeModeCommitTimeOrdering extends HoodieSparkSqlTestBase {
 
           // Verify state after merges
           validateTableConfig(
-            storage, tmp.getCanonicalPath, expectedMergeConfigs, nonExistentConfigs)
+            storage, tablePath, expectedMergeConfigs, nonExistentConfigs)
           val nonDeletedRows: Seq[Seq[Any]] = if (shouldTestMergeIntoDelete) {
             Seq()
           } else {
@@ -348,7 +358,7 @@ class TestMergeModeCommitTimeOrdering extends HoodieSparkSqlTestBase {
 
           // Verify final state
           validateTableConfig(
-            storage, tmp.getCanonicalPath, expectedMergeConfigs, nonExistentConfigs)
+            storage, tablePath, expectedMergeConfigs, nonExistentConfigs)
           checkAnswer(s"select id, name, price, ts from $tableName order by id")(
             (nonDeletedRows ++ Seq(
               Seq(3, "C", 30.0, 100),

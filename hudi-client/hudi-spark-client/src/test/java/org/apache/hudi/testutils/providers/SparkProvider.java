@@ -19,6 +19,8 @@
 
 package org.apache.hudi.testutils.providers;
 
+import org.apache.hudi.testutils.GlutenTestUtils;
+
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.sql.SQLContext;
@@ -50,6 +52,9 @@ public interface SparkProvider extends org.apache.hudi.testutils.providers.Hoodi
     sparkConf.set("spark.kryo.registrator", "org.apache.spark.HoodieSparkKryoRegistrar");
     sparkConf.set("spark.ui.enabled", "false");
     overwritingConfigs.forEach(sparkConf::set);
+
+    GlutenTestUtils.applyGlutenConf(sparkConf);
+
     return sparkConf;
   }
 

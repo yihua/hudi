@@ -118,6 +118,9 @@ public class HoodieClientTestUtils {
       sparkConf.set("spark.ui.enabled", "false");
     }
     HoodieSparkKryoRegistrar.register(sparkConf);
+
+    GlutenTestUtils.applyGlutenConf(sparkConf);
+
     return SparkRDDReadClient.addHoodieSupport(sparkConf);
   }
   

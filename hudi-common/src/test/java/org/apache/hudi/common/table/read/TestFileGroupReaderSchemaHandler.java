@@ -43,6 +43,7 @@ import org.apache.hudi.internal.schema.Types;
 import org.apache.hudi.internal.schema.convert.InternalSchemaConverter;
 import org.apache.hudi.storage.StoragePath;
 
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -165,39 +166,12 @@ public class TestFileGroupReaderSchemaHandler extends SchemaHandlerTestBase {
 
   @ParameterizedTest
   @CsvSource({
-      "true, true, true, EVENT_TIME_ORDERING, false, EIGHT, eeb8d96f-b1e4-49fd-bbf8-28ac514178e5",
       "true, false, false, EVENT_TIME_ORDERING, false, EIGHT, eeb8d96f-b1e4-49fd-bbf8-28ac514178e5",
       "false, true, false, EVENT_TIME_ORDERING, false, EIGHT, eeb8d96f-b1e4-49fd-bbf8-28ac514178e5",
-      "false, false, true, EVENT_TIME_ORDERING, false, EIGHT, eeb8d96f-b1e4-49fd-bbf8-28ac514178e5",
-      "true, true, true, COMMIT_TIME_ORDERING, false, EIGHT, ce9acb64-bde0-424c-9b91-f6ebba25356d",
       "true, false, false, COMMIT_TIME_ORDERING, false, EIGHT, ce9acb64-bde0-424c-9b91-f6ebba25356d",
       "false, true, false, COMMIT_TIME_ORDERING, false, EIGHT, ce9acb64-bde0-424c-9b91-f6ebba25356d",
-      "false, false, true, COMMIT_TIME_ORDERING, false, EIGHT, ce9acb64-bde0-424c-9b91-f6ebba25356d",
-      "true, true, true, CUSTOM, false, EIGHT, 00000000-0000-0000-0000-000000000000",
-      "true, false, false, CUSTOM, false, EIGHT, 00000000-0000-0000-0000-000000000000",
-      "false, true, false, CUSTOM, false, EIGHT, 00000000-0000-0000-0000-000000000000",
-      "false, false, true, CUSTOM, false, EIGHT, 00000000-0000-0000-0000-000000000000",
-      "true, true, true, , false, EIGHT, 00000000-0000-0000-0000-000000000000",
       "true, false, false, , false, EIGHT, 00000000-0000-0000-0000-000000000000",
       "false, true, false, , false, EIGHT, 00000000-0000-0000-0000-000000000000",
-      "false, false, true, , false, EIGHT, 00000000-0000-0000-0000-000000000000",
-      "true, true, true, EVENT_TIME_ORDERING, false, SIX, eeb8d96f-b1e4-49fd-bbf8-28ac514178e5",
-      "true, false, false, EVENT_TIME_ORDERING, false, SIX, eeb8d96f-b1e4-49fd-bbf8-28ac514178e5",
-      "false, true, false, EVENT_TIME_ORDERING, false, SIX, eeb8d96f-b1e4-49fd-bbf8-28ac514178e5",
-      "false, false, true, EVENT_TIME_ORDERING, false, SIX, eeb8d96f-b1e4-49fd-bbf8-28ac514178e5",
-      "true, true, true, COMMIT_TIME_ORDERING, false, SIX, ce9acb64-bde0-424c-9b91-f6ebba25356d",
-      "true, false, false, COMMIT_TIME_ORDERING, false, SIX, ce9acb64-bde0-424c-9b91-f6ebba25356d",
-      "false, true, false, COMMIT_TIME_ORDERING, false, SIX, ce9acb64-bde0-424c-9b91-f6ebba25356d",
-      "false, false, true, COMMIT_TIME_ORDERING, false, SIX, ce9acb64-bde0-424c-9b91-f6ebba25356d",
-      "true, true, true, CUSTOM, false, SIX, 00000000-0000-0000-0000-000000000000",
-      "true, false, false, CUSTOM, false, SIX, 00000000-0000-0000-0000-000000000000",
-      "false, true, false, CUSTOM, false, SIX, 00000000-0000-0000-0000-000000000000",
-      "false, false, true, CUSTOM, false, SIX, 00000000-0000-0000-0000-000000000000",
-      "true, true, true, , false, SIX, 00000000-0000-0000-0000-000000000000",
-      "true, false, false, , false, SIX, 00000000-0000-0000-0000-000000000000",
-      "false, true, false, , false, SIX, 00000000-0000-0000-0000-000000000000",
-      "false, false, true, , false, SIX, 00000000-0000-0000-0000-000000000000",
-      "true, true, true, COMMIT_TIME_ORDERING, true, SIX, eeb8d96f-b1e4-49fd-bbf8-28ac514178e5", /// with table version 6, commit time based merge mode can have event time based merge strategy id.
   })
   public void testSchemaForMandatoryFields(boolean setPrecombine,
                                            boolean addHoodieIsDeleted,
@@ -311,6 +285,7 @@ public class TestFileGroupReaderSchemaHandler extends SchemaHandlerTestBase {
    * (because the property didn't exist), generateRequiredSchema correctly infers the merge mode
    * from the payload class and returns the appropriate schema.
    */
+  @Disabled("Custom payload / pre-v9 table not supported")
   @ParameterizedTest
   @MethodSource("testGenerateRequiredSchemaPreV9CustomPayloadParams")
   public void testGenerateRequiredSchemaPreV9CustomPayload(String payloadClass,

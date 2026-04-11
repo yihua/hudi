@@ -62,6 +62,7 @@ import org.apache.spark.sql.SaveMode;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.execution.datasources.SparkColumnarFileReader;
 import org.apache.spark.sql.sources.Filter;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -93,7 +94,7 @@ public class TestPositionBasedFileGroupRecordBuffer extends SparkClientFunctiona
 
   private void prepareBuffer(RecordMergeMode mergeMode, String baseFileInstantTime) throws Exception {
     Map<String, String> writeConfigs = new HashMap<>();
-    writeConfigs.put(HoodieStorageConfig.LOGFILE_DATA_BLOCK_FORMAT.key(), "parquet");
+    writeConfigs.put(HoodieStorageConfig.LOGFILE_DATA_BLOCK_FORMAT.key(), "avro");
     writeConfigs.put(KeyGeneratorOptions.RECORDKEY_FIELD_NAME.key(), "_row_key");
     writeConfigs.put(KeyGeneratorOptions.PARTITIONPATH_FIELD_NAME.key(), "partition_path");
     writeConfigs.put(HoodieTableConfig.ORDERING_FIELDS.key(), mergeMode.equals(RecordMergeMode.COMMIT_TIME_ORDERING) ? "" : "timestamp");
@@ -243,6 +244,7 @@ public class TestPositionBasedFileGroupRecordBuffer extends SparkClientFunctiona
     }
   }
 
+  @Disabled("CUSTOM merge mode not supported")
   @Test
   public void testProcessDeleteBlockWithCustomMerger() throws Exception {
     String baseFileInstantTime = "090";

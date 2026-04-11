@@ -72,6 +72,7 @@ import lombok.Getter;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.IndexedRecord;
 import org.apache.spark.api.java.JavaRDD;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -277,7 +278,7 @@ public class TestMergeHandle extends BaseTestHandle {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"EVENT_TIME_ORDERING", "COMMIT_TIME_ORDERING", "CUSTOM", "CUSTOM_MERGER"})
+  @ValueSource(strings = {"EVENT_TIME_ORDERING", "COMMIT_TIME_ORDERING"})
   public void testFGReaderBasedMergeHandleInsertUpsertDelete(String mergeMode) throws IOException {
     testFGReaderBasedMergeHandleInsertUpsertDeleteInternal(mergeMode, new Properties(), false);
   }

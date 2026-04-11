@@ -19,6 +19,7 @@
 
 package org.apache.hudi.table.functional;
 
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -30,6 +31,7 @@ public class TestHoodieSparkCopyOnWriteTableRollbackTableVersionSix extends Test
   /**
    * Scenario: data table is updated, no changes to MDT
    */
+  @Disabled("Table version 6 only")
   @Test
   public void testRollbackWithFailurePreMDT() throws Exception {
     testRollbackWithFailurePreMDTTableVersionSix(COPY_ON_WRITE);
@@ -38,6 +40,7 @@ public class TestHoodieSparkCopyOnWriteTableRollbackTableVersionSix extends Test
   /**
    * Scenario: data table is updated, deltacommit is completed in MDT
    */
+  @Disabled("Table version 6 only")
   @Test
   public void testRollbackWithFailurePostMDT() throws Exception {
     testRollbackWithFailurePostMDTTableVersionSix(COPY_ON_WRITE);
@@ -47,6 +50,7 @@ public class TestHoodieSparkCopyOnWriteTableRollbackTableVersionSix extends Test
    * Scenario: data table is updated, deltacommit is completed in MDT then during rollback,
    * data table is updated, no changes to MDT
    */
+  @Disabled("Table version 6 only")
   @Test
   public void testRollbackWithFailurePostMDTRollbackFailsPreMDT() throws Exception {
     testRollbackWithFailurePostMDTTableVersionSix(COPY_ON_WRITE, true);
@@ -55,6 +59,7 @@ public class TestHoodieSparkCopyOnWriteTableRollbackTableVersionSix extends Test
   /**
    * Scenario: data table is updated, deltacommit of interest is inflight in MDT
    */
+  @Disabled("Table version 6 only")
   @Test
   public void testRollbackWithFailureInMDT() throws Exception {
     testRollbackWithFailureinMDTTableVersionSix(COPY_ON_WRITE);

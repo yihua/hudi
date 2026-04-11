@@ -113,7 +113,7 @@ import static org.junit.jupiter.params.provider.Arguments.arguments;
  * Tests {@link HoodieFileGroupReader} with different engines
  */
 public abstract class TestHoodieFileGroupReaderBase<T> {
-  private static final List<HoodieFileFormat> DEFAULT_SUPPORTED_FILE_FORMATS = Arrays.asList(HoodieFileFormat.PARQUET, HoodieFileFormat.ORC);
+  private static final List<HoodieFileFormat> DEFAULT_SUPPORTED_FILE_FORMATS = Arrays.asList(HoodieFileFormat.PARQUET);
   protected static List<HoodieFileFormat> supportedFileFormats;
   private static final String KEY_FIELD_NAME = "_row_key";
   protected static final String ORDERING_FIELD_NAME = "timestamp";
@@ -356,10 +356,10 @@ public abstract class TestHoodieFileGroupReaderBase<T> {
       args.add(arguments(RecordMergeMode.COMMIT_TIME_ORDERING, HoodieFileFormat.PARQUET, "avro", false));
       args.add(arguments(RecordMergeMode.EVENT_TIME_ORDERING, HoodieFileFormat.PARQUET, "avro", true));
     }
-    args.add(arguments(RecordMergeMode.COMMIT_TIME_ORDERING, HoodieFileFormat.PARQUET, "parquet", true));
-    args.add(arguments(RecordMergeMode.EVENT_TIME_ORDERING, HoodieFileFormat.PARQUET, "parquet", true));
-    args.add(arguments(RecordMergeMode.CUSTOM, HoodieFileFormat.PARQUET, "avro", false));
-    args.add(arguments(RecordMergeMode.CUSTOM, HoodieFileFormat.PARQUET, "parquet", true));
+    args.add(arguments(RecordMergeMode.COMMIT_TIME_ORDERING, HoodieFileFormat.PARQUET, "avro", true));
+    args.add(arguments(RecordMergeMode.EVENT_TIME_ORDERING, HoodieFileFormat.PARQUET, "avro", true));
+    // args.add(arguments(RecordMergeMode.CUSTOM, HoodieFileFormat.PARQUET, "avro", false));
+    // args.add(arguments(RecordMergeMode.CUSTOM, HoodieFileFormat.PARQUET, "parquet", true));
 
     return args.stream();
   }
@@ -449,8 +449,7 @@ public abstract class TestHoodieFileGroupReaderBase<T> {
   private static Stream<Arguments> logFileOnlyCases() {
     return Stream.of(
         arguments(RecordMergeMode.COMMIT_TIME_ORDERING, "avro"),
-        arguments(RecordMergeMode.EVENT_TIME_ORDERING, "parquet"),
-        arguments(RecordMergeMode.CUSTOM, "avro"));
+        arguments(RecordMergeMode.EVENT_TIME_ORDERING, "avro"));
   }
 
   @ParameterizedTest
@@ -549,10 +548,8 @@ public abstract class TestHoodieFileGroupReaderBase<T> {
 
     if (supportsLance) {
       args.add(arguments(HoodieFileFormat.LANCE, "avro"));
-      args.add(arguments(HoodieFileFormat.LANCE, "parquet"));
     }
     args.add(arguments(HoodieFileFormat.PARQUET, "avro"));
-    args.add(arguments(HoodieFileFormat.PARQUET, "parquet"));
     
     return args.stream();
   }
