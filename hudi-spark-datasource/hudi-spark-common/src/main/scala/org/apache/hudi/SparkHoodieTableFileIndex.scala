@@ -258,7 +258,7 @@ class SparkHoodieTableFileIndex(spark: SparkSession,
     val resolve = spark.sessionState.analyzer.resolver
     val partitionColumnNames = getPartitionColumns
 
-    // Resolve a GetStructField chain to its full dot-path (e.g. "nested_record.level").
+    // Resolves GetStructField chain to full dot-path: GetStructField(attr("a"), _, "b") → "a.b"
     def getFieldPath(expr: Expression): Option[String] = expr match {
       case a: AttributeReference => Some(a.name)
       case GetStructField(child, _, Some(fieldName)) =>
@@ -266,21 +266,18 @@ class SparkHoodieTableFileIndex(spark: SparkSession,
       case _ => None
     }
 
-    // Returns true if every column reference in the expression resolves to a partition column.
-    // For flat columns (e.g. "country"), checks AttributeReference.name directly.
-    // For nested columns (e.g. "nested_record.level"), walks GetStructField chains to build
-    // the full dot-path and checks whether it matches a partition column name.
-    // This avoids the overly broad struct-parent prefix matching that would misclassify
-    // filters on non-partition nested fields (e.g. "nested_record.nested_int") as partition filters.
+    // True if every column reference in expr resolves to a partition column.
+    // For nested columns, walks GetStructField chains to match the full dot-path.
+    // Example: partition = "nested_record.level"
+    //   nested_record.level = 'INFO'   → GetStructField path "nested_record.level" → true
+    //   nested_record.nested_int = 10  → GetStructField path "nested_record.nested_int" → false
+    //   IsNotNull(nested_record)       → AttributeReference "nested_record" not in partitionColumnNames → false
     def referencesOnlyPartitionColumns(expr: Expression): Boolean = expr match {
       case g: GetStructField =>
         getFieldPath(g).exists(path => partitionColumnNames.exists(pc => resolve(path, pc)))
-      case _: AttributeReference =>
-        // Flat attribute — check if it's a partition column directly
-        partitionColumnNames.exists(pc => resolve(expr.asInstanceOf[AttributeReference].name, pc))
+      case a: AttributeReference =>
+        partitionColumnNames.exists(pc => resolve(a.name, pc))
       case _ =>
-        // For compound expressions (And, Or, EqualTo, etc.), all children must reference
-        // only partition columns. Literals have no children and pass vacuously.
         expr.children.forall(referencesOnlyPartitionColumns)
     }
 
@@ -639,33 +636,10 @@ object SparkHoodieTableFileIndex extends SparkAdapterSupport {
   }
 
   /**
-   * This method unravels [[StructType]] into a [[Map]] of pairs of dot-path notation with corresponding
-   * [[StructField]] object for every field of the provided [[StructType]], recursively.
-   *
-   * For example, following struct
-   * <pre>
-   *   StructType(
-   *     StructField("a",
-   *       StructType(
-   *          StructField("b", StringType),
-   *          StructField("c", IntType)
-   *       )
-   *     )
-   *   )
-   * </pre>
-   *
-   * will be converted into following mapping:
-   *
-   * <pre>
-   *   "a.b" -> StructField("b", StringType),
-   *   "a.c" -> StructField("c", IntType),
-   * </pre>
-   */
-  /**
-   * Builds a map from dot-path field names to [[StructField]]s for all leaf fields in a schema.
-   * For nested structs, both the key and the [[StructField.name]] use the full dot-path.
-   * E.g. for schema `StructType(StructField("a", StructType(StructField("b", IntegerType))))`,
-   * returns `Map("a.b" -> StructField("a.b", IntegerType))`.
+   * Maps every leaf field in `structType` to its dot-path name.
+   * Both the key and [[StructField.name]] use the full path.
+   * E.g. `StructType(StructField("a", StructType(StructField("b", IntegerType))))`
+   * → `Map("a.b" -> StructField("a.b", IntegerType))`.
    */
   private def generateFieldMap(structType: StructType) : Map[String, StructField] = {
     def traverse(structField: Either[StructField, StructType]) : Map[String, StructField] = {
