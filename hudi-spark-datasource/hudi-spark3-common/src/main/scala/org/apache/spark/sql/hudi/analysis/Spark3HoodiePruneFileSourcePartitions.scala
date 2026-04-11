@@ -81,7 +81,7 @@ case class Spark3HoodiePruneFileSourcePartitions(spark: SparkSession) extends Ru
 
 }
 
-private[analysis] object Spark3HoodiePruneFileSourcePartitions extends PredicateHelper {
+private object Spark3HoodiePruneFileSourcePartitions extends PredicateHelper {
 
   private val exprUtils = sparkAdapter.getCatalystExpressionUtils
 
