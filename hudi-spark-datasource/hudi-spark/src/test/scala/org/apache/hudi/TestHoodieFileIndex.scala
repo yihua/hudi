@@ -862,20 +862,20 @@ class TestHoodieFileIndex extends HoodieSparkClientTestBase with ScalaAssertionS
   // ---- buildNestedPartitionSchema tests ----
 
   @Test
-  def testBuildNestedPartitionSchema_emptySchema(): Unit = {
+  def testBuildNestedPartitionSchemaEmpty(): Unit = {
     val result = SparkHoodieTableFileIndex.buildNestedPartitionSchema(new StructType())
     assertTrue(result.isEmpty)
   }
 
   @Test
-  def testBuildNestedPartitionSchema_flatColumn(): Unit = {
+  def testBuildNestedPartitionSchemaFlatColumn(): Unit = {
     val flat = StructType(Seq(StructField("country", StringType)))
     val result = SparkHoodieTableFileIndex.buildNestedPartitionSchema(flat)
     assertEquals(StructType(Seq(StructField("country", StringType, nullable = true))), result)
   }
 
   @Test
-  def testBuildNestedPartitionSchema_singleNested(): Unit = {
+  def testBuildNestedPartitionSchemaSingleNested(): Unit = {
     // "nested_record.level" → StructType(nested_record: StructType(level: StringType))
     val flat = StructType(Seq(StructField("nested_record.level", StringType)))
     val result = SparkHoodieTableFileIndex.buildNestedPartitionSchema(flat)
@@ -886,7 +886,7 @@ class TestHoodieFileIndex extends HoodieSparkClientTestBase with ScalaAssertionS
   }
 
   @Test
-  def testBuildNestedPartitionSchema_twoLevelNesting(): Unit = {
+  def testBuildNestedPartitionSchemaTwoLevelNesting(): Unit = {
     // "a.b.c" → StructType(a: StructType(b: StructType(c: IntegerType)))
     val flat = StructType(Seq(StructField("a.b.c", IntegerType)))
     val result = SparkHoodieTableFileIndex.buildNestedPartitionSchema(flat)
@@ -900,7 +900,7 @@ class TestHoodieFileIndex extends HoodieSparkClientTestBase with ScalaAssertionS
   }
 
   @Test
-  def testBuildNestedPartitionSchema_siblingFields(): Unit = {
+  def testBuildNestedPartitionSchemaSiblingFields(): Unit = {
     // "a.b" and "a.c" share parent "a"
     val flat = StructType(Seq(StructField("a.b", StringType), StructField("a.c", IntegerType)))
     val result = SparkHoodieTableFileIndex.buildNestedPartitionSchema(flat)
@@ -912,7 +912,7 @@ class TestHoodieFileIndex extends HoodieSparkClientTestBase with ScalaAssertionS
   }
 
   @Test
-  def testBuildNestedPartitionSchema_mixedFlatAndNested(): Unit = {
+  def testBuildNestedPartitionSchemaMixedFlatAndNested(): Unit = {
     val flat = StructType(Seq(StructField("country", StringType), StructField("nested_record.level", StringType)))
     val result = SparkHoodieTableFileIndex.buildNestedPartitionSchema(flat)
     assertEquals(2, result.fields.length)
@@ -923,18 +923,18 @@ class TestHoodieFileIndex extends HoodieSparkClientTestBase with ScalaAssertionS
   }
 
   @Test
-  def testBuildNestedPartitionSchema_conflictThrows(): Unit = {
+  def testBuildNestedPartitionSchemaConflictThrows(): Unit = {
     // "a" as leaf and "a.b" as nested — conflict
     val flat = StructType(Seq(StructField("a", StringType), StructField("a.b", IntegerType)))
-    assertThrows(classOf[IllegalStateException], () => {
+    assertThrows(classOf[IllegalStateException]) {
       SparkHoodieTableFileIndex.buildNestedPartitionSchema(flat)
-    })
+    }
   }
 
   // ---- extractNestedPartitionFilters tests ----
 
   @Test
-  def testExtractNestedPartitionFilters_correctFilterExtracted(): Unit = {
+  def testExtractNestedPartitionFiltersCorrectFilterExtracted(): Unit = {
     // nested_record.level = 'INFO' → extracted; int_field = 5 → excluded
     val structType = StructType(Seq(StructField("level", StringType)))
     val gsf = GetStructField(AttributeReference("nested_record", structType)(), 0, Some("level"))
@@ -946,7 +946,7 @@ class TestHoodieFileIndex extends HoodieSparkClientTestBase with ScalaAssertionS
   }
 
   @Test
-  def testExtractNestedPartitionFilters_siblingFieldExcluded(): Unit = {
+  def testExtractNestedPartitionFiltersSiblingFieldExcluded(): Unit = {
     // nested_record.nested_int = 10 should NOT match partition column nested_record.level
     val structType = StructType(Seq(StructField("nested_int", IntegerType), StructField("level", StringType)))
     val gsf = GetStructField(AttributeReference("nested_record", structType)(), 0, Some("nested_int"))
@@ -956,7 +956,7 @@ class TestHoodieFileIndex extends HoodieSparkClientTestBase with ScalaAssertionS
   }
 
   @Test
-  def testExtractNestedPartitionFilters_orWithOnlyPartitionColumns(): Unit = {
+  def testExtractNestedPartitionFiltersOrWithOnlyPartitionColumns(): Unit = {
     // nested_record.level = 'INFO' OR nested_record.level = 'ERROR' → extracted
     val structType = StructType(Seq(StructField("level", StringType)))
     val gsf1 = GetStructField(AttributeReference("nested_record", structType)(), 0, Some("level"))
