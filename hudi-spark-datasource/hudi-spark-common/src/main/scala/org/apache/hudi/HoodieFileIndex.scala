@@ -105,13 +105,7 @@ case class HoodieFileIndex(spark: SparkSession,
 
   @transient protected var hasPushedDownPartitionPredicates: Boolean = false
 
-  /**
-   * True when any partition column name contains a dot, indicating a nested field path
-   * (e.g. "nested_record.level"). For such columns, Spark's [[FileSourceScanExec]] cannot
-   * match [[GetStructField]]-based filter references against the flat dot-path partition schema
-   * exposed by [[HadoopFsRelation]], and therefore passes empty `partitionFilters` to
-   * [[listFiles]]. We detect this and re-extract partition predicates from `dataFilters`.
-   */
+  /** True when any partition column is a nested field path (e.g. "nested_record.level"). */
   private val hasNestedPartitionColumns: Boolean =
     getPartitionColumns.exists(_.contains("."))
 
@@ -177,54 +171,25 @@ case class HoodieFileIndex(spark: SparkSession,
   /**
    * Invoked by Spark to fetch list of latest base files per partition.
    *
-   * == Regular (non-nested) partition columns ==
+   * For regular partition columns, Spark passes correct `partitionFilters` directly.
    *
-   * For regular partition columns (e.g. `country`), Spark's [[FileSourceScanExec]] correctly
-   * classifies partition predicates into `partitionFilters` and passes them here.  This method
-   * forwards them directly to [[filterFileSlices]] → [[prunePartitionsAndGetFileSlices]] →
-   * [[listMatchingPartitionPaths]] for partition pruning.  Spark handles the full filter
-   * classification lifecycle — including splitting top-level AND conjuncts and identifying which
-   * filters reference only partition columns vs. data columns.  Filters like `(a = 1 OR d = 2)`
-   * that mix partition and data columns are correctly classified as data filters by Spark (since
-   * `references` is not a subset of partition columns), so they are NOT used for partition
-   * pruning — which is correct because the `d = 2` branch means any partition could match.
+   * For nested partition columns (e.g. `nested_record.level`), Spark cannot match
+   * [[GetStructField]] expressions against the flat dot-path partition schema and passes
+   * `partitionFilters = []`. The nested predicates land in `dataFilters` instead.
+   * We re-extract them via [[extractNestedPartitionFilters]].
    *
-   * == Nested partition columns ==
+   * Example: `SELECT * FROM t WHERE nested_record.level = 'INFO' AND int_field > 0`
+   *  - Spark passes: `partitionFilters = []`, `dataFilters = [nested_record.level = 'INFO', int_field > 0]`
+   *  - We extract: `effectivePartitionFilters = [nested_record.level = 'INFO']`
    *
-   * For nested partition columns (e.g. `nested_record.level`), [[HadoopFsRelation]] exposes a
-   * flat dot-path partition schema that [[FileSourceScanExec]] cannot match against
-   * [[GetStructField]]-based filter references, so it passes empty `partitionFilters` here.
-   * The nested partition predicates end up in `dataFilters` instead.  We re-extract them via
-   * [[extractNestedPartitionFilters]] and pass them through to [[filterFileSlices]].  See that
-   * method's Scaladoc for known limitations of the re-extraction (mixed AND/OR expressions).
+   * This is stateless — safe under AQE re-planning, subqueries, and FileIndex reuse.
    *
-   * This approach is fully stateless — every call recomputes from the provided expressions —
-   * so it is safe under AQE re-planning, subqueries, and FileIndex instance reuse across queries.
-   *
-   * == Performance ==
-   *
-   * [[HoodiePruneFileSourcePartitions]] also calls [[filterFileSlices]] during logical
-   * optimization, but with `isPartitionPruneOnly = true` which skips the expensive metadata
-   * table lookup for data skipping.  Data skipping runs only once — here during execution.
-   * Partition path listing may run twice (planning + execution) but is cached internally by
-   * [[SparkHoodieTableFileIndex]].
+   * Known limitation: for mixed flat+nested partitions (e.g. `["country", "nested_record.level"]`),
+   * if Spark passes `partitionFilters = [country = 'US']`, we skip extraction and the nested
+   * filter is not used for partition pruning. A future fix could merge extracted nested filters
+   * with the provided `partitionFilters`.
    */
   override def listFiles(partitionFilters: Seq[Expression], dataFilters: Seq[Expression]): Seq[PartitionDirectory] = {
-    // When partitionFilters is empty and the table has nested partition columns, the nested
-    // partition predicates were misclassified into dataFilters by FileSourceScanExec (because
-    // the flat dot-path partition schema cannot match GetStructField expressions).  Extract
-    // only the data filters that reference nested partition columns and use those for partition
-    // pruning.  We must not pass unrelated data filters as partition filters, because
-    // prunePartitionsAndGetFileSlices branches on partitionFilters.nonEmpty — passing non-empty
-    // but partition-irrelevant filters would skip the PARTITION_STATS index pruning path.
-    //
-    // Known limitation: for tables with BOTH flat and nested partition columns (e.g.
-    // ["country", "nested_record.level"]), Spark may pass partitionFilters = [country = 'US']
-    // (it recognizes the flat column) while the nested partition predicate ends up in
-    // dataFilters.  Since partitionFilters.nonEmpty, we skip extraction and the nested filter
-    // is not used for partition pruning.  This is acceptable because mixed flat+nested partition
-    // schemas are unusual.  A future fix could always attempt extraction when
-    // hasNestedPartitionColumns is true and merge the results with partitionFilters.
     val effectivePartitionFilters = if (partitionFilters.isEmpty && hasNestedPartitionColumns) {
       extractNestedPartitionFilters(dataFilters)
     } else {
@@ -239,10 +204,7 @@ case class HoodieFileIndex(spark: SparkSession,
     prepareFileSlices(slices)
   }
 
-  /**
-   * Extracts filters from `dataFilters` that actually reference nested partition columns.
-   * Delegates to the companion object method with the current table's partition columns.
-   */
+  /** Delegates to companion object with this table's partition columns. */
   private def extractNestedPartitionFilters(dataFilters: Seq[Expression]): Seq[Expression] = {
     HoodieFileIndex.extractNestedPartitionFilters(dataFilters, getPartitionColumns.toSet)
   }
@@ -279,15 +241,13 @@ case class HoodieFileIndex(spark: SparkSession,
   }
 
   /**
-   * The functions prunes the partition paths based on the input partition filters. For every partition path, the file
-   * slices are further filtered after querying metadata table based on the data filters.
+   * Prunes partitions by `partitionFilters`, then optionally applies data skipping via metadata
+   * table indices (column stats, record-level index, etc.) to filter file slices.
    *
-   * @param dataFilters data columns filters
-   * @param partitionFilters partition column filters
-   * @param isPartitionPruneOnly when true, skip data skipping (metadata table lookup) and only prune partitions.
-   *                             Set to true by [[HoodiePruneFileSourcePartitions]] which only needs partition
-   *                             pruning for plan statistics — data skipping will run later in [[listFiles]].
-   * @return A sequence of pruned partitions and corresponding filtered file slices
+   * @param dataFilters          data column filters (used for data skipping)
+   * @param partitionFilters     partition column filters (used for partition pruning)
+   * @param isPartitionPruneOnly when true, skip data skipping. Used by [[HoodiePruneFileSourcePartitions]]
+   *                             during planning (data skipping runs later in [[listFiles]]).
    */
   def filterFileSlices(dataFilters: Seq[Expression], partitionFilters: Seq[Expression],
                        isPartitionPruneOnly: Boolean = false)
@@ -297,12 +257,9 @@ case class HoodieFileIndex(spark: SparkSession,
       prunePartitionsAndGetFileSlices(dataFilters, partitionFilters)
     hasPushedDownPartitionPredicates = true
 
-    // If there are no data filters, return all the file slices.
-    // If isPartitionPruneOnly is true, this is called from HoodiePruneFileSourcePartitions for plan
-    // statistics only — skip the expensive metadata table lookup for data skipping, which will run
-    // later when listFiles calls filterFileSlices during execution.
-    // If there are no file slices, return empty list.
-    val result = if (prunedPartitionsAndFileSlices.isEmpty || dataFilters.isEmpty || isPartitionPruneOnly) {
+    // Skip data skipping when: no file slices, no data filters, or partition-prune-only mode
+    // (planning phase — data skipping runs later during execution).
+    if (prunedPartitionsAndFileSlices.isEmpty || dataFilters.isEmpty || isPartitionPruneOnly) {
       prunedPartitionsAndFileSlices
     } else {
       // Look up candidate files names in the col-stats or record level index, if all of the following conditions are true
@@ -363,8 +320,6 @@ case class HoodieFileIndex(spark: SparkSession,
 
       prunedPartitionsAndFilteredFileSlices
     }
-
-    result
   }
 
   /**
@@ -577,62 +532,26 @@ object HoodieFileIndex extends Logging {
   }
 
   /**
-   * Extracts filters from `dataFilters` that reference nested partition columns.
+   * Extracts filters from `dataFilters` that reference nested partition columns by walking
+   * [[GetStructField]] chains to reconstruct the full dot-path and matching against partition
+   * column names.  We cannot match on the struct root alone because sibling fields share it
+   * (e.g. `nested_record.level` and `nested_record.nested_int` both reference `nested_record`).
    *
-   * == Background ==
+   * Given partition column `nested_record.level` and:
+   * {{{
+   *   dataFilters = [nested_record.level = 'INFO', nested_record.nested_int > 0, int_field = 5]
+   * }}}
+   * Returns: `[nested_record.level = 'INFO']`
    *
-   * For regular partition columns, Spark's [[org.apache.spark.sql.execution.datasources.PruneFileSourcePartitions]]
-   * (or Hudi's [[HoodiePruneFileSourcePartitions]]) classifies each filter expression by checking
-   * whether `expr.references` is a subset of the partition column [[AttributeSet]].  This works
-   * because flat partition columns appear as top-level [[AttributeReference]]s that Spark can
-   * directly match.  Spark also splits top-level AND conjuncts into separate filters before
-   * classifying, so `a = 1 AND d = 2` becomes two filters: `a = 1` (partition) and `d = 2`
-   * (data).  An OR like `(a = 1 OR d = 2)` stays as one expression whose references include
-   * both `a` and `d`, so it's correctly classified as a data filter (the `d = 2` branch means
-   * any partition could match).
-   *
-   * For nested partition columns (e.g. `nested_record.level`), this classification breaks down.
-   * [[FileSourceScanExec]] cannot match [[GetStructField]] expressions against the flat dot-path
-   * partition schema, so all nested partition predicates end up in `dataFilters`.  This method
-   * re-extracts them by walking [[GetStructField]] chains to reconstruct the full dot-path and
-   * checking whether it matches a partition column name.
-   *
-   * We cannot rely solely on [[AttributeReference]] name matching (the struct root) because
-   * multiple nested fields may share the same root struct (e.g. `nested_record.level` and
-   * `nested_record.other_field` both reference `nested_record`).
-   *
-   * == Behavior compared to regular partition columns ==
-   *
-   * For simple predicates like `nested_record.level = 'INFO'`, this method behaves identically
-   * to Spark's classification of regular partition filters — the predicate is extracted and used
-   * for partition pruning.
-   *
-   * == Known limitations (not present for regular partition columns) ==
-   *
-   * Because this method operates on already-classified `dataFilters` rather than the raw filter
-   * list, it cannot re-split AND conjuncts that Spark may have bundled into a single expression.
-   * This leads to two cases where nested partition pruning is less effective than regular:
-   *
-   *  - '''Mixed AND as single expression''': If `a.b.c = 1 AND d = 2` is passed as a single
-   *    expression (rather than two separate conjuncts), it is excluded entirely because `d` is
-   *    not a partition column root.  In practice Spark splits top-level AND conjuncts before
-   *    passing them to [[FileSourceScanExec]], so this mainly affects AND expressions nested
-   *    inside an OR branch.
-   *
-   *  - '''OR predicates mixing partition and data columns''': `(a.b.c = 1 AND d = 2) OR
-   *    (a.b.c = 3)` is a single expression referencing both partition and data columns, so it
-   *    is excluded.  A more sophisticated implementation could extract a weaker partition-only
-   *    predicate (e.g. `a.b.c IN (1, 3)`) to enable partition pruning while still applying the
-   *    full predicate as a post-scan filter.  Note that Spark's own
-   *    [[org.apache.spark.sql.execution.datasources.PruneFileSourcePartitions]] has the same
-   *    limitation for regular partition columns with OR predicates — `(a = 1 OR d = 2)` is
-   *    classified as a data filter, not a partition filter.  The difference is that for regular
-   *    columns Spark correctly extracts the pure-partition conjuncts from the top-level AND
-   *    before encountering the OR, whereas for nested columns we may miss some of those.
+   * Known limitations vs regular partition columns:
+   *  - `(nested_record.level = 'INFO' AND d = 2) OR (nested_record.level = 'ERROR')` is excluded
+   *    entirely (references both partition and data columns). A weaker predicate like
+   *    `nested_record.level IN ('INFO', 'ERROR')` could be extracted but is not implemented.
+   *    Spark has the same OR limitation for regular partition columns.
    *
    * @param dataFilters          filters to scan for nested partition predicates
-   * @param partitionColumnNames the set of partition column dot-paths (e.g. Set("nested_record.level"))
-   * @return only the filters that exclusively reference partition columns
+   * @param partitionColumnNames partition column dot-paths, e.g. `Set("nested_record.level")`
+   * @return only the filters whose every column reference is a partition column
    */
   private[hudi] def extractNestedPartitionFilters(dataFilters: Seq[Expression],
                                                   partitionColumnNames: Set[String]): Seq[Expression] = {
@@ -652,26 +571,17 @@ object HoodieFileIndex extends Logging {
   }
 
   /**
-   * Collects the full dot-paths of outermost [[GetStructField]] chains in an expression tree.
-   * For `EqualTo(GetStructField(GetStructField(attr("a"), _, "b"), _, "c"), Literal(1))`,
-   * returns `Seq("a.b.c")` — only the outermost chain, not intermediate segments like "a.b".
+   * Collects full dot-paths of outermost [[GetStructField]] chains in an expression.
+   * `EqualTo(a.b.c, 1)` → `Seq("a.b.c")` (not intermediate `"a.b"`).
    */
   private[hudi] def collectOutermostStructFieldPaths(expr: Expression): Seq[String] = {
     expr match {
-      case g: GetStructField =>
-        // This is an outermost GetStructField — resolve the full chain and don't recurse
-        // into children (they are intermediate segments of the same chain).
-        resolveGetStructFieldPath(g).toSeq
-      case _ =>
-        // Not a GetStructField — recurse into children to find GetStructField chains.
-        expr.children.flatMap(collectOutermostStructFieldPaths)
+      case g: GetStructField => resolveGetStructFieldPath(g).toSeq
+      case _ => expr.children.flatMap(collectOutermostStructFieldPaths)
     }
   }
 
-  /**
-   * Resolves a [[GetStructField]] chain to its full dot-path string.
-   * E.g. `GetStructField(GetStructField(attr("a"), _, "b"), _, "c")` resolves to `"a.b.c"`.
-   */
+  /** Resolves a [[GetStructField]] chain to its full dot-path: `attr("a").b.c` → `"a.b.c"`. */
   private[hudi] def resolveGetStructFieldPath(expr: Expression): Option[String] = expr match {
     case GetStructField(child: AttributeReference, _, Some(fieldName)) =>
       Some(child.name + "." + fieldName)
