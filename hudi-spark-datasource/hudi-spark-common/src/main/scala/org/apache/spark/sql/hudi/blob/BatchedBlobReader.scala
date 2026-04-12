@@ -288,44 +288,54 @@ class BatchedBlobReader(
   private def mergeRanges[R](rows: Seq[RowInfo[R]], maxGap: Int): Seq[MergedRange[R]] = {
 
     val result = ArrayBuffer[MergedRange[R]]()
-    var current: MergedRange[R] = null
+    var currentFilePath: String = null
+    var currentStartOffset: Long = 0L
+    var currentEndOffset: Long = 0L
+    var currentRows: ArrayBuffer[RowInfo[R]] = null
 
     rows.foreach { row =>
-      if (current == null) {
+      if (currentRows == null) {
         // Start first range
-        current = MergedRange[R](
-          filePath = row.filePath,
-          startOffset = row.offset,
-          endOffset = row.offset + row.length,
-          rows = Seq(row)
-        )
+        currentFilePath = row.filePath
+        currentStartOffset = row.offset
+        currentEndOffset = row.offset + row.length
+        currentRows = ArrayBuffer(row)
       } else {
-        val gap = row.offset - current.endOffset
+        val gap = row.offset - currentEndOffset
         // Check for overlap
-        if (row.offset < current.endOffset) {
+        if (row.offset < currentEndOffset) {
           throw new IllegalArgumentException(
-            s"Overlapping blob ranges detected: previous range [${current.startOffset}, ${current.endOffset}) and current row [${row.offset}, ${row.offset + row.length}) in file ${row.filePath}"
+            s"Overlapping blob ranges detected: previous range [${currentStartOffset}, ${currentEndOffset}) and current row [${row.offset}, ${row.offset + row.length}) in file ${row.filePath}"
           )
         }
         if (gap >= 0 && gap <= maxGap) {
           // Merge into current range
-          current = current.merge(row)
+          currentEndOffset = math.max(currentEndOffset, row.offset + row.length)
+          currentRows += row
         } else {
           // Save current range and start new one
-          result += current
-          current = MergedRange[R](
-            filePath = row.filePath,
-            startOffset = row.offset,
-            endOffset = row.offset + row.length,
-            rows = Seq(row)
+          result += MergedRange[R](
+            filePath = currentFilePath,
+            startOffset = currentStartOffset,
+            endOffset = currentEndOffset,
+            rows = currentRows.toSeq
           )
+          currentFilePath = row.filePath
+          currentStartOffset = row.offset
+          currentEndOffset = row.offset + row.length
+          currentRows = ArrayBuffer(row)
         }
       }
     }
 
     // Add final range
-    if (current != null) {
-      result += current
+    if (currentRows != null) {
+      result += MergedRange[R](
+        filePath = currentFilePath,
+        startOffset = currentStartOffset,
+        endOffset = currentEndOffset,
+        rows = currentRows.toSeq
+      )
     }
 
     result.toSeq
@@ -555,19 +565,6 @@ private case class MergedRange[R](
     startOffset: Long,
     endOffset: Long,
     rows: Seq[RowInfo[R]]) {
-
-  /**
-   * Merge another row into this range.
-   *
-   * @param row Row to merge
-   * @return New merged range including the row
-   */
-  def merge(row: RowInfo[R]): MergedRange[R] = {
-    copy(
-      endOffset = math.max(endOffset, row.offset + row.length),
-      rows = rows :+ row
-    )
-  }
 }
 
 /**
