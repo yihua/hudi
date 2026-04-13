@@ -79,9 +79,9 @@ public class HudiHiveSyncJob {
     LOG.info("Cfg received: {}", cfg);
     JavaSparkContext jsc;
     if (StringUtils.isNullOrEmpty(cfg.sparkMaster)) {
-      jsc = UtilHelpers.buildSparkContext("HudiHiveSyncJob", cfg.sparkMaster, true);
-    } else {
       jsc = UtilHelpers.buildSparkContext("HudiHiveSyncJob", "local[2]", true);
+    } else {
+      jsc = UtilHelpers.buildSparkContext("HudiHiveSyncJob", cfg.sparkMaster, true);
     }
     try {
       new HudiHiveSyncJob(jsc, cfg).run();

@@ -32,10 +32,11 @@ import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.api.java.JavaSparkContext;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 
 import java.nio.file.Path;
 import java.nio.file.Files;
@@ -62,18 +63,23 @@ public class TestHudiHiveSyncJob {
   @TempDir
   Path tempDir;
 
-  @BeforeAll
-  static void setUpClass() throws Exception {
+  @BeforeEach
+  void setUp() throws Exception {
     HiveTestUtil.setUp(Option.empty(), true);
+  }
+
+  @AfterEach
+  void cleanUp() {
+    try {
+      HiveTestUtil.clear();
+    } catch (Throwable t) {
+      // no-op for cleanup failures in tests
+    }
   }
 
   @AfterAll
   static void cleanUpClass() {
-    try {
-      HiveTestUtil.shutdown();
-    } catch (Throwable t) {
-      // no-op for cleanup failures in tests
-    }
+    HiveTestUtil.shutdown();
   }
 
   @Test
