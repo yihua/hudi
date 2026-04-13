@@ -103,6 +103,14 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
 
     assertTrue(expectedDf.except(actual).isEmpty)
     assertTrue(actual.except(expectedDf).isEmpty)
+
+    // Verify SELECT count(*) returns the correct row count. This exercises the column-less
+    // scan path in SparkLanceReaderBase (requiredSchema.isEmpty && partitionSchema.isEmpty),
+    // which opens the Lance file solely to read its row count via the footer/manifest.
+    readDf.createOrReplaceTempView(tableName)
+    val countResult = spark.sql(s"SELECT count(*) FROM $tableName").collect()
+    assertEquals(records.length.toLong, countResult(0).getLong(0))
+    assertEquals(records.length.toLong, readDf.count())
   }
 
   @ParameterizedTest
@@ -816,8 +824,7 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
                                                isPartitioned: Boolean): Unit = {
     val createTablePartitionClause = if (isPartitioned) "partitioned by (dt)" else ""
 
-    // CREATE TABLE with Lance configuration
-    // Lance format requires Spark record merger for writing
+    // CREATE TABLE with Lance configuration.
     spark.sql(s"""
       create table $tableName (
         id int,
@@ -829,8 +836,7 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
       tblproperties (
         hoodie.table.base.file.format = 'LANCE',
         type = '${tableType.name()}',
-        primaryKey = 'id',
-        hoodie.write.record.merge.custom.implementation.classes = '${classOf[DefaultSparkRecordMerger].getName}'
+        primaryKey = 'id'
       )
       $createTablePartitionClause
       location '$tablePath'
