@@ -80,6 +80,39 @@ public final class VectorConversionUtils {
   }
 
   /**
+   * Builds the value string for {@link HoodieSchema#PARQUET_VECTOR_COLUMNS_METADATA_KEY}
+   * from a Spark {@link StructType}, matching the comma-separated
+   * {@code colName:VECTOR(dim[,elemType])} format produced on the Parquet path by
+   * {@link HoodieSchema#buildVectorColumnsMetadataValue}.
+   *
+   * <p>Intended to be written as file-footer metadata (e.g. via
+   * {@code LanceFileWriter.addSchemaMetadata}) so any reader can identify VECTOR
+   * columns from the file alone, mirroring the Parquet footer convention.
+   *
+   * @param schema Spark StructType (may be null)
+   * @return comma-separated descriptor list, or empty string if no VECTOR columns
+   */
+  public static String buildVectorColumnsMetadataValue(StructType schema) {
+    if (schema == null) {
+      return "";
+    }
+    StringBuilder sb = new StringBuilder();
+    StructField[] fields = schema.fields();
+    Map<Integer, HoodieSchema.Vector> detected = detectVectorColumnsFromMetadata(schema);
+    for (int i = 0; i < fields.length; i++) {
+      HoodieSchema.Vector v = detected.get(i);
+      if (v == null) {
+        continue;
+      }
+      if (sb.length() > 0) {
+        sb.append(',');
+      }
+      sb.append(fields[i].name()).append(':').append(v.toTypeDescriptor());
+    }
+    return sb.toString();
+  }
+
+  /**
    * Detects VECTOR columns from Spark StructType metadata annotations.
    * Fields with metadata key {@link HoodieSchema#TYPE_METADATA_FIELD} starting with "VECTOR"
    * are parsed and included.

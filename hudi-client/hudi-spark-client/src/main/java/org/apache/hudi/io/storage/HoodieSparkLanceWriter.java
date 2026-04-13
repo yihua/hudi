@@ -260,6 +260,28 @@ public class HoodieSparkLanceWriter extends HoodieBaseLanceWriter<InternalRow, U
   }
 
   /**
+   * Emit Hudi's {@code hoodie.vector.columns} footer entry alongside any
+   * bloom-filter metadata. Mirrors the Parquet writer (see
+   * {@code HoodieRowParquetWriteSupport#init}) so Lance files carry the same
+   * self-describing VECTOR descriptor list that Parquet files do.
+   *
+   * <p>The read side today derives VECTOR identity from the Arrow
+   * {@code FixedSizeList<Float/Double, N>} type — this footer entry is a
+   * forward-compat guard: it lets future readers recover the exact descriptor
+   * (including fields the Arrow type cannot express, e.g. quantization tags)
+   * without a writer bump.
+   */
+  @Override
+  protected java.util.Map<String, String> additionalSchemaMetadata() {
+    String value = VectorConversionUtils.buildVectorColumnsMetadataValue(sparkSchema);
+    if (value.isEmpty()) {
+      return java.util.Collections.emptyMap();
+    }
+    return java.util.Collections.singletonMap(
+        org.apache.hudi.common.schema.HoodieSchema.PARQUET_VECTOR_COLUMNS_METADATA_KEY, value);
+  }
+
+  /**
    * Update Hudi metadata fields in the InternalRow.
    *
    * @param row InternalRow to update

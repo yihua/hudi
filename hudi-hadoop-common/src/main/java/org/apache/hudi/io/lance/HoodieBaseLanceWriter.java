@@ -106,6 +106,20 @@ public abstract class HoodieBaseLanceWriter<R, K extends Comparable<K>> implemen
   protected abstract Schema getArrowSchema();
 
   /**
+   * Subclass hook for emitting additional Lance file-footer key-value metadata
+   * alongside any bloom-filter entries. Called once during {@link #close()}.
+   *
+   * <p>Default implementation returns an empty map. Overriders should return a
+   * fresh map; the caller does not retain a reference. Colliding keys are
+   * overwritten per {@code LanceFileWriter.addSchemaMetadata} semantics.
+   *
+   * @return map of footer metadata key-value pairs, or empty map for none
+   */
+  protected Map<String, String> additionalSchemaMetadata() {
+    return java.util.Collections.emptyMap();
+  }
+
+  /**
    * Write a single record. Records are buffered and flushed in batches.
    *
    * @param record Record to write
@@ -168,6 +182,15 @@ public abstract class HoodieBaseLanceWriter<R, K extends Comparable<K>> implemen
         Map<String, String> metadata = bloomFilterWriteSupportOpt.get().finalizeMetadata();
         if (!metadata.isEmpty()) {
           writer.addSchemaMetadata(metadata);
+        }
+      }
+
+      // Allow subclasses to contribute additional footer key-value metadata
+      // (e.g. Spark writer emits `hoodie.vector.columns` for forward-compat read).
+      if (writer != null) {
+        Map<String, String> extra = additionalSchemaMetadata();
+        if (extra != null && !extra.isEmpty()) {
+          writer.addSchemaMetadata(extra);
         }
       }
     } catch (Exception e) {

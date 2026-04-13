@@ -825,6 +825,7 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
     assertEquals(expectedByKey, actualByKey)
 
     assertLanceFieldIsFixedSizeList(tablePath, "embedding", dim)
+    assertLanceFooterHasVectorColumns(tablePath, s"embedding:VECTOR($dim)")
   }
 
   @ParameterizedTest
@@ -863,6 +864,7 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
     assertEquals(expectedByKey, actualByKey)
 
     assertLanceFieldIsFixedSizeList(tablePath, "embedding", dim)
+    assertLanceFooterHasVectorColumns(tablePath, s"embedding:VECTOR($dim, DOUBLE)")
   }
 
   @ParameterizedTest
@@ -907,6 +909,8 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
 
     assertLanceFieldIsFixedSizeList(tablePath, "embedding", embeddingDim)
     assertLanceFieldIsFixedSizeList(tablePath, "features", featuresDim)
+    assertLanceFooterHasVectorColumns(tablePath,
+      s"embedding:VECTOR($embeddingDim),features:VECTOR($featuresDim, DOUBLE)")
   }
 
   private def assertHudiTypeMetadata(field: StructField, expectedDescriptor: String): Unit = {
@@ -925,6 +929,57 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
    * This proves that the write path used Lance's native vector column encoding
    * rather than a plain variable-length list.
    */
+  /**
+   * Opens the raw Lance base file(s) for the given Hudi table and asserts that the
+   * Arrow schema's custom metadata carries `hoodie.vector.columns` with the given
+   * expected descriptor list. This is the forward-compat guard — future readers
+   * can recover the exact Hudi VECTOR descriptor from the footer without
+   * re-deriving from the Arrow type.
+   *
+   * <p>Descriptor list order is writer-determined (matches Spark schema field
+   * order), so callers must pass the entries in that order.
+   */
+  private def assertLanceFooterHasVectorColumns(tablePath: String, expected: String): Unit = {
+    val metaClient = HoodieTableMetaClient.builder()
+      .setConf(HoodieTestUtils.getDefaultStorageConf)
+      .setBasePath(tablePath)
+      .build()
+    val engineContext = new HoodieLocalEngineContext(metaClient.getStorageConf)
+    val metadataConfig = HoodieMetadataConfig.newBuilder.build
+    val viewManager = FileSystemViewManager.createViewManager(
+      engineContext, metadataConfig, FileSystemViewStorageConfig.newBuilder.build,
+      HoodieCommonConfig.newBuilder.build,
+      (mc: HoodieTableMetaClient) => metaClient.getTableFormat
+        .getMetadataFactory.create(engineContext, mc.getStorage, metadataConfig, tablePath))
+    val fsView = viewManager.getFileSystemView(metaClient)
+    try {
+      val baseFiles = fsView.getLatestBaseFiles("")
+        .collect(Collectors.toList[org.apache.hudi.common.model.HoodieBaseFile])
+      assertTrue(baseFiles.size() > 0, "Expected at least one Lance base file")
+      val allocator = new RootAllocator()
+      try {
+        baseFiles.asScala.foreach { bf =>
+          val reader = LanceFileReader.open(bf.getPath, allocator)
+          try {
+            val meta = reader.schema().getCustomMetadata
+            assertNotNull(meta, s"Lance footer metadata null for ${bf.getPath}")
+            val key = HoodieSchema.PARQUET_VECTOR_COLUMNS_METADATA_KEY
+            assertTrue(meta.containsKey(key),
+              s"Lance file ${bf.getPath} should have footer key $key, got keys ${meta.keySet()}")
+            assertEquals(expected, meta.get(key),
+              s"Lance file ${bf.getPath} footer $key mismatch")
+          } finally {
+            reader.close()
+          }
+        }
+      } finally {
+        allocator.close()
+      }
+    } finally {
+      fsView.close()
+    }
+  }
+
   private def assertLanceFieldIsFixedSizeList(tablePath: String, fieldName: String, expectedDim: Int): Unit = {
     val metaClient = HoodieTableMetaClient.builder()
       .setConf(HoodieTestUtils.getDefaultStorageConf)
