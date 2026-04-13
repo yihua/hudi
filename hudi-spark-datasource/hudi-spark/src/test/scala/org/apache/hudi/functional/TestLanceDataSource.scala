@@ -816,6 +816,7 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
     assertEquals(
       ArrayType(FloatType, containsNull = false),
       readDf.schema("embedding").dataType)
+    assertHudiTypeMetadata(readDf.schema("embedding"), s"VECTOR($dim)")
 
     val actualByKey = readDf.collect().map(r =>
       r.getInt(0) -> r.getAs[Seq[Float]](1).toSeq).toMap
@@ -853,6 +854,7 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
     assertEquals(
       ArrayType(DoubleType, containsNull = false),
       readDf.schema("embedding").dataType)
+    assertHudiTypeMetadata(readDf.schema("embedding"), s"VECTOR($dim, DOUBLE)")
 
     val actualByKey = readDf.collect().map(r =>
       r.getInt(0) -> r.getAs[Seq[Double]](1).toSeq).toMap
@@ -900,9 +902,18 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
         r.getAs[Array[Double]](2).toSeq)
     }.toSet
     assertEquals(expected, rows)
+    assertHudiTypeMetadata(readDf.schema("embedding"), s"VECTOR($embeddingDim)")
+    assertHudiTypeMetadata(readDf.schema("features"), s"VECTOR($featuresDim, DOUBLE)")
 
     assertLanceFieldIsFixedSizeList(tablePath, "embedding", embeddingDim)
     assertLanceFieldIsFixedSizeList(tablePath, "features", featuresDim)
+  }
+
+  private def assertHudiTypeMetadata(field: StructField, expectedDescriptor: String): Unit = {
+    assertTrue(field.metadata.contains(HoodieSchema.TYPE_METADATA_FIELD),
+      s"Expected field ${field.name} to carry ${HoodieSchema.TYPE_METADATA_FIELD} metadata after read")
+    assertEquals(expectedDescriptor, field.metadata.getString(HoodieSchema.TYPE_METADATA_FIELD),
+      s"Expected ${HoodieSchema.TYPE_METADATA_FIELD}=$expectedDescriptor on field ${field.name}")
   }
 
   private def vectorMetadata(descriptor: String): Metadata =
