@@ -22,6 +22,7 @@ import org.apache.hudi.DefaultSparkRecordMerger
 import org.apache.hudi.common.config.{HoodieCommonConfig, HoodieMetadataConfig}
 import org.apache.hudi.common.engine.HoodieLocalEngineContext
 import org.apache.hudi.common.model.HoodieTableType
+import org.apache.hudi.common.schema.HoodieSchema
 import org.apache.hudi.common.table.{HoodieTableConfig, HoodieTableMetaClient}
 import org.apache.hudi.common.table.view.{FileSystemViewManager, FileSystemViewStorageConfig}
 import org.apache.hudi.common.testutils.HoodieTestUtils
@@ -30,12 +31,16 @@ import org.apache.hudi.io.storage.HoodieSparkLanceReader
 import org.apache.hudi.storage.StoragePath
 import org.apache.hudi.testutils.HoodieSparkClientTestBase
 
-import org.apache.spark.sql.{DataFrame, SaveMode, SparkSession}
+import org.apache.arrow.memory.RootAllocator
+import org.apache.arrow.vector.types.pojo.ArrowType
+import org.apache.spark.sql.{DataFrame, Row, SaveMode, SparkSession}
+import org.apache.spark.sql.types._
 import org.junit.jupiter.api.{AfterEach, BeforeEach}
 import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertNotNull, assertTrue}
 import org.junit.jupiter.api.condition.DisabledIfSystemProperty
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.EnumSource
+import org.lance.file.LanceFileReader
 
 import java.util.stream.Collectors
 
@@ -782,6 +787,175 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
       }
     }
     fsView.close()
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = classOf[HoodieTableType])
+  def testFloatVectorRoundTrip(tableType: HoodieTableType): Unit = {
+    val tableName = s"test_lance_vec_f32_${tableType.name().toLowerCase}"
+    val tablePath = s"$basePath/$tableName"
+
+    val dim = 4
+    val schema = StructType(Seq(
+      StructField("id", IntegerType, nullable = false),
+      StructField("embedding",
+        ArrayType(FloatType, containsNull = false),
+        nullable = false,
+        vectorMetadata(s"VECTOR($dim)"))
+    ))
+    val data = Seq(
+      Row(1, Array(1.0f, 2.0f, 4.0f, 8.0f)),
+      Row(2, Array(0.5f, 0.25f, 0.125f, 0.0625f)),
+      Row(3, Array(-1.0f, -2.0f, -4.0f, -8.0f))
+    )
+    val df = spark.createDataFrame(spark.sparkContext.parallelize(data), schema).coalesce(1)
+
+    writeDataframe(tableType, tableName, tablePath, df, saveMode = SaveMode.Overwrite)
+
+    val readDf = spark.read.format("hudi").load(tablePath).select("id", "embedding")
+    assertEquals(
+      ArrayType(FloatType, containsNull = false),
+      readDf.schema("embedding").dataType)
+
+    val actualByKey = readDf.collect().map(r =>
+      r.getInt(0) -> r.getAs[Seq[Float]](1).toSeq).toMap
+    val expectedByKey = data.map(r =>
+      r.getInt(0) -> r.getAs[Array[Float]](1).toSeq).toMap
+    assertEquals(expectedByKey, actualByKey)
+
+    assertLanceFieldIsFixedSizeList(tablePath, "embedding", dim)
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = classOf[HoodieTableType])
+  def testDoubleVectorRoundTrip(tableType: HoodieTableType): Unit = {
+    val tableName = s"test_lance_vec_f64_${tableType.name().toLowerCase}"
+    val tablePath = s"$basePath/$tableName"
+
+    val dim = 4
+    val schema = StructType(Seq(
+      StructField("id", IntegerType, nullable = false),
+      StructField("embedding",
+        ArrayType(DoubleType, containsNull = false),
+        nullable = false,
+        vectorMetadata(s"VECTOR($dim, DOUBLE)"))
+    ))
+    val data = Seq(
+      Row(1, Array(1.0d, 2.0d, 4.0d, 8.0d)),
+      Row(2, Array(0.5d, 0.25d, 0.125d, 0.0625d)),
+      Row(3, Array(-1.0d, -2.0d, -4.0d, -8.0d))
+    )
+    val df = spark.createDataFrame(spark.sparkContext.parallelize(data), schema).coalesce(1)
+
+    writeDataframe(tableType, tableName, tablePath, df, saveMode = SaveMode.Overwrite)
+
+    val readDf = spark.read.format("hudi").load(tablePath).select("id", "embedding")
+    assertEquals(
+      ArrayType(DoubleType, containsNull = false),
+      readDf.schema("embedding").dataType)
+
+    val actualByKey = readDf.collect().map(r =>
+      r.getInt(0) -> r.getAs[Seq[Double]](1).toSeq).toMap
+    val expectedByKey = data.map(r =>
+      r.getInt(0) -> r.getAs[Array[Double]](1).toSeq).toMap
+    assertEquals(expectedByKey, actualByKey)
+
+    assertLanceFieldIsFixedSizeList(tablePath, "embedding", dim)
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = classOf[HoodieTableType])
+  def testMultipleVectorColumns(tableType: HoodieTableType): Unit = {
+    val tableName = s"test_lance_vec_multi_${tableType.name().toLowerCase}"
+    val tablePath = s"$basePath/$tableName"
+
+    val embeddingDim = 3
+    val featuresDim = 2
+    val schema = StructType(Seq(
+      StructField("id", IntegerType, nullable = false),
+      StructField("embedding",
+        ArrayType(FloatType, containsNull = false),
+        nullable = false,
+        vectorMetadata(s"VECTOR($embeddingDim)")),
+      StructField("features",
+        ArrayType(DoubleType, containsNull = false),
+        nullable = false,
+        vectorMetadata(s"VECTOR($featuresDim, DOUBLE)"))
+    ))
+    val data = Seq(
+      Row(1, Array(1.0f, 2.0f, 3.0f), Array(10.0d, 20.0d)),
+      Row(2, Array(4.0f, 5.0f, 6.0f), Array(30.0d, 40.0d))
+    )
+    val df = spark.createDataFrame(spark.sparkContext.parallelize(data), schema).coalesce(1)
+
+    writeDataframe(tableType, tableName, tablePath, df, saveMode = SaveMode.Overwrite)
+
+    val readDf = spark.read.format("hudi").load(tablePath).select("id", "embedding", "features")
+    val rows = readDf.collect().map { r =>
+      (r.getInt(0), r.getAs[Seq[Float]](1).toSeq, r.getAs[Seq[Double]](2).toSeq)
+    }.toSet
+    val expected = data.map { r =>
+      (r.getInt(0),
+        r.getAs[Array[Float]](1).toSeq,
+        r.getAs[Array[Double]](2).toSeq)
+    }.toSet
+    assertEquals(expected, rows)
+
+    assertLanceFieldIsFixedSizeList(tablePath, "embedding", embeddingDim)
+    assertLanceFieldIsFixedSizeList(tablePath, "features", featuresDim)
+  }
+
+  private def vectorMetadata(descriptor: String): Metadata =
+    new MetadataBuilder().putString(HoodieSchema.TYPE_METADATA_FIELD, descriptor).build()
+
+  /**
+   * Opens the raw Lance base file(s) for the given Hudi table and asserts that the
+   * named field is encoded as an Arrow FixedSizeList with the expected listSize.
+   * This proves that the write path used Lance's native vector column encoding
+   * rather than a plain variable-length list.
+   */
+  private def assertLanceFieldIsFixedSizeList(tablePath: String, fieldName: String, expectedDim: Int): Unit = {
+    val metaClient = HoodieTableMetaClient.builder()
+      .setConf(HoodieTestUtils.getDefaultStorageConf)
+      .setBasePath(tablePath)
+      .build()
+    val engineContext = new HoodieLocalEngineContext(metaClient.getStorageConf)
+    val metadataConfig = HoodieMetadataConfig.newBuilder.build
+    val viewManager = FileSystemViewManager.createViewManager(
+      engineContext, metadataConfig, FileSystemViewStorageConfig.newBuilder.build,
+      HoodieCommonConfig.newBuilder.build,
+      (mc: HoodieTableMetaClient) => metaClient.getTableFormat
+        .getMetadataFactory.create(engineContext, mc.getStorage, metadataConfig, tablePath))
+    val fsView = viewManager.getFileSystemView(metaClient)
+    try {
+      val baseFiles = fsView.getLatestBaseFiles("")
+        .collect(Collectors.toList[org.apache.hudi.common.model.HoodieBaseFile])
+      assertTrue(baseFiles.size() > 0, "Expected at least one Lance base file")
+      val allocator = new RootAllocator()
+      try {
+        baseFiles.asScala.foreach { bf =>
+          val reader = LanceFileReader.open(bf.getPath, allocator)
+          try {
+            val field = reader.schema().findField(fieldName)
+            assertNotNull(field, s"Field $fieldName not found in Lance schema for ${bf.getPath}")
+            field.getType match {
+              case fsl: ArrowType.FixedSizeList =>
+                assertEquals(expectedDim, fsl.getListSize,
+                  s"Lance field $fieldName in ${bf.getPath} should be FixedSizeList of size $expectedDim")
+              case other =>
+                throw new AssertionError(
+                  s"Lance field $fieldName in ${bf.getPath} should be FixedSizeList but was $other")
+            }
+          } finally {
+            reader.close()
+          }
+        }
+      } finally {
+        allocator.close()
+      }
+    } finally {
+      fsView.close()
+    }
   }
 
   private def createDataFrame(records: Seq[(Int, String, Int, Double)]) = {
