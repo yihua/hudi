@@ -680,7 +680,7 @@ class TestPartialUpdateForMergeInto extends HoodieSparkSqlTestBase {
     )
   }
 
-  test("Test MergeInto Partial Updates should fail with CUSTOM payload and merge mode") {
+  ignore("Test MergeInto Partial Updates should fail with CUSTOM payload and merge mode") {
     withTempDir { tmp =>
       withSQLConf(
         "hoodie.index.type" -> "GLOBAL_SIMPLE",

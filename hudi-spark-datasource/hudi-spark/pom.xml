@@ -493,4 +493,90 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
+
+  <profiles>
+    <!-- Activated automatically when -Dgluten.bundle.jar=<path> is passed.
+         Adds the Gluten/Velox bundle JAR to the surefire test JVM classpath so
+         GlutenPlugin can be instantiated, and appends JVM flags required by
+         Gluten's native memory layer not already present in the parent argLine. -->
+    <profile>
+      <id>gluten-velox</id>
+      <activation>
+        <property>
+          <name>gluten.bundle.jar</name>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <configuration>
+              <classpathDependencyExcludes>
+                <!-- lance-core:1.0.2 pulls standard (unshaded) arrow-c-data/arrow-dataset
+                     whose ArrowSchema has the original method signatures that conflict with
+                     Gluten's shaded bundle. The Gluten bundle provides its own shade-processed
+                     copies of these classes, so the standard JARs must not appear first. -->
+                <classpathDependencyExclude>org.apache.arrow:arrow-c-data</classpathDependencyExclude>
+                <classpathDependencyExclude>org.apache.arrow:arrow-dataset</classpathDependencyExclude>
+              </classpathDependencyExcludes>
+              <additionalClasspathElements>
+                <additionalClasspathElement>${gluten.bundle.jar}</additionalClasspathElement>
+              </additionalClasspathElements>
+              <!-- @{argLine} preserves JaCoCo agent and existing Spark add-opens flags.
+                   Extra flags below cover what JAVA_OPTS in test-hudi-mor.sh adds
+                   that the parent pom Spark 3.5 argLine does not already include. -->
+              <argLine>@{argLine}
+                --add-opens=java.base/jdk.internal.ref=ALL-UNNAMED
+                --add-opens=java.base/jdk.internal.misc=ALL-UNNAMED
+                --add-exports=java.base/jdk.internal.misc=ALL-UNNAMED
+                -Dio.netty.tryReflectionSetAccessible=true
+                -Dgluten.bundle.jar=${gluten.bundle.jar}
+              </argLine>
+            </configuration>
+          </plugin>
+          <plugin>
+            <groupId>org.scalatest</groupId>
+            <artifactId>scalatest-maven-plugin</artifactId>
+            <configuration>
+              <systemProperties>
+                <gluten.bundle.jar>${gluten.bundle.jar}</gluten.bundle.jar>
+              </systemProperties>
+              <argLine>${argLine}
+                --add-opens=java.base/jdk.internal.ref=ALL-UNNAMED
+                --add-opens=java.base/jdk.internal.misc=ALL-UNNAMED
+                --add-exports=java.base/jdk.internal.misc=ALL-UNNAMED
+                -Dio.netty.tryReflectionSetAccessible=true
+              </argLine>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+      <dependencies>
+        <dependency>
+          <groupId>io.glutenproject</groupId>
+          <artifactId>gluten-velox-bundle</artifactId>
+          <version>0.0.0</version>
+          <scope>system</scope>
+          <systemPath>${gluten.bundle.jar}</systemPath>
+        </dependency>
+        <!-- Override lance-core to exclude arrow JARs that conflict with
+             the shaded copies inside the Gluten bundle. -->
+        <dependency>
+          <groupId>org.lance</groupId>
+          <artifactId>lance-core</artifactId>
+          <exclusions>
+            <exclusion>
+              <groupId>org.apache.arrow</groupId>
+              <artifactId>arrow-c-data</artifactId>
+            </exclusion>
+            <exclusion>
+              <groupId>org.apache.arrow</groupId>
+              <artifactId>arrow-dataset</artifactId>
+            </exclusion>
+          </exclusions>
+        </dependency>
+      </dependencies>
+    </profile>
+  </profiles>
 </project>

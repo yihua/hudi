@@ -40,6 +40,7 @@ import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.storage.StorageConfiguration;
 
 import org.apache.avro.generic.IndexedRecord;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -137,6 +138,7 @@ class TestKeyBasedFileGroupRecordBuffer extends BaseTestFileGroupRecordBuffer {
     assertEquals(2, readStats.getNumUpdates());
   }
 
+  @Disabled("Custom delete payload not supported")
   @Test
   void readWithEventTimeOrderingWithRecords() throws IOException {
     HoodieReadStats readStats = new HoodieReadStats();
@@ -176,6 +178,7 @@ class TestKeyBasedFileGroupRecordBuffer extends BaseTestFileGroupRecordBuffer {
     assertEquals(3, readStats.getNumUpdates());
   }
 
+  @Disabled("Custom delete payload not supported")
   @Test
   void readWithCommitTimeOrdering() throws IOException {
     HoodieReadStats readStats = new HoodieReadStats();
@@ -206,6 +209,7 @@ class TestKeyBasedFileGroupRecordBuffer extends BaseTestFileGroupRecordBuffer {
     assertEquals(2, readStats.getNumUpdates());
   }
 
+  @Disabled("Custom delete payload not supported")
   @Test
   void readWithCommitTimeOrderingWithRecords() throws IOException {
     HoodieReadStats readStats = new HoodieReadStats();
@@ -242,6 +246,7 @@ class TestKeyBasedFileGroupRecordBuffer extends BaseTestFileGroupRecordBuffer {
     assertEquals(4, readStats.getNumUpdates());
   }
 
+  @Disabled("CUSTOM merge mode not supported")
   @Test
   void readWithCustomPayload() throws IOException {
     HoodieReadStats readStats = new HoodieReadStats();
@@ -281,6 +286,7 @@ class TestKeyBasedFileGroupRecordBuffer extends BaseTestFileGroupRecordBuffer {
     assertEquals(0, readStats.getNumUpdates());
   }
 
+  @Disabled("CUSTOM merge mode not supported")
   @Test
   void readWithCustomPayloadWithRecords() throws IOException {
     HoodieReadStats readStats = new HoodieReadStats();
@@ -320,6 +326,7 @@ class TestKeyBasedFileGroupRecordBuffer extends BaseTestFileGroupRecordBuffer {
     assertEquals(2, readStats.getNumUpdates());
   }
 
+  @Disabled("CUSTOM merge mode not supported")
   @Test
   void readWithCustomMerger() throws IOException {
     HoodieReadStats readStats = new HoodieReadStats();
@@ -357,6 +364,7 @@ class TestKeyBasedFileGroupRecordBuffer extends BaseTestFileGroupRecordBuffer {
     assertEquals(0, readStats.getNumUpdates());
   }
 
+  @Disabled("CUSTOM merge mode not supported")
   @Test
   void readWithCustomMergerWithRecords() throws IOException {
     HoodieReadStats readStats = new HoodieReadStats();

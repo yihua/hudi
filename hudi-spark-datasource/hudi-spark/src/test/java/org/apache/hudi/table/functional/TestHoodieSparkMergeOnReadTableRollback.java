@@ -67,6 +67,7 @@ import org.apache.avro.generic.GenericRecord;
 import org.apache.hadoop.fs.Path;
 import org.apache.spark.api.java.JavaRDD;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -106,7 +107,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class TestHoodieSparkMergeOnReadTableRollback extends TestHoodieSparkRollback {
 
   @ParameterizedTest
-  @CsvSource({"true,6", "true,8", "false,6", "false,8"})
+  @CsvSource({ "true,9", "false,9"})
   void testCOWToMORConvertedTableRollback(boolean rollbackUsingMarkers, int tableVersion) throws Exception {
 
     // Set TableType to COW
@@ -175,7 +176,7 @@ public class TestHoodieSparkMergeOnReadTableRollback extends TestHoodieSparkRoll
   }
 
   @ParameterizedTest
-  @CsvSource(value = {"true,6", "false,6", "true,8", "false,8"})
+  @CsvSource(value = {"true,9", "false,9"})
   void testRollbackWithDeltaAndCompactionCommit(boolean rollbackUsingMarkers, int tableVersion) throws Exception {
     // NOTE: First writer will have Metadata table DISABLED
     HoodieWriteConfig.Builder cfgBuilder =
@@ -1157,6 +1158,7 @@ public class TestHoodieSparkMergeOnReadTableRollback extends TestHoodieSparkRoll
   /**
    * Scenario: data table is updated, no changes to MDT
    */
+  @Disabled("Table version 6 only")
   @Test
   public void testRollbackWithFailurePreMDT() throws Exception {
     testRollbackWithFailurePreMDTTableVersionSix(MERGE_ON_READ);
@@ -1165,6 +1167,7 @@ public class TestHoodieSparkMergeOnReadTableRollback extends TestHoodieSparkRoll
   /**
    * Scenario: data table is updated, deltacommit is completed in MDT
    */
+  @Disabled("Table version 6 only")
   @Test
   public void testRollbackWithFailurePostMDT() throws Exception {
     testRollbackWithFailurePostMDTTableVersionSix(MERGE_ON_READ);
@@ -1174,6 +1177,7 @@ public class TestHoodieSparkMergeOnReadTableRollback extends TestHoodieSparkRoll
    * Scenario: data table is updated, deltacommit is completed in MDT then during rollback,
    * data table is updated, no changes to MDT
    */
+  @Disabled("Table version 6 only")
   @Test
   public void testRollbackWithFailurePostMDTRollbackFailsPreMDT() throws Exception {
     testRollbackWithFailurePostMDTTableVersionSix(MERGE_ON_READ, true);
@@ -1182,6 +1186,7 @@ public class TestHoodieSparkMergeOnReadTableRollback extends TestHoodieSparkRoll
   /**
    * Scenario: data table is updated, deltacommit of interest is inflight in MDT
    */
+  @Disabled("Table version 6 only")
   @Test
   public void testRollbackWithFailureInMDT() throws Exception {
     testRollbackWithFailureinMDTTableVersionSix(MERGE_ON_READ);

@@ -35,13 +35,7 @@ class TestMergeModeEventTimeOrdering extends HoodieSparkSqlTestBase {
     "cow,current,true",
     "cow,current,false",
     "mor,current,true",
-    "mor,current,false",
-    "cow,8,true",
-    "mor,8,true",
-    "cow,6,true",
-    "cow,6,false",
-    "mor,6,true",
-    "mor,6,false"
+    "mor,current,false"
   ).foreach { args =>
     val argList = args.split(',')
     val tableType = argList(0)

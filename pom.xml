@@ -170,7 +170,7 @@
     <rocksdbjni.version>7.5.3</rocksdbjni.version>
     <spark33.version>3.3.4</spark33.version>
     <spark34.version>3.4.3</spark34.version>
-    <spark35.version>3.5.5</spark35.version>
+    <spark35.version>3.5.2-INTERNAL-0.16</spark35.version>
     <spark40.version>4.0.1</spark40.version>
     <hudi.spark.module>hudi-spark3.5.x</hudi.spark.module>
     <hudi.spark.common.module>hudi-spark3-common</hudi.spark.common.module>
@@ -1962,6 +1962,11 @@
     <repository>
       <id>confluent</id>
       <url>https://packages.confluent.io/maven/</url>
+    </repository>
+    <repository>
+      <id>codeartifact</id>
+      <name>codeartifact</name>
+      <url>https://onehouse-194159489498.d.codeartifact.us-west-2.amazonaws.com/maven/onehouse-internal/</url>
     </repository>
   </repositories>
 

@@ -38,6 +38,7 @@ import org.apache.hudi.testutils.HoodieClientTestUtils.{createMetaClient, getSpa
 
 import org.apache.hadoop.fs.Path
 import org.apache.spark.SparkConf
+import org.apache.hudi.testutils.GlutenTestUtils
 import org.apache.spark.sql.{Row, SparkSession}
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.hudi.common.HoodieSparkSqlTestBase.checkMessageContains
@@ -88,6 +89,7 @@ class HoodieSparkSqlTestBase extends FunSuite with BeforeAndAfterAll {
   def sparkConf(): SparkConf = {
     val conf = getSparkConfForTest("Hoodie SQL Test")
     conf.setAll(extraConf)
+    GlutenTestUtils.applyGlutenConf(conf)
     conf
   }
 
