@@ -172,12 +172,11 @@ public class HoodieSparkLanceWriter extends HoodieBaseLanceWriter<InternalRow, U
         newFields[i] = field;
         continue;
       }
-      DataType dt = field.dataType();
-      if (!(dt instanceof ArrayType)) {
+      if (!(field.dataType() instanceof ArrayType)) {
         throw new HoodieNotSupportedException(
-            "Hudi VECTOR column '" + field.name() + "' must be Spark ArrayType to be written to Lance; got " + dt);
+            "Hudi VECTOR column '" + field.name() + "' must be Spark ArrayType to be written to Lance; got " + field.dataType());
       }
-      DataType elemType = ((ArrayType) dt).elementType();
+      DataType elemType = ((ArrayType) field.dataType()).elementType();
       boolean elemSupported = elemType instanceof FloatType$ || elemType instanceof DoubleType$;
       if (!elemSupported) {
         throw new HoodieNotSupportedException(

@@ -913,6 +913,171 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
       s"embedding:VECTOR($embeddingDim),features:VECTOR($featuresDim, DOUBLE)")
   }
 
+  @ParameterizedTest
+  @EnumSource(value = classOf[HoodieTableType])
+  def testNullableVectorRoundTrip(tableType: HoodieTableType): Unit = {
+    val tableName = s"test_lance_vec_nullable_${tableType.name().toLowerCase}"
+    val tablePath = s"$basePath/$tableName"
+
+    val dim = 3
+    val schema = StructType(Seq(
+      StructField("id", IntegerType, nullable = false),
+      StructField("embedding",
+        ArrayType(FloatType, containsNull = false),
+        nullable = true,
+        vectorMetadata(s"VECTOR($dim)"))
+    ))
+    val data = Seq(
+      Row(1, Array(1.0f, 2.0f, 3.0f)),
+      Row(2, null),
+      Row(3, Array(7.0f, 8.0f, 9.0f))
+    )
+    val df = spark.createDataFrame(spark.sparkContext.parallelize(data), schema).coalesce(1)
+
+    writeDataframe(tableType, tableName, tablePath, df, saveMode = SaveMode.Overwrite)
+
+    val readDf = spark.read.format("hudi").load(tablePath).select("id", "embedding")
+    assertHudiTypeMetadata(readDf.schema("embedding"), s"VECTOR($dim)")
+
+    val rows = readDf.collect().sortBy(_.getInt(0))
+    assertEquals(3, rows.length)
+    assertEquals(Seq(1.0f, 2.0f, 3.0f), rows(0).getAs[Seq[Float]](1).toSeq)
+    assertTrue(rows(1).isNullAt(1), "Row with id=2 should have null embedding")
+    assertEquals(Seq(7.0f, 8.0f, 9.0f), rows(2).getAs[Seq[Float]](1).toSeq)
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = classOf[HoodieTableType])
+  def testVectorMorUpdatePath(tableType: HoodieTableType): Unit = {
+    val tableName = s"test_lance_vec_update_${tableType.name().toLowerCase}"
+    val tablePath = s"$basePath/$tableName"
+
+    val dim = 3
+    val schema = StructType(Seq(
+      StructField("id", IntegerType, nullable = false),
+      StructField("name", StringType, nullable = false),
+      StructField("age", IntegerType, nullable = false),
+      StructField("embedding",
+        ArrayType(FloatType, containsNull = false),
+        nullable = false,
+        vectorMetadata(s"VECTOR($dim)"))
+    ))
+
+    // Initial insert
+    val data1 = Seq(
+      Row(1, "Alice", 30, Array(1.0f, 2.0f, 3.0f)),
+      Row(2, "Bob", 25, Array(4.0f, 5.0f, 6.0f)),
+      Row(3, "Charlie", 35, Array(7.0f, 8.0f, 9.0f))
+    )
+    val df1 = spark.createDataFrame(spark.sparkContext.parallelize(data1), schema).coalesce(1)
+    writeDataframe(tableType, tableName, tablePath, df1, saveMode = SaveMode.Overwrite, operation = Some("insert"))
+
+    // Upsert — update Bob's embedding
+    val data2 = Seq(
+      Row(2, "Bob", 40, Array(10.0f, 20.0f, 30.0f))
+    )
+    val df2 = spark.createDataFrame(spark.sparkContext.parallelize(data2), schema).coalesce(1)
+    writeDataframe(tableType, tableName, tablePath, df2, operation = Some("upsert"))
+
+    // Read merged result
+    val readDf = spark.read.format("hudi").load(tablePath).select("id", "name", "age", "embedding")
+    assertHudiTypeMetadata(readDf.schema("embedding"), s"VECTOR($dim)")
+
+    val rows = readDf.collect().sortBy(_.getInt(0))
+    assertEquals(3, rows.length)
+    assertEquals(Seq(1.0f, 2.0f, 3.0f), rows(0).getAs[Seq[Float]](3).toSeq)
+    assertEquals(Seq(10.0f, 20.0f, 30.0f), rows(1).getAs[Seq[Float]](3).toSeq)
+    assertEquals(40, rows(1).getInt(2), "Bob's age should be updated to 40")
+    assertEquals(Seq(7.0f, 8.0f, 9.0f), rows(2).getAs[Seq[Float]](3).toSeq)
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = classOf[HoodieTableType])
+  def testVectorProjection(tableType: HoodieTableType): Unit = {
+    val tableName = s"test_lance_vec_proj_${tableType.name().toLowerCase}"
+    val tablePath = s"$basePath/$tableName"
+
+    val dim = 4
+    val schema = StructType(Seq(
+      StructField("id", IntegerType, nullable = false),
+      StructField("name", StringType, nullable = false),
+      StructField("embedding",
+        ArrayType(FloatType, containsNull = false),
+        nullable = false,
+        vectorMetadata(s"VECTOR($dim)"))
+    ))
+    val data = Seq(
+      Row(1, "Alice", Array(1.0f, 2.0f, 3.0f, 4.0f)),
+      Row(2, "Bob", Array(5.0f, 6.0f, 7.0f, 8.0f))
+    )
+    val df = spark.createDataFrame(spark.sparkContext.parallelize(data), schema).coalesce(1)
+    writeDataframe(tableType, tableName, tablePath, df, saveMode = SaveMode.Overwrite)
+
+    // Project only the vector column
+    val vecOnly = spark.read.format("hudi").load(tablePath).select("embedding")
+    assertEquals(1, vecOnly.schema.fields.length)
+    assertHudiTypeMetadata(vecOnly.schema("embedding"), s"VECTOR($dim)")
+    val vecRows = vecOnly.collect().map(_.getAs[Seq[Float]](0).toSeq).toSet
+    assertEquals(Set(Seq(1.0f, 2.0f, 3.0f, 4.0f), Seq(5.0f, 6.0f, 7.0f, 8.0f)), vecRows)
+
+    // Project vector alongside Hudi metadata columns
+    val withMeta = spark.read.format("hudi").load(tablePath)
+      .select("_hoodie_record_key", "embedding")
+    assertEquals(2, withMeta.schema.fields.length)
+    assertHudiTypeMetadata(withMeta.schema("embedding"), s"VECTOR($dim)")
+    val metaRows = withMeta.collect().map(r =>
+      r.getString(0) -> r.getAs[Seq[Float]](1).toSeq).toMap
+    assertEquals(Seq(1.0f, 2.0f, 3.0f, 4.0f), metaRows("1"))
+    assertEquals(Seq(5.0f, 6.0f, 7.0f, 8.0f), metaRows("2"))
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = classOf[HoodieTableType])
+  def testVectorPartitionedTable(tableType: HoodieTableType): Unit = {
+    val tableName = s"test_lance_vec_part_${tableType.name().toLowerCase}"
+    val tablePath = s"$basePath/$tableName"
+
+    val dim = 3
+    val schema = StructType(Seq(
+      StructField("id", IntegerType, nullable = false),
+      StructField("department", StringType, nullable = false),
+      StructField("age", IntegerType, nullable = false),
+      StructField("embedding",
+        ArrayType(FloatType, containsNull = false),
+        nullable = false,
+        vectorMetadata(s"VECTOR($dim)"))
+    ))
+    val data = Seq(
+      Row(1, "engineering", 30, Array(1.0f, 2.0f, 3.0f)),
+      Row(2, "sales", 25, Array(4.0f, 5.0f, 6.0f)),
+      Row(3, "engineering", 35, Array(7.0f, 8.0f, 9.0f))
+    )
+    val df = spark.createDataFrame(spark.sparkContext.parallelize(data), schema).coalesce(1)
+    writeDataframe(tableType, tableName, tablePath, df, saveMode = SaveMode.Overwrite,
+      extraOptions = Map(PARTITIONPATH_FIELD.key() -> "department"))
+
+    // Read back all partitions
+    val readDf = spark.read.format("hudi").load(tablePath).select("id", "department", "embedding")
+    assertHudiTypeMetadata(readDf.schema("embedding"), s"VECTOR($dim)")
+
+    val rows = readDf.collect().sortBy(_.getInt(0))
+    assertEquals(3, rows.length)
+    assertEquals(Seq(1.0f, 2.0f, 3.0f), rows(0).getAs[Seq[Float]](2).toSeq)
+    assertEquals("engineering", rows(0).getString(1))
+    assertEquals(Seq(4.0f, 5.0f, 6.0f), rows(1).getAs[Seq[Float]](2).toSeq)
+    assertEquals("sales", rows(1).getString(1))
+    assertEquals(Seq(7.0f, 8.0f, 9.0f), rows(2).getAs[Seq[Float]](2).toSeq)
+    assertEquals("engineering", rows(2).getString(1))
+
+    // Read a single partition
+    val engDf = spark.read.format("hudi").load(tablePath)
+      .filter("department = 'engineering'").select("id", "embedding")
+    val engRows = engDf.collect().sortBy(_.getInt(0))
+    assertEquals(2, engRows.length)
+    assertEquals(Seq(1.0f, 2.0f, 3.0f), engRows(0).getAs[Seq[Float]](1).toSeq)
+    assertEquals(Seq(7.0f, 8.0f, 9.0f), engRows(1).getAs[Seq[Float]](1).toSeq)
+  }
+
   private def assertHudiTypeMetadata(field: StructField, expectedDescriptor: String): Unit = {
     assertTrue(field.metadata.contains(HoodieSchema.TYPE_METADATA_FIELD),
       s"Expected field ${field.name} to carry ${HoodieSchema.TYPE_METADATA_FIELD} metadata after read")

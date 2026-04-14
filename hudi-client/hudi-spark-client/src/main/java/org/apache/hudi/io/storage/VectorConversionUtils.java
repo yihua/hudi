@@ -83,7 +83,11 @@ public final class VectorConversionUtils {
    * Builds the value string for {@link HoodieSchema#PARQUET_VECTOR_COLUMNS_METADATA_KEY}
    * from a Spark {@link StructType}, matching the comma-separated
    * {@code colName:VECTOR(dim[,elemType])} format produced on the Parquet path by
-   * {@link HoodieSchema#buildVectorColumnsMetadataValue}.
+   * {@link HoodieSchema#buildVectorColumnsMetadataValue(org.apache.hudi.common.schema.HoodieSchema)}.
+   *
+   * <p>This Spark-specific variant operates on {@link StructType} field metadata
+   * rather than {@link org.apache.hudi.common.schema.HoodieSchema}, since the Lance
+   * writer works with Spark schemas directly and does not convert to HoodieSchema.
    *
    * <p>Intended to be written as file-footer metadata (e.g. via
    * {@code LanceFileWriter.addSchemaMetadata}) so any reader can identify VECTOR
@@ -282,6 +286,8 @@ public final class VectorConversionUtils {
    * schema (which still carries the fixed-size-list intent and dimension) and re-attaches
    * {@link HoodieSchema#TYPE_METADATA_FIELD} = {@code "VECTOR(dim[, DOUBLE])"} to matching
    * fields so downstream VECTOR-aware code sees the same schema it would on the Parquet path.
+   *
+   * <p>Only top-level fields are inspected; nested struct children are not recursed into.
    *
    * <p>Only FLOAT and DOUBLE element types are recognized, matching what the Lance write
    * path can produce today. Any other Arrow type (including non-FixedSizeList or

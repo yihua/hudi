@@ -177,17 +177,18 @@ public abstract class HoodieBaseLanceWriter<R, K extends Comparable<K>> implemen
         writer.write(root);
       }
 
-      // Finalize and write bloom filter metadata
-      if (writer != null && bloomFilterWriteSupportOpt.isPresent()) {
-        Map<String, String> metadata = bloomFilterWriteSupportOpt.get().finalizeMetadata();
-        if (!metadata.isEmpty()) {
-          writer.addSchemaMetadata(metadata);
-        }
-      }
-
-      // Allow subclasses to contribute additional footer key-value metadata
-      // (e.g. Spark writer emits `hoodie.vector.columns` for forward-compat read).
       if (writer != null) {
+        // Finalize and write bloom filter metadata
+        if (bloomFilterWriteSupportOpt.isPresent()) {
+          Map<String, String> metadata = bloomFilterWriteSupportOpt.get().finalizeMetadata();
+          if (!metadata.isEmpty()) {
+            writer.addSchemaMetadata(metadata);
+          }
+        }
+
+        // Allow subclasses to contribute additional footer key-value metadata
+        // (e.g. Spark writer emits `hoodie.vector.columns` for forward-compat read).
+        // Called unconditionally; returns an empty map when no VECTOR columns are present.
         Map<String, String> extra = additionalSchemaMetadata();
         if (extra != null && !extra.isEmpty()) {
           writer.addSchemaMetadata(extra);
