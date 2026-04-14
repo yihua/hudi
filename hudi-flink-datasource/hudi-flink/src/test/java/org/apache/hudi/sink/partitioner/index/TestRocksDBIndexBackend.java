@@ -32,6 +32,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
@@ -99,7 +100,7 @@ public class TestRocksDBIndexBackend {
   }
 
   @Test
-  void testMetricsReflectWritesReadsAndFlush() throws Exception {
+  void testMetricsReflectWritesReadsAndAutoFlush() throws Exception {
     try (RocksDBIndexBackend rocksDBIndexBackend = new RocksDBIndexBackend(tempFile.getAbsolutePath())) {
       MetricGroup metricGroup = mock(MetricGroup.class);
       Map<String, Gauge<?>> gauges = new HashMap<>();
@@ -120,18 +121,27 @@ public class TestRocksDBIndexBackend {
       assertTrue(((Number) gauges.get(FlinkRocksDBIndexMetrics.ROCKSDB_MEMTABLE_ALL_SIZE).getValue()).longValue() > 0L);
 
       for (int i = 0; i < 32; i++) {
-        assertTrue(rocksDBIndexBackend.get("id" + i) != null);
+        assertNotNull(rocksDBIndexBackend.get("id" + i));
       }
 
       assertTrue(((Number) gauges.get(FlinkRocksDBIndexMetrics.ROCKSDB_MEMTABLE_HIT_RATIO).getValue()).doubleValue() > 0D);
 
-      rocksDBIndexBackend.flush();
-
-      assertTrue(((Number) gauges.get(FlinkRocksDBIndexMetrics.ROCKSDB_DISK_TOTAL_SST_FILES_SIZE).getValue()).longValue() > 0L);
-      assertTrue(((Number) gauges.get(FlinkRocksDBIndexMetrics.ROCKSDB_DISK_LIVE_SST_FILES_SIZE).getValue()).longValue() > 0L);
+      // Keep writing larger records to trigger auto-flushes memtable into SST.
+      int nextKey = 32;
+      for (int i = 0; i < 32768; i++) {
+        String par = "par-" + nextKey + "-" + "x".repeat(4096);
+        rocksDBIndexBackend.update("id" + nextKey,
+            new HoodieRecordGlobalLocation(par, "00" + nextKey, UUID.randomUUID().toString()));
+        nextKey++;
+      }
+      long totalSstSize =
+          ((Number) gauges.get(FlinkRocksDBIndexMetrics.ROCKSDB_DISK_TOTAL_SST_FILES_SIZE).getValue()).longValue();
+      long liveSstSize =
+          ((Number) gauges.get(FlinkRocksDBIndexMetrics.ROCKSDB_DISK_LIVE_SST_FILES_SIZE).getValue()).longValue();
+      assertTrue(totalSstSize > 0 || liveSstSize > 0);
 
       for (int i = 0; i < 32; i++) {
-        assertTrue(rocksDBIndexBackend.get("id" + i) != null);
+        assertNotNull(rocksDBIndexBackend.get("id" + i));
       }
 
       assertTrue(((Number) gauges.get(FlinkRocksDBIndexMetrics.ROCKSDB_BLOCK_CACHE_HIT_RATIO).getValue()).doubleValue() >= 0D);

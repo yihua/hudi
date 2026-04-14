@@ -20,7 +20,6 @@ package org.apache.hudi.sink.partitioner.index;
 
 import org.apache.hudi.common.model.HoodieRecordGlobalLocation;
 import org.apache.hudi.common.serialization.CustomSerializer;
-import org.apache.hudi.common.util.VisibleForTesting;
 import org.apache.hudi.common.util.collection.RocksDBDAO;
 import org.apache.hudi.metrics.FlinkRocksDBIndexMetrics;
 
@@ -68,11 +67,6 @@ public class RocksDBIndexBackend implements IndexBackend {
     }
     this.rocksDBIndexMetrics = new FlinkRocksDBIndexMetrics(metricGroup, this);
     this.rocksDBIndexMetrics.registerMetrics();
-  }
-
-  @VisibleForTesting
-  void flush() {
-    this.rocksDBDAO.flush();
   }
 
   public long getLongMetric(String property) {

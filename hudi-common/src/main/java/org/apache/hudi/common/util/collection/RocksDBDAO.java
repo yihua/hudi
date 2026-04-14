@@ -24,7 +24,6 @@ import org.apache.hudi.common.util.HoodieTimer;
 import org.apache.hudi.common.util.SerializationUtils;
 import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.common.util.ValidationUtils;
-import org.apache.hudi.common.util.VisibleForTesting;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.io.util.FileIOUtils;
@@ -44,7 +43,6 @@ import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
 import org.rocksdb.Statistics;
 import org.rocksdb.TickerType;
-import org.rocksdb.FlushOptions;
 import org.rocksdb.WriteBatch;
 import org.rocksdb.WriteOptions;
 
@@ -482,18 +480,6 @@ public class RocksDBDAO {
    */
   public synchronized long getTickerCount(TickerType tickerType) {
     return closed || statistics == null ? 0L : statistics.getTickerCount(tickerType);
-  }
-
-  /**
-   * Flushes all pending data to SST files.
-   */
-  @VisibleForTesting
-  public void flush() {
-    try (FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
-      getRocksDB().flush(flushOptions, new ArrayList<>(managedHandlesMap.values()));
-    } catch (RocksDBException e) {
-      throw new HoodieException(e);
-    }
   }
 
   /**
