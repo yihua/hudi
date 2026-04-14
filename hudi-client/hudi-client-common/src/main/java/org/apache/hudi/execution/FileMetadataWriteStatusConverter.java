@@ -35,19 +35,19 @@ import java.io.IOException;
 import java.util.Map;
 
 /**
- * This class is mainly used by the ParquetToolsExecutionStrategy to generate WriteStatus classes.
+ * This class is mainly used by the SparkExternalFileClusteringExecutionStrategy to generate WriteStatus classes.
  */
-public class ParquetFileMetaToWriteStatusConvertor<T extends HoodieRecordPayload, I, K, O> {
+public class FileMetadataWriteStatusConverter<T extends HoodieRecordPayload, I, K, O> {
 
-  private static final Logger LOG = LoggerFactory.getLogger(ParquetFileMetaToWriteStatusConvertor.class);
+  private static final Logger LOG = LoggerFactory.getLogger(FileMetadataWriteStatusConverter.class);
   private final HoodieTable<T, I, K, O> hoodieTable;
   private final HoodieWriteConfig writeConfig;
   private final HoodieStorage storage;
   private final ParquetUtils parquetUtils;
   public static final String PREV_COMMIT = "prevCommit";
-  public static final String TIME_TAKEN = "timeTaken";
+  public static final String TIME_TAKEN = "totalCreateTime";
 
-  public ParquetFileMetaToWriteStatusConvertor(HoodieTable<T, I, K, O> hoodieTable, HoodieWriteConfig writeConfig) {
+  public FileMetadataWriteStatusConverter(HoodieTable<T, I, K, O> hoodieTable, HoodieWriteConfig writeConfig) {
     this.hoodieTable = hoodieTable;
     this.writeConfig = writeConfig;
     this.storage = this.hoodieTable.getStorage();
@@ -94,7 +94,6 @@ public class ParquetFileMetaToWriteStatusConvertor<T extends HoodieRecordPayload
     stat.setFileId(writeStatus.getFileId());
     stat.setPartitionPath(writeStatus.getPartitionPath());
     stat.setPath(new StoragePath(writeConfig.getBasePath()), parquetFilePath);
-    stat.setTotalWriteErrors(writeStatus.getTotalErrorRecords());
     stat.setPrevCommit(String.valueOf(executionConfigs.get(PREV_COMMIT)));
 
     writeStatus.setStat(stat);

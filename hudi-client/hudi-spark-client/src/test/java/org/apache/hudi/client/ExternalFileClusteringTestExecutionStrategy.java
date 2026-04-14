@@ -22,33 +22,35 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
-import org.apache.hudi.client.clustering.run.strategy.ParquetToolsExecutionStrategy;
+import org.apache.hudi.client.clustering.run.strategy.SparkExternalFileClusteringExecutionStrategy;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieIOException;
+import org.apache.hudi.storage.StoragePath;
 import org.apache.hudi.table.HoodieTable;
 
 import java.io.IOException;
 
 /**
- * Test execution strategy for testing the skeleton of the ParquetToolsExecutionStrategy.
+ * Test execution strategy for testing the skeleton of the SparkExternalFileClusteringExecutionStrategy.
  * It creates a copy of the original file with a different commit timestamp.
  */
-public class ParquetToolsTestExecutionStrategy<T extends HoodieRecordPayload<T>>
-    extends ParquetToolsExecutionStrategy<T> {
+public class ExternalFileClusteringTestExecutionStrategy<T extends HoodieRecordPayload<T>>
+    extends SparkExternalFileClusteringExecutionStrategy<T> {
 
-  public ParquetToolsTestExecutionStrategy(
+  public ExternalFileClusteringTestExecutionStrategy(
       HoodieTable table, HoodieEngineContext engineContext, HoodieWriteConfig writeConfig) {
     super(table, engineContext, writeConfig);
   }
 
   @Override
-  protected void executeTools(Path oldFilePath, Path newFilePath) {
+  protected void transformFile(StoragePath oldFilePath, StoragePath newFilePath) {
     try {
       Configuration hadoopConf = getHoodieTable().getStorageConf().unwrapAs(Configuration.class);
-      FileSystem fs = oldFilePath.getFileSystem(hadoopConf);
-      FileUtil.copy(fs, oldFilePath, fs, newFilePath, false, false, fs.getConf());
+      Path srcPath = new Path(oldFilePath.toUri());
+      FileSystem fs = srcPath.getFileSystem(hadoopConf);
+      FileUtil.copy(fs, srcPath, fs, new Path(newFilePath.toUri()), false, false, fs.getConf());
     } catch (IOException e) {
       throw new HoodieIOException("Exception in copying files.", e);
     }

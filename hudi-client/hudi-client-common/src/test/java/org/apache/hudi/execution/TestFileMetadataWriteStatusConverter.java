@@ -32,14 +32,12 @@ import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieWriteStat;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.schema.HoodieSchemaUtils;
-import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.versioning.TimelineLayoutVersion;
 import org.apache.hudi.common.table.view.FileSystemViewStorageConfig;
 import org.apache.hudi.common.table.view.FileSystemViewStorageType;
 import org.apache.hudi.common.testutils.HoodieCommonTestHarness;
 import org.apache.hudi.common.testutils.InProcessTimeGenerator;
 import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
-import org.apache.hudi.common.util.Option;
 import org.apache.hudi.config.HoodieCompactionConfig;
 import org.apache.hudi.config.HoodieIndexConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
@@ -60,7 +58,7 @@ import java.util.UUID;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class TestParquetFileMetaToWriteStatusConvertor extends HoodieCommonTestHarness {
+public class TestFileMetadataWriteStatusConverter extends HoodieCommonTestHarness {
 
   private TaskContextSupplier mockedContextSupplier;
   private HoodieTable mockedHoodieTable;
@@ -88,7 +86,7 @@ public class TestParquetFileMetaToWriteStatusConvertor extends HoodieCommonTestH
   }
 
   @Test
-  public void testWriteStatusConvertion() throws IOException {
+  public void testWriteStatusConversion() throws IOException {
     HoodieWriteConfig writeConfig =
         getConfigBuilder(HoodieTestDataGenerator.TRIP_EXAMPLE_SCHEMA, HoodieIndex.IndexType.BLOOM)
             .build();
@@ -102,12 +100,12 @@ public class TestParquetFileMetaToWriteStatusConvertor extends HoodieCommonTestH
     String srcPath = basePath + "/" + partitionPath + "/" + srcFileName;
 
     Map<String, Object> executionConfigs = new HashMap<>();
-    executionConfigs.put("timeTaken", 1000L);
+    executionConfigs.put("totalCreateTime", 1000L);
     executionConfigs.put("prevCommit", prevCommitTime);
     writeParquetFile(writeConfig, srcPath, partitionPath, newCommitTime, 50);
-    ParquetFileMetaToWriteStatusConvertor convertor =
-        new ParquetFileMetaToWriteStatusConvertor(mockedHoodieTable, writeConfig);
-    WriteStatus writeStatus = convertor.convert(srcPath, partitionPath, executionConfigs);
+    FileMetadataWriteStatusConverter converter =
+        new FileMetadataWriteStatusConverter(mockedHoodieTable, writeConfig);
+    WriteStatus writeStatus = converter.convert(srcPath, partitionPath, executionConfigs);
     Assertions.assertEquals(writeStatus.getFileId(), fileId);
     Assertions.assertEquals(writeStatus.getPartitionPath(), partitionPath);
     HoodieWriteStat writeStat = writeStatus.getStat();

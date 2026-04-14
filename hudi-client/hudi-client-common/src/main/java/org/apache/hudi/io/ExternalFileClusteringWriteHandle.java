@@ -24,8 +24,9 @@ import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.common.model.IOType;
 import org.apache.hudi.config.HoodieWriteConfig;
+import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.exception.HoodieInsertException;
-import org.apache.hudi.execution.ParquetFileMetaToWriteStatusConvertor;
+import org.apache.hudi.execution.FileMetadataWriteStatusConverter;
 import org.apache.hudi.storage.StoragePath;
 import org.apache.hudi.table.HoodieTable;
 import org.slf4j.Logger;
@@ -37,19 +38,19 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.apache.hudi.execution.ParquetFileMetaToWriteStatusConvertor.PREV_COMMIT;
-import static org.apache.hudi.execution.ParquetFileMetaToWriteStatusConvertor.TIME_TAKEN;
+import static org.apache.hudi.execution.FileMetadataWriteStatusConverter.PREV_COMMIT;
+import static org.apache.hudi.execution.FileMetadataWriteStatusConverter.TIME_TAKEN;
 
 /**
  * Write handle that is used to work on top of files rather than on individual records.
  */
-public class HoodieFileWriteHandle<T extends HoodieRecordPayload, I, K, O> extends HoodieWriteHandle<T, I, K, O> {
+public class ExternalFileClusteringWriteHandle<T extends HoodieRecordPayload, I, K, O> extends HoodieWriteHandle<T, I, K, O> {
 
-  private static final Logger LOG = LoggerFactory.getLogger(HoodieFileWriteHandle.class);
+  private static final Logger LOG = LoggerFactory.getLogger(ExternalFileClusteringWriteHandle.class);
   private final StoragePath path;
   private final String prevCommit;
 
-  public HoodieFileWriteHandle(HoodieWriteConfig config, String instantTime, HoodieTable<T, I, K, O> hoodieTable,
+  public ExternalFileClusteringWriteHandle(HoodieWriteConfig config, String instantTime, HoodieTable<T, I, K, O> hoodieTable,
                                String partitionPath, String fileId, TaskContextSupplier taskContextSupplier,
                                StoragePath oldFilePath) {
     super(config, instantTime, partitionPath, fileId, hoodieTable, taskContextSupplier, true);
@@ -61,29 +62,32 @@ public class HoodieFileWriteHandle<T extends HoodieRecordPayload, I, K, O> exten
 
     // Create inProgress marker file
     createMarkerFile(partitionPath, path.getName());
-    LOG.info("New HoodieFileWriteHandle for partition :" + partitionPath + " with fileId " + fileId);
+    LOG.info("New ExternalFileClusteringWriteHandle for partition :" + partitionPath + " with fileId " + fileId);
   }
 
   /**
-   * Complete writing of the file by creating the success marker file.
+   * Complete writing of the file.
    * @return WriteStatuses, ideally it will be only one object.
    */
   @Override
   public List<WriteStatus> close() {
-    LOG.info("Closing the file " + this.fileId + " as we are done with the file.");
     try {
+      if (!hoodieTable.getStorage().exists(path)) {
+        throw new HoodieIOException("Output file does not exist, transformation may not have been invoked: " + path);
+      }
+
       Map<String, Object> executionConfigs = new HashMap<>();
       executionConfigs.put(PREV_COMMIT, prevCommit);
       executionConfigs.put(TIME_TAKEN, timer.endTimer());
 
       this.writeStatus = generateWriteStatus(path.toString(), partitionPath, executionConfigs);
-      LOG.info(String.format("HoodieFileWriteHandle for partitionPath %s fileID %s, took %d ms.",
+      LOG.info(String.format("ExternalFileClusteringWriteHandle for partitionPath %s fileID %s, took %d ms.",
           writeStatus.getStat().getPartitionPath(), writeStatus.getStat().getFileId(),
           writeStatus.getStat().getRuntimeStats().getTotalCreateTime()));
 
       return Collections.singletonList(writeStatus);
     } catch (IOException e) {
-      throw new HoodieInsertException("Failed to close the HoodieFileWriteHandle for path " + path, e);
+      throw new HoodieInsertException("Failed to close the ExternalFileClusteringWriteHandle for path " + path, e);
     }
   }
 
@@ -97,9 +101,7 @@ public class HoodieFileWriteHandle<T extends HoodieRecordPayload, I, K, O> exten
    */
   protected WriteStatus generateWriteStatus(
       String outputFile, String partitionPath, Map<String, Object> executionConfigs) throws IOException {
-    ParquetFileMetaToWriteStatusConvertor convertor =
-        new ParquetFileMetaToWriteStatusConvertor(hoodieTable, config);
-    return convertor.convert(outputFile, partitionPath, executionConfigs);
+    return new FileMetadataWriteStatusConverter(hoodieTable, config).convert(outputFile, partitionPath, executionConfigs);
   }
 
   @Override

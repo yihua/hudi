@@ -29,11 +29,10 @@ import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieClusteringException;
-import org.apache.hudi.io.HoodieFileWriteHandle;
+import org.apache.hudi.io.ExternalFileClusteringWriteHandle;
 import org.apache.hudi.storage.StoragePath;
 import org.apache.hudi.table.HoodieTable;
 
-import org.apache.hadoop.fs.Path;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,14 +41,14 @@ import java.util.Map;
 
 /**
  * This class gives skeleton implementation for set of clustering execution strategy
- * that use parquet-tools commands.
+ * that use external file transformation commands.
  */
-public abstract class ParquetToolsExecutionStrategy<T extends HoodieRecordPayload<T>>
+public abstract class SparkExternalFileClusteringExecutionStrategy<T extends HoodieRecordPayload<T>>
     extends SingleSparkJobExecutionStrategy<T> {
 
-  private static final Logger LOG = LoggerFactory.getLogger(ParquetToolsExecutionStrategy.class);
+  private static final Logger LOG = LoggerFactory.getLogger(SparkExternalFileClusteringExecutionStrategy.class);
 
-  public ParquetToolsExecutionStrategy(
+  public SparkExternalFileClusteringExecutionStrategy(
       HoodieTable table, HoodieEngineContext engineContext, HoodieWriteConfig writeConfig) {
     super(table, engineContext, writeConfig);
   }
@@ -64,7 +63,7 @@ public abstract class ParquetToolsExecutionStrategy<T extends HoodieRecordPayloa
                                                         String instantTime) {
     LOG.info("Starting clustering operation on input file ids.");
     List<ClusteringOperation> clusteringOperations = clusteringOps.getOperations();
-    if (clusteringOperations.size() > 1) {
+    if (clusteringOperations.size() != 1) {
       throw new HoodieClusteringException("Expect only one clustering operation during rewrite: " + getClass().getName());
     }
 
@@ -73,19 +72,29 @@ public abstract class ParquetToolsExecutionStrategy<T extends HoodieRecordPayloa
     String partitionPath = clusteringOperation.getPartitionPath();
     String dataFilePathStr = clusteringOperation.getDataFilePath();
     StoragePath oldFilePath = new StoragePath(dataFilePathStr);
-    HoodieFileWriteHandle writeHandler = new HoodieFileWriteHandle(getWriteConfig(), instantTime, getHoodieTable(),
+    ExternalFileClusteringWriteHandle writeHandler = new ExternalFileClusteringWriteHandle(getWriteConfig(), instantTime, getHoodieTable(),
         partitionPath, fileId, taskContextSupplier, oldFilePath);
 
-    // Executes the parquet-tools command.
-    executeTools(new Path(oldFilePath.toUri()), new Path(writeHandler.getPath().toUri()));
+    try {
+      // Executes the file transformation.
+      transformFile(oldFilePath, writeHandler.getPath());
+    } catch (Exception e) {
+      // Clean up partial output file if transformation fails.
+      try {
+        getHoodieTable().getStorage().deleteFile(writeHandler.getPath());
+      } catch (Exception deleteEx) {
+        LOG.warn("Failed to clean up partial output file: " + writeHandler.getPath(), deleteEx);
+      }
+      throw new HoodieClusteringException("Failed to transform file: " + dataFilePathStr, e);
+    }
     return writeHandler.close();
   }
 
   /**
    * This method needs to be overridden by the child classes.
-   * In this method parquet-tools command can be created and executed.
-   * Assuming that the parquet-tools command operate per file basis this interface allows command to run once per file.
+   * In this method external file transformation can be created and executed.
+   * Assuming that the transformation operates per file basis, this interface allows the command to run once per file.
    */
-  protected abstract void executeTools(Path oldFilePath, Path newFilePath);
+  protected abstract void transformFile(StoragePath oldFilePath, StoragePath newFilePath);
 
 }
