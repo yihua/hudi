@@ -18,10 +18,12 @@
 
 package org.apache.hudi.sink.append;
 
+import org.apache.hudi.common.util.ObjectSizeCalculator;
 import org.apache.hudi.configuration.FlinkOptions;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.sink.StreamWriteOperatorCoordinator;
+import org.apache.hudi.sink.buffer.TotalSizeTracer;
 import org.apache.hudi.sink.bulk.sort.SortOperatorGen;
 import org.apache.hudi.utils.RuntimeContextUtils;
 
@@ -42,7 +44,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -77,6 +78,7 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
 
   private transient TreeMap<SortKey, RowData> sortedRecords;
   private transient long insertionSequence;
+  private transient TotalSizeTracer sizeTracer;
 
   // Sort key computation
   private transient NormalizedKeyComputer normalizedKeyComputer;
@@ -90,6 +92,7 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
   private transient long totalDrainOperations;
   private transient long totalDrainedRecords;
   private transient long totalInserted;
+  private transient long estimatedRecordSize;
 
   public AppendWriteFunctionWithContinuousSort(Configuration config, RowType rowType) {
     super(config, rowType);
@@ -166,6 +169,9 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
     this.totalDrainedRecords = 0;
     this.totalInserted = 0;
 
+    // Initialize memory size tracer for bounding buffer memory footprint
+    this.sizeTracer = new TotalSizeTracer(config);
+
     LOG.info("AppendWriteFunctionWithContinuousSort initialized successfully");
   }
 
@@ -173,8 +179,8 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
   public void processElement(T value, Context ctx, Collector<RowData> out) throws Exception {
     RowData data = (RowData) value;
 
-    // Check if buffer has reached max capacity
-    if (sortedRecords.size() >= maxCapacity) {
+    // Check if buffer has reached max capacity (record count) or memory limit
+    if (sortedRecords.size() >= maxCapacity || sizeTracer.bufferSize > sizeTracer.maxBufferSize) {
       drainRecords(drainSize);
 
       // Verify there's space after draining
@@ -198,8 +204,12 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
     // Create sort key (copies the normalized key from reusable segment)
     SortKey key = new SortKey(reusableKeySegment, normalizedKeySize, data, insertionSequence++);
 
-    // Store the RowData
+    // Store the RowData and track memory usage
     sortedRecords.put(key, data);
+    if (estimatedRecordSize == 0) {
+      estimatedRecordSize = ObjectSizeCalculator.getObjectSize(data);
+    }
+    sizeTracer.trace(estimatedRecordSize);
 
     totalInserted++;
   }
@@ -217,25 +227,19 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
       initWriterHelper();
     }
 
-    // Drain records from TreeMap
+    // Drain records from TreeMap using pollFirstEntry() to avoid iterator allocation
     int actualCount = Math.min(count, sortedRecords.size());
     int drained = 0;
 
-    Iterator<Map.Entry<SortKey, RowData>> iterator = sortedRecords.entrySet().iterator();
-    while (iterator.hasNext() && drained < actualCount) {
-      Map.Entry<SortKey, RowData> entry = iterator.next();
-      RowData record = entry.getValue();
-
-      // Write record
-      writerHelper.write(record);
-
-      // Remove from TreeMap - memory immediately reclaimed
-      iterator.remove();
+    while (drained < actualCount && !sortedRecords.isEmpty()) {
+      Map.Entry<SortKey, RowData> entry = sortedRecords.pollFirstEntry();
+      writerHelper.write(entry.getValue());
       drained++;
     }
 
     totalDrainOperations++;
     totalDrainedRecords += drained;
+    sizeTracer.countDown(drained * estimatedRecordSize);
   }
 
   @Override
@@ -247,6 +251,7 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
         drainRecords(sortedRecords.size());
         sortedRecords.clear();
         insertionSequence = 0L;
+        sizeTracer.reset();
       }
 
       LOG.info("Snapshot complete: total drained={}, operations={}",
@@ -267,6 +272,7 @@ public class AppendWriteFunctionWithContinuousSort<T> extends AppendWriteFunctio
         drainRecords(sortedRecords.size());
         sortedRecords.clear();
         insertionSequence = 0L;
+        sizeTracer.reset();
       }
 
     } catch (IOException e) {
