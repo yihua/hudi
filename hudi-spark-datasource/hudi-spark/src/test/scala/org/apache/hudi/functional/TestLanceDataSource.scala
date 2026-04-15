@@ -21,7 +21,7 @@ import org.apache.hudi.DataSourceWriteOptions._
 import org.apache.hudi.DefaultSparkRecordMerger
 import org.apache.hudi.common.config.{HoodieCommonConfig, HoodieMetadataConfig}
 import org.apache.hudi.common.engine.HoodieLocalEngineContext
-import org.apache.hudi.common.model.HoodieTableType
+import org.apache.hudi.common.model.{HoodieBaseFile, HoodieTableType}
 import org.apache.hudi.common.schema.HoodieSchema
 import org.apache.hudi.common.table.{HoodieTableConfig, HoodieTableMetaClient}
 import org.apache.hudi.common.table.view.{FileSystemViewManager, FileSystemViewStorageConfig}
@@ -1088,23 +1088,8 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
   private def vectorMetadata(descriptor: String): Metadata =
     new MetadataBuilder().putString(HoodieSchema.TYPE_METADATA_FIELD, descriptor).build()
 
-  /**
-   * Opens the raw Lance base file(s) for the given Hudi table and asserts that the
-   * named field is encoded as an Arrow FixedSizeList with the expected listSize.
-   * This proves that the write path used Lance's native vector column encoding
-   * rather than a plain variable-length list.
-   */
-  /**
-   * Opens the raw Lance base file(s) for the given Hudi table and asserts that the
-   * Arrow schema's custom metadata carries `hoodie.vector.columns` with the given
-   * expected descriptor list. This is the forward-compat guard — future readers
-   * can recover the exact Hudi VECTOR descriptor from the footer without
-   * re-deriving from the Arrow type.
-   *
-   * <p>Descriptor list order is writer-determined (matches Spark schema field
-   * order), so callers must pass the entries in that order.
-   */
-  private def assertLanceFooterHasVectorColumns(tablePath: String, expected: String): Unit = {
+  /** Runs `check` against each Lance base file's Arrow schema. */
+  private def forEachLanceSchema(tablePath: String)(check: (org.apache.arrow.vector.types.pojo.Schema, String) => Unit): Unit = {
     val metaClient = HoodieTableMetaClient.builder()
       .setConf(HoodieTestUtils.getDefaultStorageConf)
       .setBasePath(tablePath)
@@ -1126,13 +1111,7 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
         baseFiles.asScala.foreach { bf =>
           val reader = LanceFileReader.open(bf.getPath, allocator)
           try {
-            val meta = reader.schema().getCustomMetadata
-            assertNotNull(meta, s"Lance footer metadata null for ${bf.getPath}")
-            val key = HoodieSchema.PARQUET_VECTOR_COLUMNS_METADATA_KEY
-            assertTrue(meta.containsKey(key),
-              s"Lance file ${bf.getPath} should have footer key $key, got keys ${meta.keySet()}")
-            assertEquals(expected, meta.get(key),
-              s"Lance file ${bf.getPath} footer $key mismatch")
+            check(reader.schema(), bf.getPath)
           } finally {
             reader.close()
           }
@@ -1145,47 +1124,29 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
     }
   }
 
+  private def assertLanceFooterHasVectorColumns(tablePath: String, expected: String): Unit = {
+    forEachLanceSchema(tablePath) { (schema, path) =>
+      val meta = schema.getCustomMetadata
+      assertNotNull(meta, s"Lance footer metadata null for $path")
+      val key = HoodieSchema.VECTOR_COLUMNS_METADATA_KEY
+      assertTrue(meta.containsKey(key),
+        s"Lance file $path should have footer key $key, got keys ${meta.keySet()}")
+      assertEquals(expected, meta.get(key), s"Lance file $path footer $key mismatch")
+    }
+  }
+
   private def assertLanceFieldIsFixedSizeList(tablePath: String, fieldName: String, expectedDim: Int): Unit = {
-    val metaClient = HoodieTableMetaClient.builder()
-      .setConf(HoodieTestUtils.getDefaultStorageConf)
-      .setBasePath(tablePath)
-      .build()
-    val engineContext = new HoodieLocalEngineContext(metaClient.getStorageConf)
-    val metadataConfig = HoodieMetadataConfig.newBuilder.build
-    val viewManager = FileSystemViewManager.createViewManager(
-      engineContext, metadataConfig, FileSystemViewStorageConfig.newBuilder.build,
-      HoodieCommonConfig.newBuilder.build,
-      (mc: HoodieTableMetaClient) => metaClient.getTableFormat
-        .getMetadataFactory.create(engineContext, mc.getStorage, metadataConfig, tablePath))
-    val fsView = viewManager.getFileSystemView(metaClient)
-    try {
-      val baseFiles = fsView.getLatestBaseFiles("")
-        .collect(Collectors.toList[org.apache.hudi.common.model.HoodieBaseFile])
-      assertTrue(baseFiles.size() > 0, "Expected at least one Lance base file")
-      val allocator = new RootAllocator()
-      try {
-        baseFiles.asScala.foreach { bf =>
-          val reader = LanceFileReader.open(bf.getPath, allocator)
-          try {
-            val field = reader.schema().findField(fieldName)
-            assertNotNull(field, s"Field $fieldName not found in Lance schema for ${bf.getPath}")
-            field.getType match {
-              case fsl: ArrowType.FixedSizeList =>
-                assertEquals(expectedDim, fsl.getListSize,
-                  s"Lance field $fieldName in ${bf.getPath} should be FixedSizeList of size $expectedDim")
-              case other =>
-                throw new AssertionError(
-                  s"Lance field $fieldName in ${bf.getPath} should be FixedSizeList but was $other")
-            }
-          } finally {
-            reader.close()
-          }
-        }
-      } finally {
-        allocator.close()
+    forEachLanceSchema(tablePath) { (schema, path) =>
+      val field = schema.findField(fieldName)
+      assertNotNull(field, s"Field $fieldName not found in Lance schema for $path")
+      field.getType match {
+        case fsl: ArrowType.FixedSizeList =>
+          assertEquals(expectedDim, fsl.getListSize,
+            s"Lance field $fieldName in $path should be FixedSizeList of size $expectedDim")
+        case other =>
+          throw new AssertionError(
+            s"Lance field $fieldName in $path should be FixedSizeList but was $other")
       }
-    } finally {
-      fsView.close()
     }
   }
 

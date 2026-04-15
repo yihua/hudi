@@ -37,6 +37,7 @@ import javax.annotation.concurrent.NotThreadSafe;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.Map;
 
 /**
@@ -116,7 +117,7 @@ public abstract class HoodieBaseLanceWriter<R, K extends Comparable<K>> implemen
    * @return map of footer metadata key-value pairs, or empty map for none
    */
   protected Map<String, String> additionalSchemaMetadata() {
-    return java.util.Collections.emptyMap();
+    return Collections.emptyMap();
   }
 
   /**

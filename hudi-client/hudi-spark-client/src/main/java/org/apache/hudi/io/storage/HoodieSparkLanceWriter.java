@@ -38,10 +38,6 @@ import lombok.Builder;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.spark.sql.catalyst.InternalRow;
-import org.apache.spark.sql.types.ArrayType;
-import org.apache.spark.sql.types.DataType;
-import org.apache.spark.sql.types.DoubleType$;
-import org.apache.spark.sql.types.FloatType$;
 import org.apache.spark.sql.types.Metadata;
 import org.apache.spark.sql.types.MetadataBuilder;
 import org.apache.spark.sql.types.StructField;
@@ -50,6 +46,7 @@ import org.apache.spark.sql.util.LanceArrowUtils;
 import org.apache.spark.unsafe.types.UTF8String;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.Map;
 import java.util.function.Function;
 
@@ -130,9 +127,6 @@ public class HoodieSparkLanceWriter extends HoodieBaseLanceWriter<InternalRow, U
                                  Option<BloomFilter> bloomFilterOpt,
                                  long maxFileSize) {
     super(file, DEFAULT_BATCH_SIZE, bloomFilterOpt.map(HoodieBloomFilterRowWriteSupport::new));
-    // Enrich fields carrying the Hudi VECTOR logical type with the Spark metadata key
-    // that lance-spark's toArrowSchema / LanceArrowWriter use to emit a native Arrow
-    // FixedSizeList (i.e. Lance's vector column encoding) instead of a plain List.
     this.sparkSchema = enrichSparkSchemaForLanceVectors(sparkSchema);
     this.arrowSchema = LanceArrowUtils.toArrowSchema(this.sparkSchema, DEFAULT_TIMEZONE, true, false);
     this.fileName = UTF8String.fromString(file.getName());
@@ -172,16 +166,12 @@ public class HoodieSparkLanceWriter extends HoodieBaseLanceWriter<InternalRow, U
         newFields[i] = field;
         continue;
       }
-      if (!(field.dataType() instanceof ArrayType)) {
-        throw new HoodieNotSupportedException(
-            "Hudi VECTOR column '" + field.name() + "' must be Spark ArrayType to be written to Lance; got " + field.dataType());
-      }
-      DataType elemType = ((ArrayType) field.dataType()).elementType();
-      boolean elemSupported = elemType instanceof FloatType$ || elemType instanceof DoubleType$;
-      if (!elemSupported) {
+      HoodieSchema.Vector.VectorElementType elemType = vec.getVectorElementType();
+      if (elemType != HoodieSchema.Vector.VectorElementType.FLOAT
+          && elemType != HoodieSchema.Vector.VectorElementType.DOUBLE) {
         throw new HoodieNotSupportedException(
             "Lance base-file format currently supports FLOAT/DOUBLE VECTOR columns only; "
-                + "got element type " + elemType.simpleString() + " for field '" + field.name() + "'");
+                + "got element type " + elemType + " for field '" + field.name() + "'");
       }
       Metadata enriched = new MetadataBuilder()
           .withMetadata(field.metadata())
@@ -272,12 +262,11 @@ public class HoodieSparkLanceWriter extends HoodieBaseLanceWriter<InternalRow, U
    */
   @Override
   protected java.util.Map<String, String> additionalSchemaMetadata() {
-    String value = VectorConversionUtils.buildVectorColumnsMetadataValue(sparkSchema);
+    String value = VectorConversionUtils.buildVectorColumnsFooterValue(sparkSchema);
     if (value.isEmpty()) {
-      return java.util.Collections.emptyMap();
+      return Collections.emptyMap();
     }
-    return java.util.Collections.singletonMap(
-        org.apache.hudi.common.schema.HoodieSchema.PARQUET_VECTOR_COLUMNS_METADATA_KEY, value);
+    return Collections.singletonMap(HoodieSchema.VECTOR_COLUMNS_METADATA_KEY, value);
   }
 
   /**

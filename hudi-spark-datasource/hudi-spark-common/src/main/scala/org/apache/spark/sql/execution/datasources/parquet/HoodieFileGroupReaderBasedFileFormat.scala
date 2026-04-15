@@ -442,11 +442,16 @@ class HoodieFileGroupReaderBasedFileFormat(tablePath: String,
    * @return (modified schema with BinaryType for vectors, vector column ordinal map)
    */
   private def withVectorRewrite(schema: StructType): (StructType, Map[Int, HoodieSchema.Vector]) = {
+    // Only Parquet needs the BinaryType rewrite; other formats (Lance) return ArrayType natively.
     if (hoodieFileFormat != HoodieFileFormat.PARQUET) {
       (schema, Map.empty[Int, HoodieSchema.Vector])
     } else {
       val vecs = detectVectorColumns(schema)
-      if (vecs.nonEmpty) (replaceVectorFieldsWithBinary(schema, vecs), vecs) else (schema, vecs)
+      if (vecs.isEmpty) {
+        (schema, vecs)
+      } else {
+        (replaceVectorFieldsWithBinary(schema, vecs), vecs)
+      }
     }
   }
 

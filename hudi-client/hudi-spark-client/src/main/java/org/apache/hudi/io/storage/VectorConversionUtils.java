@@ -18,6 +18,7 @@
 
 package org.apache.hudi.io.storage;
 
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.schema.HoodieSchemaField;
 import org.apache.hudi.common.schema.HoodieSchemaType;
@@ -80,40 +81,25 @@ public final class VectorConversionUtils {
   }
 
   /**
-   * Builds the value string for {@link HoodieSchema#PARQUET_VECTOR_COLUMNS_METADATA_KEY}
-   * from a Spark {@link StructType}, matching the comma-separated
-   * {@code colName:VECTOR(dim[,elemType])} format produced on the Parquet path by
-   * {@link HoodieSchema#buildVectorColumnsMetadataValue(org.apache.hudi.common.schema.HoodieSchema)}.
-   *
-   * <p>This Spark-specific variant operates on {@link StructType} field metadata
-   * rather than {@link org.apache.hudi.common.schema.HoodieSchema}, since the Lance
-   * writer works with Spark schemas directly and does not convert to HoodieSchema.
-   *
-   * <p>Intended to be written as file-footer metadata (e.g. via
-   * {@code LanceFileWriter.addSchemaMetadata}) so any reader can identify VECTOR
-   * columns from the file alone, mirroring the Parquet footer convention.
+   * Builds the {@link HoodieSchema#VECTOR_COLUMNS_METADATA_KEY} footer value
+   * from a Spark {@link StructType} by detecting VECTOR metadata annotations and
+   * delegating to {@link HoodieSchema#serializeVectorColumnsMetadata}.
    *
    * @param schema Spark StructType (may be null)
    * @return comma-separated descriptor list, or empty string if no VECTOR columns
+   * @see HoodieSchema#serializeVectorColumnsMetadata(java.util.Map)
    */
-  public static String buildVectorColumnsMetadataValue(StructType schema) {
+  public static String buildVectorColumnsFooterValue(StructType schema) {
     if (schema == null) {
       return "";
     }
-    StringBuilder sb = new StringBuilder();
     StructField[] fields = schema.fields();
     Map<Integer, HoodieSchema.Vector> detected = detectVectorColumnsFromMetadata(schema);
-    for (int i = 0; i < fields.length; i++) {
-      HoodieSchema.Vector v = detected.get(i);
-      if (v == null) {
-        continue;
-      }
-      if (sb.length() > 0) {
-        sb.append(',');
-      }
-      sb.append(fields[i].name()).append(':').append(v.toTypeDescriptor());
+    java.util.LinkedHashMap<String, HoodieSchema.Vector> named = new java.util.LinkedHashMap<>();
+    for (Map.Entry<Integer, HoodieSchema.Vector> entry : detected.entrySet()) {
+      named.put(fields[entry.getKey()].name(), entry.getValue());
     }
-    return sb.toString();
+    return HoodieSchema.serializeVectorColumnsMetadata(named);
   }
 
   /**
@@ -278,28 +264,20 @@ public final class VectorConversionUtils {
   }
 
   /**
-   * Restores Hudi's VECTOR logical-type metadata on a Spark schema derived from a Lance
-   * (Arrow) schema. The upstream conversion {@code LanceArrowUtils.fromArrowSchema} maps
-   * Arrow {@code FixedSizeList<Float32|Float64, dim>} to Spark {@code ArrayType(FloatType|DoubleType)}
-   * but drops all field-level metadata, so a column that was written as a Hudi VECTOR
-   * comes back indistinguishable from a plain array. This method walks the original Arrow
-   * schema (which still carries the fixed-size-list intent and dimension) and re-attaches
-   * {@link HoodieSchema#TYPE_METADATA_FIELD} = {@code "VECTOR(dim[, DOUBLE])"} to matching
-   * fields so downstream VECTOR-aware code sees the same schema it would on the Parquet path.
+   * Re-attaches {@link HoodieSchema#TYPE_METADATA_FIELD} to Spark fields that were
+   * Arrow {@code FixedSizeList<Float32|Float64, dim>} in the Lance file.
+   * {@code LanceArrowUtils.fromArrowSchema} drops all field metadata, so without this
+   * step VECTOR columns are indistinguishable from plain arrays.
    *
-   * <p>Only top-level fields are inspected; nested struct children are not recursed into.
+   * <p>Only top-level FLOAT/DOUBLE fields are inspected; nested structs are not recursed.
    *
-   * <p>Only FLOAT and DOUBLE element types are recognized, matching what the Lance write
-   * path can produce today. Any other Arrow type (including non-FixedSizeList or
-   * FixedSizeList of non-floating-point children) is passed through unchanged.
-   *
-   * @param arrowSchema     the original Arrow schema read from the Lance file
-   * @param convertedSpark  the StructType produced by {@code LanceArrowUtils.fromArrowSchema}
-   *                        (must have the same field count and order as {@code arrowSchema})
-   * @return a new StructType with VECTOR metadata restored on eligible fields
+   * @param arrowSchema     original Arrow schema from the Lance file
+   * @param convertedSpark  Spark schema from {@code LanceArrowUtils.fromArrowSchema}
+   *                        (same field count and order as {@code arrowSchema})
+   * @return StructType with VECTOR metadata restored on eligible fields
    */
   public static StructType restoreVectorMetadataFromArrowSchema(
-      org.apache.arrow.vector.types.pojo.Schema arrowSchema, StructType convertedSpark) {
+          Schema arrowSchema, StructType convertedSpark) {
     if (arrowSchema == null || convertedSpark == null) {
       return convertedSpark;
     }
@@ -358,6 +336,6 @@ public final class VectorConversionUtils {
     } else {
       return null;
     }
-    return ((HoodieSchema.Vector) HoodieSchema.createVector(dim, elementType)).toTypeDescriptor();
+    return HoodieSchema.createVector(dim, elementType).toTypeDescriptor();
   }
 }
