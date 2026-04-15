@@ -23,7 +23,7 @@ import org.apache.hadoop.conf.Configuration
 import org.apache.hudi.SparkFileFormatInternalRowReaderContext.{filterIsSafeForBootstrap, filterIsSafeForPrimaryKey, getAppliedRequiredSchema}
 import org.apache.hudi.common.engine.HoodieReaderContext
 import org.apache.hudi.common.fs.FSUtils
-import org.apache.hudi.common.model.HoodieRecord
+import org.apache.hudi.common.model.{HoodieFileFormat, HoodieRecord}
 import org.apache.hudi.common.schema.{HoodieSchema, HoodieSchemaUtils}
 import org.apache.hudi.common.table.HoodieTableConfig
 import org.apache.hudi.common.table.read.buffer.PositionBasedFileGroupRecordBuffer.ROW_INDEX_TEMPORARY_COLUMN_NAME
@@ -82,8 +82,18 @@ class SparkFileFormatInternalRowReaderContext(baseFileReader: SparkColumnarFileR
     val structType = HoodieInternalRowUtils.getCachedSchema(requiredSchema)
 
     // Detect VECTOR columns and replace with BinaryType for the Parquet reader
-    // (Parquet stores VECTOR as FIXED_LEN_BYTE_ARRAY which Spark maps to BinaryType)
-    val vectorColumnInfo = SparkFileFormatInternalRowReaderContext.detectVectorColumns(requiredSchema)
+    // (Parquet stores VECTOR as FIXED_LEN_BYTE_ARRAY which Spark maps to BinaryType).
+    // Lance stores vectors natively as Arrow FixedSizeList and returns them as ArrayType,
+    // so the BinaryType rewrite would cause an invalid Cast(ArrayType -> BinaryType) in
+    // the reader's projection — skip it for .lance base files. Hudi log files are always
+    // parquet-encoded, so we only need to special-case Lance base files here.
+    val isLanceBaseFile = !FSUtils.isLogFile(filePath) &&
+      filePath.getName.endsWith(HoodieFileFormat.LANCE.getFileExtension)
+    val vectorColumnInfo: Map[Int, HoodieSchema.Vector] = if (isLanceBaseFile) {
+      Map.empty
+    } else {
+      SparkFileFormatInternalRowReaderContext.detectVectorColumns(requiredSchema)
+    }
     val parquetReadStructType = if (vectorColumnInfo.nonEmpty) {
       SparkFileFormatInternalRowReaderContext.replaceVectorColumnsWithBinary(structType, vectorColumnInfo)
     } else {
