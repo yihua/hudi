@@ -21,9 +21,11 @@ package org.apache.hudi.io.storage.row;
 import org.apache.hudi.common.config.HoodieConfig;
 import org.apache.hudi.common.config.HoodieStorageConfig;
 import org.apache.hudi.common.engine.LocalTaskContextSupplier;
+import org.apache.hudi.common.testutils.HoodieTestUtils;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.io.HoodieParquetConfigInjector;
 import org.apache.hudi.io.storage.HoodieFileWriter;
+import org.apache.hudi.storage.HoodieStorage;
 import org.apache.hudi.storage.StorageConfiguration;
 import org.apache.hudi.storage.StoragePath;
 import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
@@ -43,6 +45,7 @@ import org.apache.parquet.hadoop.metadata.ParquetMetadata;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 
@@ -55,6 +58,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Tests for {@link HoodieParquetConfigInjector} functionality in {@link HoodieRowDataFileWriterFactory}.
  */
 public class TestHoodieRowDataParquetConfigInjector extends HoodieFlinkClientTestHarness {
+
+  @TempDir
+  java.nio.file.Path tmpDir;
 
   @BeforeEach
   public void setUp() throws IOException {
@@ -112,6 +118,7 @@ public class TestHoodieRowDataParquetConfigInjector extends HoodieFlinkClientTes
   @Test
   public void testDisableDictionaryEncodingViaInjector() throws Exception {
     final String instantTime = "100";
+    HoodieStorage storage = HoodieTestUtils.getStorage(tmpDir.toString());
     final StoragePath parquetPath = new StoragePath(
         basePath + "/partition/path/test_dictionary_" + instantTime + ".parquet");
 
@@ -125,7 +132,7 @@ public class TestHoodieRowDataParquetConfigInjector extends HoodieFlinkClientTes
     // Create writer and write some data
     HoodieRowDataFileWriterFactory factory = new HoodieRowDataFileWriterFactory(storage);
     HoodieFileWriter writer = factory.newParquetFileWriter(
-        instantTime, parquetPath, config, rowType, new LocalTaskContextSupplier());
+        instantTime, storage, parquetPath, config, rowType, new LocalTaskContextSupplier());
 
     assertTrue(writer instanceof HoodieRowDataParquetWriter);
 
@@ -169,6 +176,7 @@ public class TestHoodieRowDataParquetConfigInjector extends HoodieFlinkClientTes
   @Test
   public void testInvalidInjectorClassThrowsException() throws IOException {
     final String instantTime = "102";
+    HoodieStorage storage = HoodieTestUtils.getStorage(tmpDir.toString());
     final StoragePath parquetPath = new StoragePath(
         basePath + "/partition/path/test_invalid_" + instantTime + ".parquet");
 
@@ -181,13 +189,14 @@ public class TestHoodieRowDataParquetConfigInjector extends HoodieFlinkClientTes
     // Should throw an exception when trying to create the writer
     HoodieRowDataFileWriterFactory factory = new HoodieRowDataFileWriterFactory(storage);
     assertThrows(Exception.class, () -> {
-      factory.newParquetFileWriter(instantTime, parquetPath, config, rowType, new LocalTaskContextSupplier());
+      factory.newParquetFileWriter(instantTime, storage, parquetPath, config, rowType, new LocalTaskContextSupplier());
     });
   }
 
   @Test
   public void testNoInjectorUsesDefaultConfig() throws Exception {
     final String instantTime = "103";
+    HoodieStorage storage = HoodieTestUtils.getStorage(tmpDir.toString());
     final StoragePath parquetPath = new StoragePath(
         basePath + "/partition/path/test_no_injector_" + instantTime + ".parquet");
 
@@ -200,7 +209,7 @@ public class TestHoodieRowDataParquetConfigInjector extends HoodieFlinkClientTes
     // Create writer and write some data
     HoodieRowDataFileWriterFactory factory = new HoodieRowDataFileWriterFactory(storage);
     HoodieFileWriter writer = factory.newParquetFileWriter(
-        instantTime, parquetPath, config, rowType, new LocalTaskContextSupplier());
+        instantTime, storage, parquetPath, config, rowType, new LocalTaskContextSupplier());
 
     assertTrue(writer instanceof HoodieRowDataParquetWriter);
 
