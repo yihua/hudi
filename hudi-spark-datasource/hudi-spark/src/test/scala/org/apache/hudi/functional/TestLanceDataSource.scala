@@ -819,7 +819,7 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
     assertHudiTypeMetadata(readDf.schema("embedding"), s"VECTOR($dim)")
 
     val actualByKey = readDf.collect().map(r =>
-      r.getInt(0) -> r.getAs[Seq[Float]](1).toSeq).toMap
+      r.getInt(0) -> r.getSeq[Float](1).toSeq).toMap
     val expectedByKey = data.map(r =>
       r.getInt(0) -> r.getAs[Array[Float]](1).toSeq).toMap
     assertEquals(expectedByKey, actualByKey)
@@ -858,7 +858,7 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
     assertHudiTypeMetadata(readDf.schema("embedding"), s"VECTOR($dim, DOUBLE)")
 
     val actualByKey = readDf.collect().map(r =>
-      r.getInt(0) -> r.getAs[Seq[Double]](1).toSeq).toMap
+      r.getInt(0) -> r.getSeq[Double](1).toSeq).toMap
     val expectedByKey = data.map(r =>
       r.getInt(0) -> r.getAs[Array[Double]](1).toSeq).toMap
     assertEquals(expectedByKey, actualByKey)
@@ -896,7 +896,7 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
 
     val readDf = spark.read.format("hudi").load(tablePath).select("id", "embedding", "features")
     val rows = readDf.collect().map { r =>
-      (r.getInt(0), r.getAs[Seq[Float]](1).toSeq, r.getAs[Seq[Double]](2).toSeq)
+      (r.getInt(0), r.getSeq[Float](1).toSeq, r.getSeq[Double](2).toSeq)
     }.toSet
     val expected = data.map { r =>
       (r.getInt(0),
@@ -941,9 +941,9 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
 
     val rows = readDf.collect().sortBy(_.getInt(0))
     assertEquals(3, rows.length)
-    assertEquals(Seq(1.0f, 2.0f, 3.0f), rows(0).getAs[Seq[Float]](1).toSeq)
+    assertEquals(Seq(1.0f, 2.0f, 3.0f), rows(0).getSeq[Float](1).toSeq)
     assertTrue(rows(1).isNullAt(1), "Row with id=2 should have null embedding")
-    assertEquals(Seq(7.0f, 8.0f, 9.0f), rows(2).getAs[Seq[Float]](1).toSeq)
+    assertEquals(Seq(7.0f, 8.0f, 9.0f), rows(2).getSeq[Float](1).toSeq)
   }
 
   @ParameterizedTest
@@ -985,10 +985,10 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
 
     val rows = readDf.collect().sortBy(_.getInt(0))
     assertEquals(3, rows.length)
-    assertEquals(Seq(1.0f, 2.0f, 3.0f), rows(0).getAs[Seq[Float]](3).toSeq)
-    assertEquals(Seq(10.0f, 20.0f, 30.0f), rows(1).getAs[Seq[Float]](3).toSeq)
+    assertEquals(Seq(1.0f, 2.0f, 3.0f), rows(0).getSeq[Float](3).toSeq)
+    assertEquals(Seq(10.0f, 20.0f, 30.0f), rows(1).getSeq[Float](3).toSeq)
     assertEquals(40, rows(1).getInt(2), "Bob's age should be updated to 40")
-    assertEquals(Seq(7.0f, 8.0f, 9.0f), rows(2).getAs[Seq[Float]](3).toSeq)
+    assertEquals(Seq(7.0f, 8.0f, 9.0f), rows(2).getSeq[Float](3).toSeq)
   }
 
   @ParameterizedTest
@@ -1017,7 +1017,7 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
     val vecOnly = spark.read.format("hudi").load(tablePath).select("embedding")
     assertEquals(1, vecOnly.schema.fields.length)
     assertHudiTypeMetadata(vecOnly.schema("embedding"), s"VECTOR($dim)")
-    val vecRows = vecOnly.collect().map(_.getAs[Seq[Float]](0).toSeq).toSet
+    val vecRows = vecOnly.collect().map(_.getSeq[Float](0).toSeq).toSet
     assertEquals(Set(Seq(1.0f, 2.0f, 3.0f, 4.0f), Seq(5.0f, 6.0f, 7.0f, 8.0f)), vecRows)
 
     // Project vector alongside Hudi metadata columns
@@ -1026,7 +1026,7 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
     assertEquals(2, withMeta.schema.fields.length)
     assertHudiTypeMetadata(withMeta.schema("embedding"), s"VECTOR($dim)")
     val metaRows = withMeta.collect().map(r =>
-      r.getString(0) -> r.getAs[Seq[Float]](1).toSeq).toMap
+      r.getString(0) -> r.getSeq[Float](1).toSeq).toMap
     assertEquals(Seq(1.0f, 2.0f, 3.0f, 4.0f), metaRows("1"))
     assertEquals(Seq(5.0f, 6.0f, 7.0f, 8.0f), metaRows("2"))
   }
@@ -1062,11 +1062,11 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
 
     val rows = readDf.collect().sortBy(_.getInt(0))
     assertEquals(3, rows.length)
-    assertEquals(Seq(1.0f, 2.0f, 3.0f), rows(0).getAs[Seq[Float]](2).toSeq)
+    assertEquals(Seq(1.0f, 2.0f, 3.0f), rows(0).getSeq[Float](2).toSeq)
     assertEquals("engineering", rows(0).getString(1))
-    assertEquals(Seq(4.0f, 5.0f, 6.0f), rows(1).getAs[Seq[Float]](2).toSeq)
+    assertEquals(Seq(4.0f, 5.0f, 6.0f), rows(1).getSeq[Float](2).toSeq)
     assertEquals("sales", rows(1).getString(1))
-    assertEquals(Seq(7.0f, 8.0f, 9.0f), rows(2).getAs[Seq[Float]](2).toSeq)
+    assertEquals(Seq(7.0f, 8.0f, 9.0f), rows(2).getSeq[Float](2).toSeq)
     assertEquals("engineering", rows(2).getString(1))
 
     // Read a single partition
@@ -1074,8 +1074,8 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
       .filter("department = 'engineering'").select("id", "embedding")
     val engRows = engDf.collect().sortBy(_.getInt(0))
     assertEquals(2, engRows.length)
-    assertEquals(Seq(1.0f, 2.0f, 3.0f), engRows(0).getAs[Seq[Float]](1).toSeq)
-    assertEquals(Seq(7.0f, 8.0f, 9.0f), engRows(1).getAs[Seq[Float]](1).toSeq)
+    assertEquals(Seq(1.0f, 2.0f, 3.0f), engRows(0).getSeq[Float](1).toSeq)
+    assertEquals(Seq(7.0f, 8.0f, 9.0f), engRows(1).getSeq[Float](1).toSeq)
   }
 
   private def assertHudiTypeMetadata(field: StructField, expectedDescriptor: String): Unit = {
