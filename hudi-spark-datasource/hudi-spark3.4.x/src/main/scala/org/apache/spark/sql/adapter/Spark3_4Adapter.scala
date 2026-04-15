@@ -42,6 +42,7 @@ import org.apache.spark.sql.execution.datasources.orc.Spark34OrcReader
 import org.apache.spark.sql.execution.datasources.parquet.{ParquetFileFormat, ParquetFilters, Spark34LegacyHoodieParquetFileFormat, Spark34ParquetReader}
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
 import org.apache.spark.sql.hudi.analysis.TableValuedFunctions
+import org.apache.spark.sql.hudi.v2.HoodieSparkV2Table
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.internal.SQLConf.LegacyBehaviorPolicy
 import org.apache.spark.sql.parser.{HoodieExtendedParserInterface, HoodieSpark3_4ExtendedSqlParser}
@@ -62,6 +63,8 @@ class Spark3_4Adapter extends BaseSpark3Adapter {
         case plan if !plan.resolved => None
         // NOTE: When resolving Hudi table we allow [[Filter]]s and [[Project]]s be applied
         //       on top of it
+        case PhysicalOperation(_, _, DataSourceV2Relation(v2: HoodieSparkV2Table, _, _, _, _)) =>
+          v2.catalogTable
         case PhysicalOperation(_, _, DataSourceV2Relation(v2: V2TableWithV1Fallback, _, _, _, _)) if isHoodieTable(v2) =>
           Some(v2.v1Table)
         case ResolvedTable(_, _, V1Table(v1Table), _) if isHoodieTable(v1Table) =>
