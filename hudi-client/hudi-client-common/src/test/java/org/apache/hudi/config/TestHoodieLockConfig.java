@@ -22,6 +22,7 @@ import org.apache.hudi.client.transaction.lock.FileSystemBasedLockProvider;
 import org.apache.hudi.client.transaction.lock.StorageBasedLockProvider;
 import org.apache.hudi.client.transaction.lock.ZookeeperBasedImplicitBasePathLockProvider;
 import org.apache.hudi.client.transaction.lock.ZookeeperBasedLockProvider;
+import org.apache.hudi.common.config.LockConfiguration;
 import org.apache.hudi.common.model.WriteConcurrencyMode;
 import org.apache.hudi.exception.HoodieException;
 
@@ -216,5 +217,122 @@ public class TestHoodieLockConfig {
         HoodieLockConfig.getLockConfigForBuiltInLockProvider(customLockProviderClass, writeConfig));
     assertTrue(ex.getMessage().contains("only supported for built-in lock providers"));
     assertTrue(ex.getMessage().contains(customLockProviderClass));
+  }
+
+  @Test
+  public void testGetLockConfigRejectsZookeeperProviderWithoutLockKey() {
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath("/tmp/base_path/")
+        .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL)
+        .withLockConfig(HoodieLockConfig.newBuilder()
+            .withLockProvider(ZookeeperBasedLockProvider.class)
+            .withZkQuorum("zk-host:2181")
+            .withZkBasePath("/hudi/locks")
+            .withZkPort("2181")
+            .build())
+        .build();
+
+    IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
+        HoodieLockConfig.getLockConfigForBuiltInLockProvider(
+            ZookeeperBasedLockProvider.class.getCanonicalName(), writeConfig));
+    assertTrue(ex.getMessage().contains(LockConfiguration.ZK_LOCK_KEY_PROP_KEY));
+  }
+
+  @Test
+  public void testGetLockConfigAcceptsZookeeperImplicitBasePathWithoutLockKey() {
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath("/tmp/base_path/")
+        .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL)
+        .withLockConfig(HoodieLockConfig.newBuilder()
+            .withLockProvider(ZookeeperBasedImplicitBasePathLockProvider.class)
+            .withZkQuorum("zk-host:2181")
+            .withZkPort("2181")
+            .build())
+        .build();
+
+    HoodieLockConfig lockConfig = HoodieLockConfig.getLockConfigForBuiltInLockProvider(
+        ZookeeperBasedImplicitBasePathLockProvider.class.getCanonicalName(), writeConfig);
+    assertEquals(ZookeeperBasedImplicitBasePathLockProvider.class.getCanonicalName(),
+        lockConfig.getString(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME));
+  }
+
+  @Test
+  public void testGetLockConfigRejectsDynamoDBProviderWithoutPartitionKey() {
+    Properties lockProps = new Properties();
+    lockProps.put(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME.key(),
+        HoodieLockConfig.DYNAMODB_BASED_LOCK_PROVIDER_CLASS);
+    lockProps.put("hoodie.write.lock.dynamodb.table", "my_lock_table");
+    lockProps.put("hoodie.write.lock.dynamodb.region", "us-west-2");
+
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath("/tmp/base_path/")
+        .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL)
+        .withLockConfig(HoodieLockConfig.newBuilder().fromProperties(lockProps).build())
+        .build();
+
+    IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
+        HoodieLockConfig.getLockConfigForBuiltInLockProvider(
+            HoodieLockConfig.DYNAMODB_BASED_LOCK_PROVIDER_CLASS, writeConfig));
+    assertTrue(ex.getMessage().contains("hoodie.write.lock.dynamodb.partition_key"));
+  }
+
+  @Test
+  public void testGetLockConfigAcceptsDynamoDBImplicitPartitionKeyWithoutPartitionKey() {
+    Properties lockProps = new Properties();
+    lockProps.put(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME.key(),
+        HoodieLockConfig.DYNAMODB_BASED_IMPLICIT_PARTITION_KEY_LOCK_PROVIDER_CLASS);
+    lockProps.put("hoodie.write.lock.dynamodb.table", "my_lock_table");
+    lockProps.put("hoodie.write.lock.dynamodb.region", "us-west-2");
+
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath("/tmp/base_path/")
+        .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL)
+        .withLockConfig(HoodieLockConfig.newBuilder().fromProperties(lockProps).build())
+        .build();
+
+    HoodieLockConfig lockConfig = HoodieLockConfig.getLockConfigForBuiltInLockProvider(
+        HoodieLockConfig.DYNAMODB_BASED_IMPLICIT_PARTITION_KEY_LOCK_PROVIDER_CLASS, writeConfig);
+    assertEquals(HoodieLockConfig.DYNAMODB_BASED_IMPLICIT_PARTITION_KEY_LOCK_PROVIDER_CLASS,
+        lockConfig.getString(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME));
+  }
+
+  @Test
+  public void testGetLockConfigRejectsHiveMetastoreProviderWithoutDatabase() {
+    Properties lockProps = new Properties();
+    lockProps.put(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME.key(),
+        HoodieLockConfig.HIVE_METASTORE_BASED_LOCK_PROVIDER_CLASS);
+    lockProps.put(HoodieLockConfig.HIVE_TABLE_NAME.key(), "my_table");
+    lockProps.put(HoodieLockConfig.HIVE_METASTORE_URI.key(), "thrift://hms-host:9083");
+
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath("/tmp/base_path/")
+        .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL)
+        .withLockConfig(HoodieLockConfig.newBuilder().fromProperties(lockProps).build())
+        .build();
+
+    IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
+        HoodieLockConfig.getLockConfigForBuiltInLockProvider(
+            HoodieLockConfig.HIVE_METASTORE_BASED_LOCK_PROVIDER_CLASS, writeConfig));
+    assertTrue(ex.getMessage().contains(LockConfiguration.HIVE_DATABASE_NAME_PROP_KEY));
+  }
+
+  @Test
+  public void testGetLockConfigRejectsHiveMetastoreProviderWithoutTable() {
+    Properties lockProps = new Properties();
+    lockProps.put(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME.key(),
+        HoodieLockConfig.HIVE_METASTORE_BASED_LOCK_PROVIDER_CLASS);
+    lockProps.put(HoodieLockConfig.HIVE_DATABASE_NAME.key(), "my_database");
+    lockProps.put(HoodieLockConfig.HIVE_METASTORE_URI.key(), "thrift://hms-host:9083");
+
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath("/tmp/base_path/")
+        .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL)
+        .withLockConfig(HoodieLockConfig.newBuilder().fromProperties(lockProps).build())
+        .build();
+
+    IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
+        HoodieLockConfig.getLockConfigForBuiltInLockProvider(
+            HoodieLockConfig.HIVE_METASTORE_BASED_LOCK_PROVIDER_CLASS, writeConfig));
+    assertTrue(ex.getMessage().contains(LockConfiguration.HIVE_TABLE_NAME_PROP_KEY));
   }
 }

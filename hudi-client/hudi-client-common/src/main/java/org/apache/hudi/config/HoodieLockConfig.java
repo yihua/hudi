@@ -256,6 +256,7 @@ public class HoodieLockConfig extends HoodieConfig {
   public static final String DYNAMODB_BASED_IMPLICIT_PARTITION_KEY_LOCK_PROVIDER_CLASS =
       "org.apache.hudi.aws.transaction.lock.DynamoDBBasedImplicitPartitionKeyLockProvider";
   private static final String DYNAMODB_BASED_LOCK_PROPERTY_PREFIX = LOCK_PREFIX + "dynamodb.";
+  private static final String DYNAMODB_LOCK_PARTITION_KEY_PROP_KEY = DYNAMODB_BASED_LOCK_PROPERTY_PREFIX + "partition_key";
   private static final String STORAGE_BASED_LOCK_PROPERTY_PREFIX = LOCK_PREFIX + "storage.";
 
   private HoodieLockConfig() {
@@ -296,16 +297,38 @@ public class HoodieLockConfig extends HoodieConfig {
     lockProps.put(LOCK_HEARTBEAT_INTERVAL_MS.key(),
         String.valueOf(writeConfig.getIntOrDefault(LOCK_HEARTBEAT_INTERVAL_MS)));
 
-    // Provider-specific configs
+    // Provider-specific configs with lock key validation where applicable.
+    // Providers that infer lock keys (e.g. from TBL_NAME or HoodieTableConfig.NAME) at build time
+    // won't carry those inferred values into the rebuilt config, so we require them to be set explicitly.
     if (FileSystemBasedLockProvider.class.getCanonicalName().equals(lockProviderClass)) {
       copyPropsWithPrefix(dataProps, lockProps, LockConfiguration.FILESYSTEM_BASED_LOCK_PROPERTY_PREFIX);
-    } else if (ZookeeperBasedLockProvider.class.getCanonicalName().equals(lockProviderClass)
-        || ZookeeperBasedImplicitBasePathLockProvider.class.getCanonicalName().equals(lockProviderClass)) {
+    } else if (ZookeeperBasedLockProvider.class.getCanonicalName().equals(lockProviderClass)) {
+      copyPropsWithPrefix(dataProps, lockProps, LockConfiguration.ZOOKEEPER_BASED_LOCK_PROPERTY_PREFIX);
+      if (!lockProps.containsKey(LockConfiguration.ZK_LOCK_KEY_PROP_KEY)) {
+        throw new IllegalArgumentException(LockConfiguration.ZK_LOCK_KEY_PROP_KEY
+            + " must be explicitly set on the data table's lock config when using " + lockProviderClass
+            + ". The inferred default from table name is not propagated to the metadata table lock config.");
+      }
+    } else if (ZookeeperBasedImplicitBasePathLockProvider.class.getCanonicalName().equals(lockProviderClass)) {
       copyPropsWithPrefix(dataProps, lockProps, LockConfiguration.ZOOKEEPER_BASED_LOCK_PROPERTY_PREFIX);
     } else if (HIVE_METASTORE_BASED_LOCK_PROVIDER_CLASS.equals(lockProviderClass)) {
       copyPropsWithPrefix(dataProps, lockProps, LockConfiguration.HIVE_METASTORE_LOCK_PROPERTY_PREFIX);
-    } else if (DYNAMODB_BASED_LOCK_PROVIDER_CLASS.equals(lockProviderClass)
-        || DYNAMODB_BASED_IMPLICIT_PARTITION_KEY_LOCK_PROVIDER_CLASS.equals(lockProviderClass)) {
+      if (!lockProps.containsKey(LockConfiguration.HIVE_DATABASE_NAME_PROP_KEY)) {
+        throw new IllegalArgumentException(LockConfiguration.HIVE_DATABASE_NAME_PROP_KEY
+            + " must be explicitly set on the data table's lock config when using " + lockProviderClass);
+      }
+      if (!lockProps.containsKey(LockConfiguration.HIVE_TABLE_NAME_PROP_KEY)) {
+        throw new IllegalArgumentException(LockConfiguration.HIVE_TABLE_NAME_PROP_KEY
+            + " must be explicitly set on the data table's lock config when using " + lockProviderClass);
+      }
+    } else if (DYNAMODB_BASED_LOCK_PROVIDER_CLASS.equals(lockProviderClass)) {
+      copyPropsWithPrefix(dataProps, lockProps, DYNAMODB_BASED_LOCK_PROPERTY_PREFIX);
+      if (!lockProps.containsKey(DYNAMODB_LOCK_PARTITION_KEY_PROP_KEY)) {
+        throw new IllegalArgumentException(DYNAMODB_LOCK_PARTITION_KEY_PROP_KEY
+            + " must be explicitly set on the data table's lock config when using " + lockProviderClass
+            + ". The inferred default from table name is not propagated to the metadata table lock config.");
+      }
+    } else if (DYNAMODB_BASED_IMPLICIT_PARTITION_KEY_LOCK_PROVIDER_CLASS.equals(lockProviderClass)) {
       copyPropsWithPrefix(dataProps, lockProps, DYNAMODB_BASED_LOCK_PROPERTY_PREFIX);
     } else if (StorageBasedLockProvider.class.getCanonicalName().equals(lockProviderClass)) {
       copyPropsWithPrefix(dataProps, lockProps, STORAGE_BASED_LOCK_PROPERTY_PREFIX);
