@@ -45,7 +45,7 @@ public class HoodieLanceInputFormat extends HoodieCopyOnWriteTableInputFormat {
   @Override
   public RecordReader<NullWritable, ArrayWritable> getRecordReader(final InputSplit split, final JobConf job,
       final Reporter reporter) throws IOException {
-    return new HoodieLanceRecordReader(conf, split, job);
+    return new HoodieLanceRecordReader(job, split, job);
   }
 
   @Override
