@@ -129,7 +129,9 @@ public class TestHoodieMetadataWriteUtils {
             .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL).build())
         .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL)
         .withLockConfig(HoodieLockConfig.newBuilder()
-            .withLockProvider(FileSystemBasedLockProvider.class).build())
+            .withLockProvider(FileSystemBasedLockProvider.class)
+            .withFileSystemLockPath("/tmp/lock_dir")
+            .build())
         .build();
 
     HoodieWriteConfig metadataWriteConfig = HoodieMetadataWriteUtils.createMetadataWriteConfig(
@@ -172,7 +174,9 @@ public class TestHoodieMetadataWriteUtils {
             .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL).build())
         .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL)
         .withLockConfig(HoodieLockConfig.newBuilder()
-            .withLockProvider(FileSystemBasedLockProvider.class).build())
+            .withLockProvider(FileSystemBasedLockProvider.class)
+            .withFileSystemLockPath("/tmp/lock_dir")
+            .build())
         .build();
 
     HoodieWriteConfig metadataWriteConfig = HoodieMetadataWriteUtils.createMetadataWriteConfig(
@@ -410,7 +414,7 @@ public class TestHoodieMetadataWriteUtils {
   }
 
   @Test
-  public void testCreateMetadataWriteConfigForOCCWithStorageBasedLockProvider() {
+  public void testCreateMetadataWriteConfigRejectsStorageBasedLockProvider() {
     Properties lockProps = new Properties();
     lockProps.put(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME.key(),
         StorageBasedLockProvider.class.getCanonicalName());
@@ -428,17 +432,14 @@ public class TestHoodieMetadataWriteUtils {
             .build())
         .build();
 
-    HoodieWriteConfig metadataWriteConfig = HoodieMetadataWriteUtils.createMetadataWriteConfig(
-        writeConfig, HoodieFailedWritesCleaningPolicy.EAGER, HoodieTableVersion.EIGHT);
-    validateMetadataWriteConfig(metadataWriteConfig, HoodieFailedWritesCleaningPolicy.LAZY,
-        WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL,
-        StorageBasedLockProvider.class.getCanonicalName());
-    assertEquals("600", metadataWriteConfig.getProps().getString("hoodie.write.lock.storage.validity.timeout.secs"));
-    assertEquals("60", metadataWriteConfig.getProps().getString("hoodie.write.lock.storage.renew.interval.secs"));
+    IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
+        HoodieMetadataWriteUtils.createMetadataWriteConfig(
+            writeConfig, HoodieFailedWritesCleaningPolicy.EAGER, HoodieTableVersion.EIGHT));
+    assertTrue(ex.getMessage().contains("derives its lock identity from the table's base path"));
   }
 
   @Test
-  public void testCreateMetadataWriteConfigForOCCWithZookeeperImplicitBasePathLockProvider() {
+  public void testCreateMetadataWriteConfigRejectsZookeeperImplicitBasePathLockProvider() {
     HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
         .withPath("/tmp/base_path/")
         .withMetadataConfig(HoodieMetadataConfig.newBuilder()
@@ -449,19 +450,13 @@ public class TestHoodieMetadataWriteUtils {
             .withLockProvider(ZookeeperBasedImplicitBasePathLockProvider.class)
             .withZkQuorum("zk-host:2181")
             .withZkPort("2181")
-            .withZkSessionTimeoutInMs(30000L)
-            .withZkConnectionTimeoutInMs(15000L)
             .build())
         .build();
 
-    HoodieWriteConfig metadataWriteConfig = HoodieMetadataWriteUtils.createMetadataWriteConfig(
-        writeConfig, HoodieFailedWritesCleaningPolicy.EAGER, HoodieTableVersion.EIGHT);
-    validateMetadataWriteConfig(metadataWriteConfig, HoodieFailedWritesCleaningPolicy.LAZY,
-        WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL,
-        ZookeeperBasedImplicitBasePathLockProvider.class.getCanonicalName());
-    assertEquals("zk-host:2181", metadataWriteConfig.getProps().getString(HoodieLockConfig.ZK_CONNECT_URL.key()));
-    assertEquals(30000, metadataWriteConfig.getProps().getInteger(HoodieLockConfig.ZK_SESSION_TIMEOUT_MS.key()));
-    assertEquals(15000, metadataWriteConfig.getProps().getInteger(HoodieLockConfig.ZK_CONNECTION_TIMEOUT_MS.key()));
+    IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
+        HoodieMetadataWriteUtils.createMetadataWriteConfig(
+            writeConfig, HoodieFailedWritesCleaningPolicy.EAGER, HoodieTableVersion.EIGHT));
+    assertTrue(ex.getMessage().contains("derives its lock identity from the table's base path"));
   }
 
   @Test

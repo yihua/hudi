@@ -268,15 +268,17 @@ public class HoodieLockConfig extends HoodieConfig {
   }
 
   /**
-   * Build a {@link HoodieLockConfig} by copying lock-related configs from the given write config
-   * based on the configured lock provider. Only built-in lock providers are supported.
+   * Derive a {@link HoodieLockConfig} for a different table by copying lock-related configs from the
+   * given write config. Only built-in lock providers with explicitly set lock keys/paths are supported;
+   * providers that implicitly derive their lock identity from the table's base path are rejected.
    *
    * @param lockProviderClass the lock provider class name
-   * @param writeConfig       the write config to copy lock properties from
+   * @param writeConfig       the source write config to copy lock properties from
    * @return a new HoodieLockConfig with the relevant lock properties
+   * @throws IllegalArgumentException if required lock keys are missing or the provider derives its lock identity implicitly
    * @throws HoodieException if the lock provider is not a built-in provider
    */
-  public static HoodieLockConfig getLockConfigForBuiltInLockProvider(String lockProviderClass, HoodieWriteConfig writeConfig) {
+  public static HoodieLockConfig deriveLockConfigForDifferentTable(String lockProviderClass, HoodieWriteConfig writeConfig) {
     TypedProperties dataProps = writeConfig.getProps();
     Properties lockProps = new Properties();
     lockProps.put(LOCK_PROVIDER_CLASS_NAME.key(), lockProviderClass);
@@ -297,41 +299,61 @@ public class HoodieLockConfig extends HoodieConfig {
     lockProps.put(LOCK_HEARTBEAT_INTERVAL_MS.key(),
         String.valueOf(writeConfig.getIntOrDefault(LOCK_HEARTBEAT_INTERVAL_MS)));
 
-    // Provider-specific configs with lock key validation where applicable.
-    // Providers that infer lock keys (e.g. from TBL_NAME or HoodieTableConfig.NAME) at build time
-    // won't carry those inferred values into the rebuilt config, so we require them to be set explicitly.
+    // Provider-specific configs with lock key validation.
+    // Providers whose lock identity (key/path) is inferred from table name or base path at build time
+    // won't carry those inferred values into a rebuilt config for a different table, so we either
+    // require them to be set explicitly or reject providers that offer no explicit override.
     if (FileSystemBasedLockProvider.class.getCanonicalName().equals(lockProviderClass)) {
       copyPropsWithPrefix(dataProps, lockProps, LockConfiguration.FILESYSTEM_BASED_LOCK_PROPERTY_PREFIX);
+      if (!lockProps.containsKey(LockConfiguration.FILESYSTEM_LOCK_PATH_PROP_KEY)) {
+        throw new IllegalArgumentException(LockConfiguration.FILESYSTEM_LOCK_PATH_PROP_KEY
+            + " must be explicitly set when using " + lockProviderClass
+            + ". Without it, the lock path is derived from the table's base path,"
+            + " which would resolve to a different location when building a lock config for a different table.");
+      }
     } else if (ZookeeperBasedLockProvider.class.getCanonicalName().equals(lockProviderClass)) {
       copyPropsWithPrefix(dataProps, lockProps, LockConfiguration.ZOOKEEPER_BASED_LOCK_PROPERTY_PREFIX);
       if (!lockProps.containsKey(LockConfiguration.ZK_LOCK_KEY_PROP_KEY)) {
         throw new IllegalArgumentException(LockConfiguration.ZK_LOCK_KEY_PROP_KEY
-            + " must be explicitly set on the data table's lock config when using " + lockProviderClass
-            + ". The inferred default from table name is not propagated to the metadata table lock config.");
+            + " must be explicitly set when using " + lockProviderClass
+            + ". The inferred default from table name is not propagated"
+            + " when building a lock config for a different table.");
       }
     } else if (ZookeeperBasedImplicitBasePathLockProvider.class.getCanonicalName().equals(lockProviderClass)) {
-      copyPropsWithPrefix(dataProps, lockProps, LockConfiguration.ZOOKEEPER_BASED_LOCK_PROPERTY_PREFIX);
+      throw new IllegalArgumentException(lockProviderClass
+          + " is not supported because it derives its lock identity from the table's base path,"
+          + " which would resolve to a different lock when building a lock config for a different table."
+          + " Use " + ZookeeperBasedLockProvider.class.getCanonicalName() + " with an explicit "
+          + LockConfiguration.ZK_LOCK_KEY_PROP_KEY + " instead.");
     } else if (HIVE_METASTORE_BASED_LOCK_PROVIDER_CLASS.equals(lockProviderClass)) {
       copyPropsWithPrefix(dataProps, lockProps, LockConfiguration.HIVE_METASTORE_LOCK_PROPERTY_PREFIX);
       if (!lockProps.containsKey(LockConfiguration.HIVE_DATABASE_NAME_PROP_KEY)) {
         throw new IllegalArgumentException(LockConfiguration.HIVE_DATABASE_NAME_PROP_KEY
-            + " must be explicitly set on the data table's lock config when using " + lockProviderClass);
+            + " must be explicitly set when using " + lockProviderClass);
       }
       if (!lockProps.containsKey(LockConfiguration.HIVE_TABLE_NAME_PROP_KEY)) {
         throw new IllegalArgumentException(LockConfiguration.HIVE_TABLE_NAME_PROP_KEY
-            + " must be explicitly set on the data table's lock config when using " + lockProviderClass);
+            + " must be explicitly set when using " + lockProviderClass);
       }
     } else if (DYNAMODB_BASED_LOCK_PROVIDER_CLASS.equals(lockProviderClass)) {
       copyPropsWithPrefix(dataProps, lockProps, DYNAMODB_BASED_LOCK_PROPERTY_PREFIX);
       if (!lockProps.containsKey(DYNAMODB_LOCK_PARTITION_KEY_PROP_KEY)) {
         throw new IllegalArgumentException(DYNAMODB_LOCK_PARTITION_KEY_PROP_KEY
-            + " must be explicitly set on the data table's lock config when using " + lockProviderClass
-            + ". The inferred default from table name is not propagated to the metadata table lock config.");
+            + " must be explicitly set when using " + lockProviderClass
+            + ". The inferred default from table name is not propagated"
+            + " when building a lock config for a different table.");
       }
     } else if (DYNAMODB_BASED_IMPLICIT_PARTITION_KEY_LOCK_PROVIDER_CLASS.equals(lockProviderClass)) {
-      copyPropsWithPrefix(dataProps, lockProps, DYNAMODB_BASED_LOCK_PROPERTY_PREFIX);
+      throw new IllegalArgumentException(lockProviderClass
+          + " is not supported because it derives its lock identity from the table's base path,"
+          + " which would resolve to a different lock when building a lock config for a different table."
+          + " Use " + DYNAMODB_BASED_LOCK_PROVIDER_CLASS + " with an explicit "
+          + DYNAMODB_LOCK_PARTITION_KEY_PROP_KEY + " instead.");
     } else if (StorageBasedLockProvider.class.getCanonicalName().equals(lockProviderClass)) {
-      copyPropsWithPrefix(dataProps, lockProps, STORAGE_BASED_LOCK_PROPERTY_PREFIX);
+      throw new IllegalArgumentException(lockProviderClass
+          + " is not supported because it derives its lock identity from the table's base path,"
+          + " which would resolve to a different lock when building a lock config for a different table,"
+          + " and does not provide an explicit lock path override.");
     } else {
       throw new HoodieException(writeConfig.getWriteConcurrencyMode()
           + " is only supported for built-in lock providers. Unsupported lock provider: " + lockProviderClass);

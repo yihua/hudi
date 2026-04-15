@@ -168,7 +168,7 @@ public class HoodieMetadataWriteUtils {
               + "Configure a distributed lock provider on the data table.");
       concurrencyMode = metadataWriteConcurrencyMode;
       failedWritesCleaningPolicy = HoodieFailedWritesCleaningPolicy.LAZY;
-      lockConfig = HoodieLockConfig.getLockConfigForBuiltInLockProvider(lockProviderClass, writeConfig);
+      lockConfig = HoodieLockConfig.deriveLockConfigForDifferentTable(lockProviderClass, writeConfig);
     } else {
       if (isStreamingWritesToMetadataEnabled) {
         concurrencyMode = WriteConcurrencyMode.NON_BLOCKING_CONCURRENCY_CONTROL;

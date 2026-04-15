@@ -48,7 +48,7 @@ public class TestHoodieLockConfig {
             .build())
         .build();
 
-    HoodieLockConfig lockConfig = HoodieLockConfig.getLockConfigForBuiltInLockProvider(
+    HoodieLockConfig lockConfig = HoodieLockConfig.deriveLockConfigForDifferentTable(
         FileSystemBasedLockProvider.class.getCanonicalName(), writeConfig);
     assertEquals(FileSystemBasedLockProvider.class.getCanonicalName(),
         lockConfig.getString(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME));
@@ -72,7 +72,7 @@ public class TestHoodieLockConfig {
             .build())
         .build();
 
-    HoodieLockConfig lockConfig = HoodieLockConfig.getLockConfigForBuiltInLockProvider(
+    HoodieLockConfig lockConfig = HoodieLockConfig.deriveLockConfigForDifferentTable(
         ZookeeperBasedLockProvider.class.getCanonicalName(), writeConfig);
     assertEquals(ZookeeperBasedLockProvider.class.getCanonicalName(),
         lockConfig.getString(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME));
@@ -85,7 +85,7 @@ public class TestHoodieLockConfig {
   }
 
   @Test
-  public void testGetLockConfigForZookeeperImplicitBasePathLockProvider() {
+  public void testGetLockConfigRejectsZookeeperImplicitBasePathLockProvider() {
     HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
         .withPath("/tmp/base_path/")
         .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL)
@@ -96,11 +96,11 @@ public class TestHoodieLockConfig {
             .build())
         .build();
 
-    HoodieLockConfig lockConfig = HoodieLockConfig.getLockConfigForBuiltInLockProvider(
-        ZookeeperBasedImplicitBasePathLockProvider.class.getCanonicalName(), writeConfig);
-    assertEquals(ZookeeperBasedImplicitBasePathLockProvider.class.getCanonicalName(),
-        lockConfig.getString(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME));
-    assertEquals("zk-host:2181", lockConfig.getString(HoodieLockConfig.ZK_CONNECT_URL));
+    IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
+        HoodieLockConfig.deriveLockConfigForDifferentTable(
+            ZookeeperBasedImplicitBasePathLockProvider.class.getCanonicalName(), writeConfig));
+    assertTrue(ex.getMessage().contains("derives its lock identity from the table's base path"));
+    assertTrue(ex.getMessage().contains(ZookeeperBasedLockProvider.class.getCanonicalName()));
   }
 
   @Test
@@ -118,7 +118,7 @@ public class TestHoodieLockConfig {
         .withLockConfig(HoodieLockConfig.newBuilder().fromProperties(lockProps).build())
         .build();
 
-    HoodieLockConfig lockConfig = HoodieLockConfig.getLockConfigForBuiltInLockProvider(
+    HoodieLockConfig lockConfig = HoodieLockConfig.deriveLockConfigForDifferentTable(
         HoodieLockConfig.HIVE_METASTORE_BASED_LOCK_PROVIDER_CLASS, writeConfig);
     assertEquals(HoodieLockConfig.HIVE_METASTORE_BASED_LOCK_PROVIDER_CLASS,
         lockConfig.getString(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME));
@@ -142,7 +142,7 @@ public class TestHoodieLockConfig {
         .withLockConfig(HoodieLockConfig.newBuilder().fromProperties(lockProps).build())
         .build();
 
-    HoodieLockConfig lockConfig = HoodieLockConfig.getLockConfigForBuiltInLockProvider(
+    HoodieLockConfig lockConfig = HoodieLockConfig.deriveLockConfigForDifferentTable(
         HoodieLockConfig.DYNAMODB_BASED_LOCK_PROVIDER_CLASS, writeConfig);
     assertEquals(HoodieLockConfig.DYNAMODB_BASED_LOCK_PROVIDER_CLASS,
         lockConfig.getString(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME));
@@ -152,7 +152,7 @@ public class TestHoodieLockConfig {
   }
 
   @Test
-  public void testGetLockConfigForStorageBasedLockProvider() {
+  public void testGetLockConfigRejectsStorageBasedLockProvider() {
     Properties lockProps = new Properties();
     lockProps.put(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME.key(),
         StorageBasedLockProvider.class.getCanonicalName());
@@ -165,12 +165,11 @@ public class TestHoodieLockConfig {
         .withLockConfig(HoodieLockConfig.newBuilder().fromProperties(lockProps).build())
         .build();
 
-    HoodieLockConfig lockConfig = HoodieLockConfig.getLockConfigForBuiltInLockProvider(
-        StorageBasedLockProvider.class.getCanonicalName(), writeConfig);
-    assertEquals(StorageBasedLockProvider.class.getCanonicalName(),
-        lockConfig.getString(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME));
-    assertEquals("600", lockConfig.getProps().getProperty("hoodie.write.lock.storage.validity.timeout.secs"));
-    assertEquals("60", lockConfig.getProps().getProperty("hoodie.write.lock.storage.renew.interval.secs"));
+    IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
+        HoodieLockConfig.deriveLockConfigForDifferentTable(
+            StorageBasedLockProvider.class.getCanonicalName(), writeConfig));
+    assertTrue(ex.getMessage().contains("derives its lock identity from the table's base path"));
+    assertTrue(ex.getMessage().contains("does not provide an explicit lock path override"));
   }
 
   @Test
@@ -180,6 +179,7 @@ public class TestHoodieLockConfig {
         .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL)
         .withLockConfig(HoodieLockConfig.newBuilder()
             .withLockProvider(FileSystemBasedLockProvider.class)
+            .withFileSystemLockPath("/tmp/lock_dir")
             .withNumRetries(5)
             .withRetryWaitTimeInMillis(2000L)
             .withRetryMaxWaitTimeInMillis(32000L)
@@ -190,7 +190,7 @@ public class TestHoodieLockConfig {
             .build())
         .build();
 
-    HoodieLockConfig lockConfig = HoodieLockConfig.getLockConfigForBuiltInLockProvider(
+    HoodieLockConfig lockConfig = HoodieLockConfig.deriveLockConfigForDifferentTable(
         FileSystemBasedLockProvider.class.getCanonicalName(), writeConfig);
     assertEquals("5", lockConfig.getString(HoodieLockConfig.LOCK_ACQUIRE_NUM_RETRIES));
     assertEquals("2000", lockConfig.getString(HoodieLockConfig.LOCK_ACQUIRE_RETRY_WAIT_TIME_IN_MILLIS));
@@ -214,7 +214,7 @@ public class TestHoodieLockConfig {
         .build();
 
     HoodieException ex = assertThrows(HoodieException.class, () ->
-        HoodieLockConfig.getLockConfigForBuiltInLockProvider(customLockProviderClass, writeConfig));
+        HoodieLockConfig.deriveLockConfigForDifferentTable(customLockProviderClass, writeConfig));
     assertTrue(ex.getMessage().contains("only supported for built-in lock providers"));
     assertTrue(ex.getMessage().contains(customLockProviderClass));
   }
@@ -233,27 +233,26 @@ public class TestHoodieLockConfig {
         .build();
 
     IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
-        HoodieLockConfig.getLockConfigForBuiltInLockProvider(
+        HoodieLockConfig.deriveLockConfigForDifferentTable(
             ZookeeperBasedLockProvider.class.getCanonicalName(), writeConfig));
     assertTrue(ex.getMessage().contains(LockConfiguration.ZK_LOCK_KEY_PROP_KEY));
   }
 
   @Test
-  public void testGetLockConfigAcceptsZookeeperImplicitBasePathWithoutLockKey() {
+  public void testGetLockConfigRejectsFileSystemProviderWithoutLockPath() {
     HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
         .withPath("/tmp/base_path/")
         .withWriteConcurrencyMode(WriteConcurrencyMode.OPTIMISTIC_CONCURRENCY_CONTROL)
         .withLockConfig(HoodieLockConfig.newBuilder()
-            .withLockProvider(ZookeeperBasedImplicitBasePathLockProvider.class)
-            .withZkQuorum("zk-host:2181")
-            .withZkPort("2181")
+            .withLockProvider(FileSystemBasedLockProvider.class)
+            .withFileSystemLockExpire(10)
             .build())
         .build();
 
-    HoodieLockConfig lockConfig = HoodieLockConfig.getLockConfigForBuiltInLockProvider(
-        ZookeeperBasedImplicitBasePathLockProvider.class.getCanonicalName(), writeConfig);
-    assertEquals(ZookeeperBasedImplicitBasePathLockProvider.class.getCanonicalName(),
-        lockConfig.getString(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME));
+    IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
+        HoodieLockConfig.deriveLockConfigForDifferentTable(
+            FileSystemBasedLockProvider.class.getCanonicalName(), writeConfig));
+    assertTrue(ex.getMessage().contains(LockConfiguration.FILESYSTEM_LOCK_PATH_PROP_KEY));
   }
 
   @Test
@@ -271,13 +270,13 @@ public class TestHoodieLockConfig {
         .build();
 
     IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
-        HoodieLockConfig.getLockConfigForBuiltInLockProvider(
+        HoodieLockConfig.deriveLockConfigForDifferentTable(
             HoodieLockConfig.DYNAMODB_BASED_LOCK_PROVIDER_CLASS, writeConfig));
     assertTrue(ex.getMessage().contains("hoodie.write.lock.dynamodb.partition_key"));
   }
 
   @Test
-  public void testGetLockConfigAcceptsDynamoDBImplicitPartitionKeyWithoutPartitionKey() {
+  public void testGetLockConfigRejectsDynamoDBImplicitPartitionKeyLockProvider() {
     Properties lockProps = new Properties();
     lockProps.put(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME.key(),
         HoodieLockConfig.DYNAMODB_BASED_IMPLICIT_PARTITION_KEY_LOCK_PROVIDER_CLASS);
@@ -290,10 +289,11 @@ public class TestHoodieLockConfig {
         .withLockConfig(HoodieLockConfig.newBuilder().fromProperties(lockProps).build())
         .build();
 
-    HoodieLockConfig lockConfig = HoodieLockConfig.getLockConfigForBuiltInLockProvider(
-        HoodieLockConfig.DYNAMODB_BASED_IMPLICIT_PARTITION_KEY_LOCK_PROVIDER_CLASS, writeConfig);
-    assertEquals(HoodieLockConfig.DYNAMODB_BASED_IMPLICIT_PARTITION_KEY_LOCK_PROVIDER_CLASS,
-        lockConfig.getString(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME));
+    IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
+        HoodieLockConfig.deriveLockConfigForDifferentTable(
+            HoodieLockConfig.DYNAMODB_BASED_IMPLICIT_PARTITION_KEY_LOCK_PROVIDER_CLASS, writeConfig));
+    assertTrue(ex.getMessage().contains("derives its lock identity from the table's base path"));
+    assertTrue(ex.getMessage().contains(HoodieLockConfig.DYNAMODB_BASED_LOCK_PROVIDER_CLASS));
   }
 
   @Test
@@ -311,7 +311,7 @@ public class TestHoodieLockConfig {
         .build();
 
     IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
-        HoodieLockConfig.getLockConfigForBuiltInLockProvider(
+        HoodieLockConfig.deriveLockConfigForDifferentTable(
             HoodieLockConfig.HIVE_METASTORE_BASED_LOCK_PROVIDER_CLASS, writeConfig));
     assertTrue(ex.getMessage().contains(LockConfiguration.HIVE_DATABASE_NAME_PROP_KEY));
   }
@@ -331,7 +331,7 @@ public class TestHoodieLockConfig {
         .build();
 
     IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
-        HoodieLockConfig.getLockConfigForBuiltInLockProvider(
+        HoodieLockConfig.deriveLockConfigForDifferentTable(
             HoodieLockConfig.HIVE_METASTORE_BASED_LOCK_PROVIDER_CLASS, writeConfig));
     assertTrue(ex.getMessage().contains(LockConfiguration.HIVE_TABLE_NAME_PROP_KEY));
   }
