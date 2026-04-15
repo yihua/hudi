@@ -290,12 +290,12 @@ class HoodieScanBuilder(spark: SparkSession,
         val valuesOpt: Array[Option[Any]] = aggFuncs.map {
           case _: CountStar =>
             val stats = columnStats(countStarColumn.get)
-            Some(stats.map(s => s.getValueCount + s.getNullCount).sum: Any)
+            Some(stats.map(s => s.getValueCount).sum: Any)
 
           case c: Count =>
             extractColumnName(c.column()).map { colName =>
               val stats = columnStats(colName)
-              stats.map(_.getValueCount).sum: Any
+              stats.map(s => s.getValueCount - s.getNullCount).sum: Any
             }
 
           case m: Min =>
