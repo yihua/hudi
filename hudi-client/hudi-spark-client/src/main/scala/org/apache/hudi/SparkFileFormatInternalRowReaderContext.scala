@@ -81,12 +81,8 @@ class SparkFileFormatInternalRowReaderContext(baseFileReader: SparkColumnarFileR
     }
     val structType = HoodieInternalRowUtils.getCachedSchema(requiredSchema)
 
-    // Detect VECTOR columns and replace with BinaryType for the Parquet reader
-    // (Parquet stores VECTOR as FIXED_LEN_BYTE_ARRAY which Spark maps to BinaryType).
-    // Lance stores vectors natively as Arrow FixedSizeList and returns them as ArrayType,
-    // so the BinaryType rewrite would cause an invalid Cast(ArrayType -> BinaryType) in
-    // the reader's projection — skip it for .lance base files. Hudi log files are always
-    // parquet-encoded, so we only need to special-case Lance base files here.
+    // Parquet stores VECTOR as FIXED_LEN_BYTE_ARRAY, so the reader needs BinaryType
+    // and we decode back to ArrayType below. Lance returns ArrayType natively, so skip.
     val isLanceBaseFile = !FSUtils.isLogFile(filePath) &&
       filePath.getName.endsWith(HoodieFileFormat.LANCE.getFileExtension)
     val vectorColumnInfo: Map[Int, HoodieSchema.Vector] = if (isLanceBaseFile) {
