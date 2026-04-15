@@ -65,29 +65,32 @@ class TestDSv2CowSnapshotRead extends SparkClientFunctionalTestHarness {
   def testCowReadViaSqlCatalog(): Unit = {
     val tableName = "cow_sql_read"
     val tablePath = basePath() + "/" + tableName
-    spark.sql(
-      s"""CREATE TABLE $tableName (
-         |  id INT,
-         |  name STRING,
-         |  amount DOUBLE,
-         |  ts LONG
-         |) USING hudi
-         |TBLPROPERTIES (
-         |  type = 'cow',
-         |  primaryKey = 'id',
-         |  orderingFields = 'ts'
-         |)
-         |LOCATION '$tablePath'
-         """.stripMargin)
-
-    spark.sql(s"INSERT INTO $tableName VALUES (1, 'Alice', 100.0, 1), (2, 'Bob', 200.0, 2), (3, 'Charlie', 300.0, 3)")
-
-    spark.sessionState.conf.setConfString(DataSourceReadOptions.USE_V2_READ.key, "true")
+    val confKey = DataSourceReadOptions.USE_V2_READ.key
+    val prev = Option(spark.sessionState.conf.getConfString(confKey, null))
     try {
+      spark.sql(s"DROP TABLE IF EXISTS $tableName")
+      spark.sql(
+        s"""CREATE TABLE $tableName (
+           |  id INT,
+           |  name STRING,
+           |  amount DOUBLE,
+           |  ts LONG
+           |) USING hudi
+           |TBLPROPERTIES (
+           |  type = 'cow',
+           |  primaryKey = 'id',
+           |  orderingFields = 'ts'
+           |)
+           |LOCATION '$tablePath'
+           """.stripMargin)
+
+      spark.sql(s"INSERT INTO $tableName VALUES (1, 'Alice', 100.0, 1), (2, 'Bob', 200.0, 2), (3, 'Charlie', 300.0, 3)")
+
+      spark.sessionState.conf.setConfString(confKey, "true")
       val v2Df = spark.sql(s"SELECT * FROM $tableName")
       assertEquals(3, v2Df.count())
 
-      spark.sessionState.conf.setConfString(DataSourceReadOptions.USE_V2_READ.key, "false")
+      spark.sessionState.conf.setConfString(confKey, "false")
       val v1Df = spark.sql(s"SELECT * FROM $tableName")
       assertEquals(3, v1Df.count())
 
@@ -96,7 +99,10 @@ class TestDSv2CowSnapshotRead extends SparkClientFunctionalTestHarness {
       val v1Names = v1Df.select("name").collect().map(_.getString(0)).sorted
       assertEquals(v1Names.toSeq, v2Names.toSeq)
     } finally {
-      spark.sessionState.conf.unsetConf(DataSourceReadOptions.USE_V2_READ.key)
+      prev match {
+        case Some(v) => spark.sessionState.conf.setConfString(confKey, v)
+        case None => spark.sessionState.conf.unsetConf(confKey)
+      }
       spark.sql(s"DROP TABLE IF EXISTS $tableName")
     }
   }

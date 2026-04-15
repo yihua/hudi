@@ -352,11 +352,11 @@ class HoodieScanBuilder(spark: SparkSession,
             val vs = sparkValues.map(_.asInstanceOf[Long])
             Some(if (isMin) vs.min else vs.max)
           case FloatType =>
-            val vs = sparkValues.map(_.asInstanceOf[Float])
-            Some(if (isMin) vs.min else vs.max)
+            val vs = sparkValues.map(_.asInstanceOf[Float]).filterNot(_.isNaN)
+            if (vs.isEmpty) None else Some(if (isMin) vs.min else vs.max)
           case DoubleType =>
-            val vs = sparkValues.map(_.asInstanceOf[Double])
-            Some(if (isMin) vs.min else vs.max)
+            val vs = sparkValues.map(_.asInstanceOf[Double]).filterNot(_.isNaN)
+            if (vs.isEmpty) None else Some(if (isMin) vs.min else vs.max)
           case StringType =>
             val vs = sparkValues.map(_.asInstanceOf[UTF8String])
             Some(vs.reduce((a, b) => if ((isMin && a.compareTo(b) <= 0) || (!isMin && a.compareTo(b) >= 0)) a else b))

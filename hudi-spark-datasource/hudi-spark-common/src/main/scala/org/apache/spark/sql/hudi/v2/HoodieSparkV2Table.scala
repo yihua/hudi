@@ -73,9 +73,15 @@ case class HoodieSparkV2Table(spark: SparkSession,
 
   override def schema(): StructType = tableSchema
 
-  override def capabilities(): util.Set[TableCapability] = Set(
-    BATCH_READ, V1_BATCH_WRITE, OVERWRITE_BY_FILTER, TRUNCATE, ACCEPT_ANY_SCHEMA
-  ).asJava
+  override def capabilities(): util.Set[TableCapability] = {
+    val writeCaps =
+      if (hoodieCatalogTable.isDefined) {
+        Set(V1_BATCH_WRITE, OVERWRITE_BY_FILTER, TRUNCATE, ACCEPT_ANY_SCHEMA)
+      } else {
+        Set.empty[TableCapability]
+      }
+    (Set(BATCH_READ) ++ writeCaps).asJava
+  }
 
   override def properties(): util.Map[String, String] = hoodieCatalogTable match {
     case Some(hct) => hct.catalogProperties.asJava

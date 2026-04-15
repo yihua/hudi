@@ -70,38 +70,44 @@ class TestDSv2FilterPushdown extends SparkClientFunctionalTestHarness {
   def testPartitionPruningViaSql(): Unit = {
     val tableName = "filter_sql_prune"
     val tablePath = basePath() + "/" + tableName
-    spark.sql(
-      s"""CREATE TABLE $tableName (
-         |  id INT,
-         |  name STRING,
-         |  amount DOUBLE,
-         |  country STRING
-         |) USING hudi
-         |TBLPROPERTIES (
-         |  type = 'cow',
-         |  primaryKey = 'id',
-         |  orderingFields = 'amount'
-         |)
-         |PARTITIONED BY (country)
-         |LOCATION '$tablePath'
-         """.stripMargin)
-
-    spark.sql(
-      s"""INSERT INTO $tableName VALUES
-         |(1, 'Alice', 100.0, 'US'),
-         |(2, 'Bob', 200.0, 'UK'),
-         |(3, 'Charlie', 300.0, 'US')
-         """.stripMargin)
-
-    spark.sessionState.conf.setConfString(DataSourceReadOptions.USE_V2_READ.key, "true")
+    val confKey = DataSourceReadOptions.USE_V2_READ.key
+    val prev = Option(spark.sessionState.conf.getConfString(confKey, null))
     try {
+      spark.sql(s"DROP TABLE IF EXISTS $tableName")
+      spark.sql(
+        s"""CREATE TABLE $tableName (
+           |  id INT,
+           |  name STRING,
+           |  amount DOUBLE,
+           |  country STRING
+           |) USING hudi
+           |TBLPROPERTIES (
+           |  type = 'cow',
+           |  primaryKey = 'id',
+           |  orderingFields = 'amount'
+           |)
+           |PARTITIONED BY (country)
+           |LOCATION '$tablePath'
+           """.stripMargin)
+
+      spark.sql(
+        s"""INSERT INTO $tableName VALUES
+           |(1, 'Alice', 100.0, 'US'),
+           |(2, 'Bob', 200.0, 'UK'),
+           |(3, 'Charlie', 300.0, 'US')
+           """.stripMargin)
+
+      spark.sessionState.conf.setConfString(confKey, "true")
       val df = spark.sql(s"SELECT * FROM $tableName WHERE country = 'US'")
       assertEquals(2, df.count())
 
       val names = df.select("name").collect().map(_.getString(0)).sorted
       assertEquals(Seq("Alice", "Charlie"), names.toSeq)
     } finally {
-      spark.sessionState.conf.unsetConf(DataSourceReadOptions.USE_V2_READ.key)
+      prev match {
+        case Some(v) => spark.sessionState.conf.setConfString(confKey, v)
+        case None => spark.sessionState.conf.unsetConf(confKey)
+      }
       spark.sql(s"DROP TABLE IF EXISTS $tableName")
     }
   }

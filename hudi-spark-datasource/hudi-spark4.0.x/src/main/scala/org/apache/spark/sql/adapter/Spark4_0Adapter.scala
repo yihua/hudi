@@ -39,6 +39,7 @@ import org.apache.spark.sql.execution.datasources.orc.Spark40OrcReader
 import org.apache.spark.sql.execution.datasources.parquet.{ParquetFileFormat, Spark40LegacyHoodieParquetFileFormat, Spark40ParquetReader}
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
 import org.apache.spark.sql.hudi.analysis.TableValuedFunctions
+import org.apache.spark.sql.hudi.catalog.HoodieInternalV2Table
 import org.apache.spark.sql.hudi.v2.HoodieSparkV2Table
 import org.apache.spark.sql.internal.{LegacyBehaviorPolicy, SQLConf}
 import org.apache.spark.sql.parser.{HoodieExtendedParserInterface, HoodieSpark4_0ExtendedSqlParser}
@@ -71,8 +72,7 @@ class Spark4_0Adapter extends BaseSpark4Adapter {
   }
 
   def isHoodieTable(v2Table: V2TableWithV1Fallback): Boolean = {
-    val className = v2Table.getClass.getName
-    className.contains("HoodieInternalV2Table") || className.contains("HoodieSparkV2Table")
+    v2Table.isInstanceOf[HoodieInternalV2Table] || v2Table.isInstanceOf[HoodieSparkV2Table]
   }
 
   override def isColumnarBatchRow(r: InternalRow): Boolean = r.isInstanceOf[ColumnarBatchRow]
