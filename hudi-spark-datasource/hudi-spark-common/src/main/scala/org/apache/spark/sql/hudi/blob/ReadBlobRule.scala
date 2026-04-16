@@ -154,8 +154,13 @@ case class ReadBlobRule(spark: SparkSession) extends Rule[LogicalPlan] {
       blobToDataAttr: Map[ExprId, Attribute]): Expression = expr match {
     case ReadBlobExpression(attr: AttributeReference) =>
       blobToDataAttr.getOrElse(attr.exprId, throw new AnalysisException(
-        s"read_blob() called on column '${attr.name}' (exprId=${attr.exprId}) which was not registered for blob reading. " +
-        s"Available blob columns: ${blobToDataAttr.keys.mkString(", ")}"))
+        errorClass = "BLOB_COLUMN_NOT_REGISTERED",
+        messageParameters = Map(
+          "column" -> attr.name,
+          "exprId" -> attr.exprId.toString,
+          "available" -> blobToDataAttr.keys.mkString(", ")
+        )
+      ))
     case ReadBlobExpression(_) =>
       throw new IllegalStateException("read_blob() must be called on a direct column reference")
     case other =>
