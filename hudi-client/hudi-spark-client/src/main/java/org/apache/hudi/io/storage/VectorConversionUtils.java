@@ -283,10 +283,6 @@ public final class VectorConversionUtils {
     }
     List<Field> arrowFields = arrowSchema.getFields();
     StructField[] sparkFields = convertedSpark.fields();
-    if (arrowFields.size() != sparkFields.length) {
-      // Schemas desynchronized — bail out rather than risk corrupting metadata.
-      return convertedSpark;
-    }
     StructField[] newFields = new StructField[sparkFields.length];
     boolean anyChanged = false;
     for (int i = 0; i < sparkFields.length; i++) {

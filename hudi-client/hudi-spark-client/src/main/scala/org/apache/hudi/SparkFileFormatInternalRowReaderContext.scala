@@ -83,8 +83,9 @@ class SparkFileFormatInternalRowReaderContext(baseFileReader: SparkColumnarFileR
 
     // Parquet stores VECTOR as FIXED_LEN_BYTE_ARRAY, so the reader needs BinaryType
     // and we decode back to ArrayType below. Lance returns ArrayType natively, so skip.
+    // Log files are always parquet regardless of the table's base-file format.
     val isLanceBaseFile = !FSUtils.isLogFile(filePath) &&
-      filePath.getName.endsWith(HoodieFileFormat.LANCE.getFileExtension)
+      tableConfig.getBaseFileFormat == HoodieFileFormat.LANCE
     val vectorColumnInfo: Map[Int, HoodieSchema.Vector] = if (isLanceBaseFile) {
       Map.empty
     } else {
