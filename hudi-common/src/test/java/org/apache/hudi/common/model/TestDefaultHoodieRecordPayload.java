@@ -256,6 +256,7 @@ public class TestDefaultHoodieRecordPayload {
     OrderingFieldsTestUtils.setOrderingFieldsConfig(props, key, "ts");
     props.setProperty(HoodiePayloadProps.UPDATE_ON_SAME_PAYLOAD_ORDERING_FIELD_PROP_KEY, "false");
 
+    // Create two records with the SAME ordering value
     GenericRecord currentRecord = new GenericData.Record(schema);
     currentRecord.put("id", "1");
     currentRecord.put("partition", "partition0");
