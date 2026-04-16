@@ -25,6 +25,7 @@ import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.execution.{SparkPlan, SparkStrategy}
+import org.apache.spark.util.SerializableConfiguration
 
 /**
  * Spark strategy that converts [[BatchedBlobRead]] logical nodes to [[BatchedBlobReadExec]] physical nodes.
@@ -47,7 +48,8 @@ case class BatchedBlobReaderStrategy(sparkSession: SparkSession) extends SparkSt
         BatchedBlobReader.LOOKAHEAD_SIZE_CONF,
         String.valueOf(BatchedBlobReader.DEFAULT_LOOKAHEAD_SIZE)).toInt
 
-      val storageConf = new HadoopStorageConfiguration(sparkSession.sparkContext.hadoopConfiguration)
+      val storageConf = new HadoopStorageConfiguration(
+        new SerializableConfiguration(sparkSession.sparkContext.hadoopConfiguration).value)
       BatchedBlobReadExec(
         planLater(child),
         maxGapBytes,

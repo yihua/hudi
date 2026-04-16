@@ -24,6 +24,7 @@ import org.apache.hudi.common.schema.{HoodieSchema, HoodieSchemaType}
 import org.apache.hudi.io.SeekableDataInputStream
 import org.apache.hudi.storage.{HoodieStorage, HoodieStorageUtils, StorageConfiguration, StoragePath}
 
+import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{Dataset, Row}
 import org.apache.spark.sql.catalyst.InternalRow
@@ -88,12 +89,12 @@ import scala.collection.mutable.ArrayBuffer
  *
  * @param storage        HoodieStorage instance for file I/O
  * @param maxGapBytes    Maximum gap between ranges to consider for batching (default: 4KB)
- * @param lookaheadSize  Number of rows to buffer for batch detection (default: 50)
+ * @param lookaheadRows  Number of rows to buffer for batch detection (default: 50)
  */
 class BatchedBlobReader(
-    storage: HoodieStorage,
-    maxGapBytes: Int = 4096,
-    lookaheadSize: Int = 50) {
+                         storage: HoodieStorage,
+                         maxGapBytes: Int = 4096,
+                         lookaheadRows: Int = 50) {
 
   private val logger = LoggerFactory.getLogger(classOf[BatchedBlobReader])
 
@@ -183,7 +184,7 @@ class BatchedBlobReader(
         val batch = ArrayBuffer[RowInfo[R]]()
         var collected = 0
 
-        while (bufferedRows.hasNext && collected < lookaheadSize) {
+        while (bufferedRows.hasNext && collected < lookaheadRows) {
           val row = bufferedRows.next()
           // Handle null struct column (null blob)
           if (accessor.isNullAt(row, structColIdx)) {
@@ -405,8 +406,9 @@ class BatchedBlobReader(
       inputStream.seek(range.startOffset)
 
       // Read the entire merged range
-      val totalLength = (range.endOffset - range.startOffset).toInt
-      require(totalLength >= 0, s"Range too large: ${range.endOffset - range.startOffset} bytes exceeds Int.MaxValue")
+      val totalLengthLong = range.endOffset - range.startOffset
+      require(totalLengthLong >= 0 && totalLengthLong <= Int.MaxValue, s"Range too large: $totalLengthLong bytes exceeds Int.MaxValue")
+      val totalLength = totalLengthLong.toInt
       val buffer = new Array[Byte](totalLength)
       inputStream.readFully(buffer, 0, totalLength)
 
@@ -690,7 +692,7 @@ object BatchedBlobReader {
   def processRDD(
       rdd: RDD[InternalRow],
       schema: StructType,
-      storageConf: StorageConfiguration[_],
+      broadcastConf: Broadcast[StorageConfiguration[_]],
       maxGapBytes: Int = DEFAULT_MAX_GAP_BYTES,
       lookaheadSize: Int = DEFAULT_LOOKAHEAD_SIZE,
       columnName: String): RDD[InternalRow] = {
@@ -703,9 +705,6 @@ object BatchedBlobReader {
 
     // Create output schema (input + __temp__data column)
     val outputSchema = schema.add(StructField(DATA_COL, BinaryType, nullable = true))
-
-    // Broadcast configuration
-    val broadcastConf = rdd.sparkContext.broadcast(storageConf)
 
     // Process partitions using InternalRow type classes
     rdd.mapPartitions { partition =>
@@ -747,8 +746,8 @@ object BatchedBlobReader {
   }
 
   // Validate that the struct column is compatible with BlobType
-    private def isCompatibleBlobType(dt: DataType): Boolean = dt match {
-      case struct: StructType => DataType.equalsIgnoreCaseAndNullability(struct, BlobType.dataType)
-      case _ => false
-    }
+  private def isCompatibleBlobType(dt: DataType): Boolean = dt match {
+    case struct: StructType => DataType.equalsIgnoreCaseAndNullability(struct, BlobType.dataType)
+    case _ => false
+  }
 }

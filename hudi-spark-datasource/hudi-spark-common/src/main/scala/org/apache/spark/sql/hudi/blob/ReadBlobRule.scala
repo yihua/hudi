@@ -19,6 +19,7 @@
 
 package org.apache.spark.sql.hudi.blob
 
+import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Expression, ExprId, NamedExpression}
 import org.apache.spark.sql.catalyst.plans.logical.{Filter, LogicalPlan, Project}
@@ -152,7 +153,9 @@ case class ReadBlobRule(spark: SparkSession) extends Rule[LogicalPlan] {
       expr: Expression,
       blobToDataAttr: Map[ExprId, Attribute]): Expression = expr match {
     case ReadBlobExpression(attr: AttributeReference) =>
-      blobToDataAttr(attr.exprId)
+      blobToDataAttr.getOrElse(attr.exprId, throw new AnalysisException(
+        s"read_blob() called on column '${attr.name}' (exprId=${attr.exprId}) which was not registered for blob reading. " +
+        s"Available blob columns: ${blobToDataAttr.keys.mkString(", ")}"))
     case ReadBlobExpression(_) =>
       throw new IllegalStateException("read_blob() must be called on a direct column reference")
     case other =>

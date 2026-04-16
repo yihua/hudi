@@ -21,6 +21,7 @@ package org.apache.spark.sql.hudi.blob
 
 import org.apache.hudi.storage.StorageConfiguration
 
+import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Attribute
@@ -49,12 +50,13 @@ case class BatchedBlobReadExec(child: SparkPlan,
 
   override protected def doExecute(): RDD[InternalRow] = {
     val childRDD = child.execute()
-
+    // Broadcast storageConf to avoid per-task serialization
+    val broadcastConf: Broadcast[StorageConfiguration[_]] = childRDD.sparkContext.broadcast(storageConf)
     // Use direct RDD processing - no DataFrame conversion!
     BatchedBlobReader.processRDD(
       childRDD,
       child.schema,
-      storageConf,
+      broadcastConf,
       maxGapBytes,
       lookaheadSize,
       logical.blobAttr.name
