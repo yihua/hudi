@@ -2375,13 +2375,22 @@ public class TestHoodieTimelineArchiver extends HoodieSparkClientTestHarness {
 
     // Reload timeline
     metaClient = HoodieTableMetaClient.reload(metaClient);
-    int commitsAfterArchival = metaClient.getActiveTimeline().getCommitsTimeline().filterCompletedInstants().countInstants();
+    List<HoodieInstant> activeCommits = metaClient.getActiveTimeline().getCommitsTimeline()
+        .filterCompletedInstants().getInstants();
+    List<String> activeCommitTimes = activeCommits.stream()
+        .map(HoodieInstant::requestedTime)
+        .collect(Collectors.toList());
 
     // With config disabled, archival should proceed based on min/max archival commits (2, 3)
-    // Since we have 6 commits, archival should have kicked in
-    // This test verifies backward compatibility - ECTR from clean is ignored when config is off
-    assertTrue(commitsAfterArchival < commitsBeforeArchival || commitsAfterArchival <= 3,
-        "Archival should proceed normally when ECTR blocking is disabled");
+    // ignoring ECTR entirely. The commits timeline includes 6 data commits + 1 clean commit = 7 total.
+    // With min=2, archival archives up to 7-2=5 instants, leaving only the last 2 (00000006 + clean 00000007).
+    // The key assertion is that commit 00000003 (the ECTR) IS archived, proving the flag is off.
+    assertFalse(activeCommitTimes.contains("00000003"),
+        "Commit 00000003 (ECTR) should be archived when ECTR blocking is disabled");
+    assertTrue(activeCommitTimes.contains("00000006"),
+        "Commit 00000006 should be retained (within min commits to keep)");
+    assertEquals(2, activeCommits.size(),
+        "Only 2 instants should remain active (min commits to keep)");
   }
 
   /**
@@ -2593,28 +2602,28 @@ public class TestHoodieTimelineArchiver extends HoodieSparkClientTestHarness {
     List<HoodieInstant> activeCommits = activeTimeline.getCommitsTimeline().filterCompletedInstants().getInstants();
     int commitsAfterArchival = activeCommits.size();
 
-    // Verify archival made progress - some commits should have been archived
-    assertTrue(commitsAfterArchival < commitsBeforeArchival,
-        "Archival should make progress and archive commits before ECTR");
-
-    // Verify commits >= ECTR (00000008, 00000009, 00000010) are still present
+    // With 10 commits, min=2, max=3, and ECTR at 00000008:
+    // Archival can archive commits before ECTR, so 00000001-00000007 should be archived.
+    // Exactly 00000008-00000010 should remain active.
     List<String> activeCommitTimes = activeCommits.stream()
         .map(HoodieInstant::requestedTime)
         .collect(Collectors.toList());
 
+    // Verify all commits before ECTR are archived
+    for (int i = 1; i <= 7; i++) {
+      assertFalse(activeCommitTimes.contains(String.format("%08d", i)),
+          "Commit " + String.format("%08d", i) + " (before ECTR) should be archived");
+    }
+
+    // Verify commits >= ECTR are retained
     assertTrue(activeCommitTimes.contains("00000008"),
         "Commit 00000008 (ECTR) should not be archived");
     assertTrue(activeCommitTimes.contains("00000009"),
         "Commit 00000009 (after ECTR) should not be archived");
     assertTrue(activeCommitTimes.contains("00000010"),
         "Commit 00000010 (after ECTR) should not be archived");
-
-    // Verify earlier commits (before ECTR) were archived
-    // With 10 commits and ECTR at 8, archival should archive older commits
-    assertFalse(activeCommitTimes.contains("00000001"),
-        "Commit 00000001 (before ECTR and outside retention) should be archived");
-    assertFalse(activeCommitTimes.contains("00000002"),
-        "Commit 00000002 (before ECTR and outside retention) should be archived");
+    assertEquals(3, commitsAfterArchival,
+        "Exactly 3 commits (00000008-00000010) should remain active");
   }
 
   /**
