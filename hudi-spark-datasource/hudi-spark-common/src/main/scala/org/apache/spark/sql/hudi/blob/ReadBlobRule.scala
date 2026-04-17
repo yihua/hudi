@@ -75,6 +75,15 @@ case class ReadBlobRule(spark: SparkSession) extends Rule[LogicalPlan] {
       val (wrappedPlan, blobToDataAttr) = wrapWithBlobReads(blobColumns, child)
       val newProjectList = transformNamedExpressions(projectList, blobToDataAttr)
       Project(newProjectList, wrappedPlan)
+
+    case node if containsReadBlobInAnyExpression(node) =>
+      throw new AnalysisException(
+        s"read_blob() may only appear in SELECT or WHERE clauses. Found in unsupported logical plan node: ${node.nodeName}. " +
+        s"Move read_blob() to a SELECT or WHERE clause. Full plan: ${node.simpleStringWithNodeId()}")
+  }
+
+  private def containsReadBlobInAnyExpression(plan: LogicalPlan): Boolean = {
+    plan.expressions.exists(containsReadBlobInExpression)
   }
 
   private def wrapWithBlobReads(
@@ -154,13 +163,8 @@ case class ReadBlobRule(spark: SparkSession) extends Rule[LogicalPlan] {
       blobToDataAttr: Map[ExprId, Attribute]): Expression = expr match {
     case ReadBlobExpression(attr: AttributeReference) =>
       blobToDataAttr.getOrElse(attr.exprId, throw new AnalysisException(
-        errorClass = "BLOB_COLUMN_NOT_REGISTERED",
-        messageParameters = Map(
-          "column" -> attr.name,
-          "exprId" -> attr.exprId.toString,
-          "available" -> blobToDataAttr.keys.mkString(", ")
-        )
-      ))
+        s"read_blob() called on column '${attr.name}' (exprId=${attr.exprId}) which was not registered for blob reading. " +
+        s"Available blob columns: ${blobToDataAttr.keys.mkString(", ")}"))
     case ReadBlobExpression(_) =>
       throw new IllegalStateException("read_blob() must be called on a direct column reference")
     case other =>

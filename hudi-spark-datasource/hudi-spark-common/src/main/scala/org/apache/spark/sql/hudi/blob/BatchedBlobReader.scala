@@ -219,7 +219,7 @@ class BatchedBlobReader(
               val filePath = accessor.getString(referenceStruct, 0)
               val offsetIsNull = accessor.isNullAt(referenceStruct, 1)
               val lengthIsNull = accessor.isNullAt(referenceStruct, 2)
-              if (offsetIsNull || lengthIsNull) {
+              if (offsetIsNull && lengthIsNull) {
                 // Case 2: Whole-file read — no offset/length specified; sentinel length = -1
                 batch += RowInfo[R](
                   originalRow = row,
@@ -228,10 +228,14 @@ class BatchedBlobReader(
                   length = -1,
                   index = rowIndex
                 )
+              } else if (offsetIsNull || lengthIsNull) {
+                throw new IllegalArgumentException(s"Blob reference for '$filePath' must set both offset and length, or neither")
               } else {
                 // Case 3: Regular range read
                 val offset = accessor.getLong(referenceStruct, 1)
                 val length = accessor.getLong(referenceStruct, 2)
+                require(offset >= 0, s"Blob offset must be non-negative for '$filePath': $offset")
+                require(length >= 0, s"Blob length must be non-negative for '$filePath': $length")
                 batch += RowInfo[R](
                   originalRow = row,
                   filePath = filePath,
@@ -490,7 +494,10 @@ private[blob] object RowAccessor {
 
   implicit val internalRowAccessor: RowAccessor[InternalRow] = new RowAccessor[InternalRow] {
     override def getStruct(row: InternalRow, structColIdx: Int, numFields: Int): InternalRow = row.getStruct(structColIdx, numFields)
-    override def getString(struct: InternalRow, fieldIdx: Int): String = struct.getUTF8String(fieldIdx).toString
+    override def getString(struct: InternalRow, fieldIdx: Int): String = {
+      val utf8String = struct.getUTF8String(fieldIdx)
+      if (utf8String == null) null else utf8String.toString
+    }
     override def getLong(struct: InternalRow, fieldIdx: Int): Long = struct.getLong(fieldIdx)
     override def getBytes(row: InternalRow, fieldIdx: Int): Array[Byte] = row.getBinary(fieldIdx)
     override def isNullAt(row: InternalRow, fieldIdx: Int): Boolean = row.isNullAt(fieldIdx)
@@ -524,7 +531,7 @@ private[blob] object RowBuilder {
         } else {
           val dataType = outputSchema.fields(i).dataType
           // Copy field using generic get/update for compatibility
-          outputRow.update(i, originalRow.get(i, dataType))
+          outputRow.update(i, InternalRow.copyValue(originalRow.get(i, dataType)))
         }
         i += 1
       }
@@ -655,14 +662,20 @@ object BatchedBlobReader {
     val result = df.mapPartitions { partition =>
       // Create storage and reader for this partition
       val storage = HoodieStorageUtils.getStorage(broadcastConf.value)
-      val reader = new BatchedBlobReader(storage, maxGapBytes, lookaheadSize)
+      try {
+        val reader = new BatchedBlobReader(storage, maxGapBytes, lookaheadSize)
 
-      // Import implicit instances for Row
-      import RowAccessor.rowAccessor
-      import RowBuilder.rowBuilder
+        // Import implicit instances for Row
+        import RowAccessor.rowAccessor
+        import RowBuilder.rowBuilder
 
-      // Process partition
-      reader.processPartition[Row](partition, structColIdx, outputSchema)
+        // Process partition
+        reader.processPartition[Row](partition, structColIdx, outputSchema)
+      } finally {
+        if (storage != null) {
+          storage.close()
+        }
+      }
     } (sparkAdapter.getCatalystExpressionUtils.getEncoder(outputSchema))
 
     if (keepTempColumn) {
@@ -709,13 +722,19 @@ object BatchedBlobReader {
     // Process partitions using InternalRow type classes
     rdd.mapPartitions { partition =>
       val storage = HoodieStorageUtils.getStorage(broadcastConf.value)
-      val reader = new BatchedBlobReader(storage, maxGapBytes, lookaheadSize)
+      try {
+        val reader = new BatchedBlobReader(storage, maxGapBytes, lookaheadSize)
 
-      // Import implicit instances for InternalRow
-      import RowAccessor.internalRowAccessor
-      import RowBuilder.internalRowBuilder
+        // Import implicit instances for InternalRow
+        import RowAccessor.internalRowAccessor
+        import RowBuilder.internalRowBuilder
 
-      reader.processPartition[InternalRow](partition, structColIdx, outputSchema)
+        reader.processPartition[InternalRow](partition, structColIdx, outputSchema)
+      } finally {
+        if (storage != null) {
+          storage.close()
+        }
+      }
     }
   }
 
