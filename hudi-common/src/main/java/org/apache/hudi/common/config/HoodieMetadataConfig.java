@@ -1356,6 +1356,17 @@ public final class HoodieMetadataConfig extends HoodieConfig {
       metadataConfig.setDefaultValue(STREAMING_WRITE_ENABLED, getDefaultForStreamingWriteEnabled(engineType));
       // fix me: disable when schema on read is enabled.
       metadataConfig.setDefaults(HoodieMetadataConfig.class.getName());
+
+      String tsmActions = metadataConfig.getString(TABLE_SERVICE_MANAGER_ACTIONS);
+      if (tsmActions != null && !tsmActions.isEmpty()) {
+        validateTableServiceManagerActions(tsmActions);
+      }
+      if (metadataConfig.getBoolean(TABLE_SERVICE_MANAGER_ENABLED)
+          && (tsmActions == null || tsmActions.isEmpty())) {
+        throw new IllegalArgumentException(TABLE_SERVICE_MANAGER_ENABLED.key() + " is set to true but "
+            + TABLE_SERVICE_MANAGER_ACTIONS.key() + " is empty. Specify at least one action to delegate"
+            + " (supported: " + SUPPORTED_TABLE_SERVICE_MANAGER_ACTIONS + ").");
+      }
       return metadataConfig;
     }
 

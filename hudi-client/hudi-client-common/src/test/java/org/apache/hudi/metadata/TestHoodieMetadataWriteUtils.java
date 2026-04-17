@@ -205,6 +205,24 @@ public class TestHoodieMetadataWriteUtils {
   }
 
   @Test
+  public void testCreateMetadataWriteConfigWithTableServiceManagerLogCompactionOnly() {
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath("/tmp/base_path/")
+        .withMetadataConfig(HoodieMetadataConfig.newBuilder()
+            .withTableServiceManagerEnabled(true)
+            .withTableServiceManagerActions("logcompaction")
+            .build())
+        .build();
+
+    HoodieWriteConfig metadataWriteConfig = HoodieMetadataWriteUtils.createMetadataWriteConfig(
+        writeConfig, HoodieFailedWritesCleaningPolicy.EAGER, HoodieTableVersion.EIGHT);
+    assertTrue(metadataWriteConfig.getTableServiceManagerConfig().isTableServiceManagerEnabled());
+    assertFalse(metadataWriteConfig.getTableServiceManagerConfig().isEnabledAndActionSupported(ActionType.compaction),
+        "compaction should not match when only logcompaction is configured");
+    assertTrue(metadataWriteConfig.getTableServiceManagerConfig().isEnabledAndActionSupported(ActionType.logcompaction));
+  }
+
+  @Test
   public void testCreateMetadataWriteConfigWithTableServiceManagerDisabled() {
     HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
         .withPath("/tmp/base_path/")

@@ -201,6 +201,7 @@ class TestHoodieMetadataConfig {
 
     HoodieMetadataConfig enabledConfig = HoodieMetadataConfig.newBuilder()
         .withTableServiceManagerEnabled(true)
+        .withTableServiceManagerActions("compaction")
         .build();
     assertTrue(enabledConfig.isTableServiceManagerEnabled());
 
@@ -248,6 +249,24 @@ class TestHoodieMetadataConfig {
     assertThrows(IllegalArgumentException.class, () ->
         HoodieMetadataConfig.newBuilder()
             .withTableServiceManagerActions("nonexistent")
+            .build());
+  }
+
+  @Test
+  void testTableServiceManagerActionsValidatedInBuildFromProperties() {
+    Properties props = new Properties();
+    props.put(HoodieMetadataConfig.TABLE_SERVICE_MANAGER_ACTIONS.key(), "clean");
+    assertThrows(IllegalArgumentException.class, () ->
+        HoodieMetadataConfig.newBuilder()
+            .fromProperties(props)
+            .build());
+  }
+
+  @Test
+  void testTableServiceManagerEnabledWithEmptyActionsRejected() {
+    assertThrows(IllegalArgumentException.class, () ->
+        HoodieMetadataConfig.newBuilder()
+            .withTableServiceManagerEnabled(true)
             .build());
   }
 }
