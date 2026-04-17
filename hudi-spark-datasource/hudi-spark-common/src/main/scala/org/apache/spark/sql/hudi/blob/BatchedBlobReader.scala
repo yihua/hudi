@@ -662,20 +662,14 @@ object BatchedBlobReader {
     val result = df.mapPartitions { partition =>
       // Create storage and reader for this partition
       val storage = HoodieStorageUtils.getStorage(broadcastConf.value)
-      try {
-        val reader = new BatchedBlobReader(storage, maxGapBytes, lookaheadSize)
+      val reader = new BatchedBlobReader(storage, maxGapBytes, lookaheadSize)
 
-        // Import implicit instances for Row
-        import RowAccessor.rowAccessor
-        import RowBuilder.rowBuilder
+      // Import implicit instances for Row
+      import RowAccessor.rowAccessor
+      import RowBuilder.rowBuilder
 
-        // Process partition
-        reader.processPartition[Row](partition, structColIdx, outputSchema)
-      } finally {
-        if (storage != null) {
-          storage.close()
-        }
-      }
+      // Process partition
+      reader.processPartition[Row](partition, structColIdx, outputSchema)
     } (sparkAdapter.getCatalystExpressionUtils.getEncoder(outputSchema))
 
     if (keepTempColumn) {
@@ -722,19 +716,14 @@ object BatchedBlobReader {
     // Process partitions using InternalRow type classes
     rdd.mapPartitions { partition =>
       val storage = HoodieStorageUtils.getStorage(broadcastConf.value)
-      try {
-        val reader = new BatchedBlobReader(storage, maxGapBytes, lookaheadSize)
 
-        // Import implicit instances for InternalRow
-        import RowAccessor.internalRowAccessor
-        import RowBuilder.internalRowBuilder
+      val reader = new BatchedBlobReader(storage, maxGapBytes, lookaheadSize)
 
-        reader.processPartition[InternalRow](partition, structColIdx, outputSchema)
-      } finally {
-        if (storage != null) {
-          storage.close()
-        }
-      }
+      // Import implicit instances for InternalRow
+      import RowAccessor.internalRowAccessor
+      import RowBuilder.internalRowBuilder
+
+      reader.processPartition[InternalRow](partition, structColIdx, outputSchema)
     }
   }
 
