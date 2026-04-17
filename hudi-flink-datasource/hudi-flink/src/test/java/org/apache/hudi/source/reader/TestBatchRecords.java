@@ -23,6 +23,7 @@ import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -30,8 +31,9 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -362,7 +364,7 @@ public class TestBatchRecords {
     BatchRecords<String> batchRecords = BatchRecords.forRecords(splitId, prefetchingIterator, 0, 0L);
     batchRecords.nextSplit();
 
-    List<String> collected = new java.util.ArrayList<>();
+    List<String> collected = new ArrayList<>();
     HoodieRecordWithPosition<String> r;
     while ((r = batchRecords.nextRecordFromSplit()) != null) {
       collected.add(r.record());
@@ -383,12 +385,12 @@ public class TestBatchRecords {
     HoodieRecordWithPosition<String> first = batchRecords.nextRecordFromSplit();
     assertNotNull(first);
     assertEquals("x", first.record());
-    assertEquals(false, first.isLastInSplit(), "First record must NOT be marked as last");
+    assertFalse(first.isLastInSplit(), "First record must NOT be marked as last");
 
     HoodieRecordWithPosition<String> last = batchRecords.nextRecordFromSplit();
     assertNotNull(last);
     assertEquals("y", last.record());
-    assertEquals(true, last.isLastInSplit(), "Second (last) record MUST be marked as last");
+    assertTrue(last.isLastInSplit(), "Second (last) record MUST be marked as last");
 
     assertNull(batchRecords.nextRecordFromSplit(), "No more records expected");
   }

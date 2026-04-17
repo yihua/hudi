@@ -34,6 +34,7 @@ public class HoodieRecordWithPosition<T> {
     this.record = record;
     this.fileOffset = fileOffset;
     this.recordOffset = recordOffset;
+    this.lastInSplit = false;
   }
 
   public HoodieRecordWithPosition() {
@@ -59,6 +60,7 @@ public class HoodieRecordWithPosition<T> {
     this.record = newRecord;
     this.fileOffset = newFileOffset;
     this.recordOffset = newRecordOffset;
+    this.lastInSplit = false;
   }
 
   public boolean isLastInSplit() {
