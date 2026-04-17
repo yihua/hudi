@@ -18,21 +18,20 @@
 
 package org.apache.hudi.azure.transaction.lock;
 
+import org.apache.hudi.azure.credentials.AzureCredentialFactory;
 import org.apache.hudi.client.transaction.lock.StorageLockClient;
 import org.apache.hudi.client.transaction.lock.models.LockGetResult;
 import org.apache.hudi.client.transaction.lock.models.LockUpsertResult;
 import org.apache.hudi.client.transaction.lock.models.StorageLockData;
 import org.apache.hudi.client.transaction.lock.models.StorageLockFile;
+import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.util.Functions;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.VisibleForTesting;
 import org.apache.hudi.common.util.collection.Pair;
-import org.apache.hudi.exception.HoodieLockException;
 import org.apache.hudi.config.AzureStorageLockConfig;
 import org.apache.hudi.config.StorageBasedLockConfig;
-import org.apache.hudi.common.config.TypedProperties;
-
-import org.apache.hudi.azure.credentials.AzureCredentialFactory;
+import org.apache.hudi.exception.HoodieLockException;
 
 import com.azure.core.credential.AzureSasCredential;
 import com.azure.core.exception.HttpResponseException;
@@ -114,8 +113,6 @@ public class AzureStorageLockClient implements StorageLockClient {
   private static final int CONFLICT_ERROR_CODE = 409;
   private static final int RATE_LIMIT_ERROR_CODE = 429;
   private static final int INTERNAL_SERVER_ERROR_CODE_MIN = 500;
-
-  public static final String AZURE_SAS_TOKEN = AzureStorageLockConfig.AZURE_SAS_TOKEN.key();
 
   private final Logger logger;
   private final BlobServiceClient blobServiceClient;
