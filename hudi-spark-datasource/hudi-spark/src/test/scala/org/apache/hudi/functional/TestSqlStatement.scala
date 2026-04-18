@@ -17,6 +17,7 @@
 
 package org.apache.hudi.functional
 
+import org.apache.hudi.HoodieSparkUtils
 import org.apache.hudi.io.util.FileIOUtils
 
 import org.apache.spark.sql.hudi.common.HoodieSparkSqlTestBase
@@ -37,15 +38,19 @@ class TestSqlStatement extends HoodieSparkSqlTestBase {
   val STATE_FINISH_ALL = 12
 
   test("Test Sql Statements") {
-    Seq("cow", "mor").foreach { tableType =>
-      withTempDir { tmp =>
-        val params = Map(
-          "tableType" -> tableType,
-          "tmpDir" -> {
-            tmp.getCanonicalPath.replace('\\', '/')
-          }
-        )
-        execSqlFile("/sql-statements.sql", params)
+    val baseFileFormats = if (HoodieSparkUtils.gteqSpark3_4) Seq("parquet", "lance") else Seq("parquet")
+    baseFileFormats.foreach { baseFileFormat =>
+      Seq("cow", "mor").foreach { tableType =>
+        withTempDir { tmp =>
+          val params = Map(
+            "tableType" -> tableType,
+            "baseFileFormat" -> baseFileFormat,
+            "tmpDir" -> {
+              tmp.getCanonicalPath.replace('\\', '/')
+            }
+          )
+          execSqlFile("/sql-statements.sql", params)
+        }
       }
     }
   }
