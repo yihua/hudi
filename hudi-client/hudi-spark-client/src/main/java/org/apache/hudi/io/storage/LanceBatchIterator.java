@@ -18,123 +18,112 @@
 
 package org.apache.hudi.io.storage;
 
-import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
 
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowReader;
-import org.apache.spark.sql.catalyst.InternalRow;
-import org.apache.spark.sql.catalyst.expressions.UnsafeProjection;
-import org.apache.spark.sql.catalyst.expressions.UnsafeRow;
-import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.vectorized.ColumnVector;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 import org.apache.spark.sql.vectorized.LanceArrowColumnVector;
 import org.lance.file.LanceFileReader;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.util.Iterator;
+import java.util.NoSuchElementException;
+import java.util.Objects;
 
 /**
- * Shared iterator implementation for reading Lance files and converting Arrow batches to Spark rows.
- * This iterator is used by both Hudi's internal Lance reader and Spark datasource integration.
+ * Iterator that returns {@link ColumnarBatch} directly from Lance files without
+ * decomposing to individual rows. Used for vectorized/columnar batch reading
+ * in Spark's COW base-file-only read path.
  *
- * <p>The iterator manages the lifecycle of:
+ * <p>Unlike {@link LanceRecordIterator} which extracts rows one by one,
+ * this iterator preserves the columnar format for zero-copy batch processing.
+ *
+ * <p>Manages the lifecycle of:
  * <ul>
  *   <li>BufferAllocator - Arrow memory management</li>
  *   <li>LanceFileReader - Lance file handle</li>
  *   <li>ArrowReader - Arrow batch reader</li>
- *   <li>ColumnarBatch - Current batch being iterated</li>
  * </ul>
- *
- * <p>Records are converted to {@link UnsafeRow} using {@link UnsafeProjection} for efficient
- * serialization and memory management.
  */
-public class LanceRecordIterator implements ClosableIterator<UnsafeRow> {
+public class LanceBatchIterator implements Iterator<ColumnarBatch>, Closeable {
   private final BufferAllocator allocator;
   private final LanceFileReader lanceReader;
   private final ArrowReader arrowReader;
-  private final UnsafeProjection projection;
   private final String path;
 
-  private ColumnarBatch currentBatch;
-  private Iterator<InternalRow> rowIterator;
   private ColumnVector[] columnVectors;
+  private ColumnarBatch currentBatch;
+  private boolean nextBatchLoaded = false;
+  private boolean finished = false;
   private boolean closed = false;
 
   /**
-   * Creates a new Lance record iterator.
+   * Creates a new Lance batch iterator.
    *
-   * @param allocator Arrow buffer allocator for memory management
+   * @param allocator   Arrow buffer allocator for memory management
    * @param lanceReader Lance file reader
    * @param arrowReader Arrow reader for batch reading
-   * @param schema Spark schema for the records
-   * @param path File path (for error messages)
+   * @param path        File path (for error messages)
    */
-  public LanceRecordIterator(BufferAllocator allocator,
-                             LanceFileReader lanceReader,
-                             ArrowReader arrowReader,
-                             StructType schema,
-                             String path) {
-    this.allocator = allocator;
-    this.lanceReader = lanceReader;
-    this.arrowReader = arrowReader;
-    this.projection = UnsafeProjection.create(schema);
+  public LanceBatchIterator(BufferAllocator allocator,
+                            LanceFileReader lanceReader,
+                            ArrowReader arrowReader,
+                            String path) {
+    this.allocator = Objects.requireNonNull(allocator, "allocator must not be null");
+    this.lanceReader = Objects.requireNonNull(lanceReader, "lanceReader must not be null");
+    this.arrowReader = Objects.requireNonNull(arrowReader, "arrowReader must not be null");
     this.path = path;
   }
 
   @Override
   public boolean hasNext() {
-    // If we have records in current batch, return true
-    if (rowIterator != null && rowIterator.hasNext()) {
+    if (finished) {
+      return false;
+    }
+    if (nextBatchLoaded) {
       return true;
     }
 
-    // Release reference to previous batch (don't close — the underlying
-    // FieldVectors are reused by ArrowReader across loadNextBatch() calls,
-    // and closing would corrupt the cached LanceArrowColumnVector wrappers).
-    currentBatch = null;
-
-    // Try to load next batch
     try {
       if (arrowReader.loadNextBatch()) {
         VectorSchemaRoot root = arrowReader.getVectorSchemaRoot();
 
-        // Wrap each Arrow FieldVector in LanceArrowColumnVector for type-safe access
-        // Cache the column wrappers on first batch and reuse for all subsequent batches
+        // Create column vector wrappers once and reuse across batches
+        // (ArrowReader reuses the same VectorSchemaRoot)
         if (columnVectors == null) {
           columnVectors = root.getFieldVectors().stream()
-                  .map(LanceArrowColumnVector::new)
-                  .toArray(ColumnVector[]::new);
+              .map(LanceArrowColumnVector::new)
+              .toArray(ColumnVector[]::new);
         }
 
-        // Create ColumnarBatch and keep it alive while iterating
         currentBatch = new ColumnarBatch(columnVectors, root.getRowCount());
-        rowIterator = currentBatch.rowIterator();
-        return rowIterator.hasNext();
+        nextBatchLoaded = true;
+        return true;
       }
     } catch (IOException e) {
       throw new HoodieException("Failed to read next batch from Lance file: " + path, e);
     }
 
+    finished = true;
     return false;
   }
 
   @Override
-  public UnsafeRow next() {
+  public ColumnarBatch next() {
     if (!hasNext()) {
-      throw new IllegalStateException("No more records available");
+      throw new NoSuchElementException("No more batches available");
     }
-    InternalRow row = rowIterator.next();
-    // Convert to UnsafeRow immediately while batch is still open
-    return projection.apply(row).copy();
+    nextBatchLoaded = false;
+    return currentBatch;
   }
 
   @Override
   public void close() {
-    // Make close() idempotent - safe to call multiple times
     if (closed) {
       return;
     }
@@ -142,6 +131,7 @@ public class LanceRecordIterator implements ClosableIterator<UnsafeRow> {
 
     IOException arrowException = null;
     Exception lanceException = null;
+    Exception allocatorException = null;
 
     // Don't close currentBatch here: ColumnarBatch.close() would close the
     // underlying Arrow FieldVectors through LanceArrowColumnVector, but they
@@ -149,31 +139,38 @@ public class LanceRecordIterator implements ClosableIterator<UnsafeRow> {
     // when arrowReader.close() is called below.
     currentBatch = null;
 
-    // Close Arrow reader
-    if (arrowReader != null) {
-      try {
-        arrowReader.close();
-      } catch (IOException e) {
-        arrowException = e;
-      }
+    try {
+      arrowReader.close();
+    } catch (IOException e) {
+      arrowException = e;
     }
 
-    // Close Lance reader
-    if (lanceReader != null) {
-      try {
-        lanceReader.close();
-      } catch (Exception e) {
-        lanceException = e;
-      }
+    try {
+      lanceReader.close();
+    } catch (Exception e) {
+      lanceException = e;
     }
 
-    // Always close allocator
-    if (allocator != null) {
+    try {
       allocator.close();
+    } catch (Exception e) {
+      allocatorException = e;
     }
 
-    // Throw any exceptions that occurred
+    // Propagate exceptions, attaching earlier ones as suppressed so nothing is silently lost.
+    if (allocatorException != null) {
+      if (arrowException != null) {
+        allocatorException.addSuppressed(arrowException);
+      }
+      if (lanceException != null) {
+        allocatorException.addSuppressed(lanceException);
+      }
+      throw new HoodieException("Failed to close Arrow allocator", allocatorException);
+    }
     if (arrowException != null) {
+      if (lanceException != null) {
+        arrowException.addSuppressed(lanceException);
+      }
       throw new HoodieIOException("Failed to close Arrow reader", arrowException);
     }
     if (lanceException != null) {
