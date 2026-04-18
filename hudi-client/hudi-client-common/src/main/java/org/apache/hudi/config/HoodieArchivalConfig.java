@@ -114,6 +114,13 @@ public class HoodieArchivalConfig extends HoodieConfig {
       .markAdvanced()
       .withDocumentation("Number of timeline manifest versions to retain.");
 
+  public static final ConfigProperty<Boolean> BLOCK_ARCHIVAL_ON_LATEST_CLEAN_ECTR = ConfigProperty
+      .key("hoodie.archive.block.on.latest.clean.ectr")
+      .defaultValue(false)
+      .markAdvanced()
+      .sinceVersion("1.2.0")
+      .withDocumentation("If enabled, archival will block on latest ECTR from last known clean");
+
   /**
    * @deprecated Use {@link #MAX_COMMITS_TO_KEEP} and its methods instead
    */
@@ -202,6 +209,11 @@ public class HoodieArchivalConfig extends HoodieConfig {
 
     public Builder withArchiveBeyondSavepoint(boolean archiveBeyondSavepoint) {
       archivalConfig.setValue(ARCHIVE_BEYOND_SAVEPOINT, String.valueOf(archiveBeyondSavepoint));
+      return this;
+    }
+
+    public Builder withBlockArchivalOnCleanECTR(boolean blockArchivalOnCleanECTR) {
+      archivalConfig.setValue(BLOCK_ARCHIVAL_ON_LATEST_CLEAN_ECTR, String.valueOf(blockArchivalOnCleanECTR));
       return this;
     }
 
