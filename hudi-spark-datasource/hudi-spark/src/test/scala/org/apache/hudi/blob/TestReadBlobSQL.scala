@@ -20,6 +20,7 @@
 package org.apache.hudi.blob
 
 import org.apache.hudi.blob.BlobTestHelpers._
+import org.apache.hudi.common.schema.HoodieSchema
 import org.apache.hudi.exception.HoodieIOException
 import org.apache.hudi.testutils.HoodieClientTestBase
 
@@ -43,6 +44,64 @@ import java.util.Collections
  * </ul>
  */
 class TestReadBlobSQL extends HoodieClientTestBase {
+
+  @Test
+  def testReadOutOfLineBlobOnHudiBackedTable(): Unit = {
+    // Verifies read_blob()'s logical plan is task-serializable over a
+    // HoodieFileIndex-backed relation (DataFrame write path).
+    val extFile = createTestFile(tempDir, "basic.bin", 10000)
+    val tablePath = s"$tempDir/hudi_blob_table"
+
+    val rawDf = sparkSession.createDataFrame(Seq(
+        (1, "rec1", extFile, 0L, 100L),
+        (2, "rec2", extFile, 100L, 100L),
+        (3, "rec3", extFile, 200L, 100L)
+      )).toDF("id", "name", "external_path", "offset", "length")
+      .withColumn("file_info",
+        blobStructCol("file_info", col("external_path"), col("offset"),
+          col("length")))
+      .select("id", "name", "file_info")
+
+    // Coerce to the canonical BlobType schema. blobStructCol produces a
+    // non-null reference struct, but HoodieSparkSchemaConverters
+    // .validateBlobStructure rejects that on write — it demands the
+    // reference field be nullable. Rebuild the DataFrame on its RDD
+    // against the canonical shape so .save() doesn't fail early.
+    val canonicalSchema = StructType(Seq(
+      StructField("id", IntegerType, nullable = false),
+      StructField("name", StringType, nullable = true),
+      StructField("file_info", BlobType().asInstanceOf[StructType],
+        nullable = true, blobMetadata)
+    ))
+    val df = sparkSession.createDataFrame(rawDf.rdd, canonicalSchema)
+
+    df.write.format("hudi")
+      .option("hoodie.table.name", "blob_test")
+      .option("hoodie.datasource.write.recordkey.field", "id")
+      .option("hoodie.datasource.write.operation", "bulk_insert")
+      .mode("overwrite")
+      .save(tablePath)
+
+    // Hudi read pulls HoodieFileIndex into the plan that BatchedBlobReadExec
+    // serializes to executors — the scenario the exec-node fix must handle.
+    sparkSession.read.format("hudi").load(tablePath)
+      .createOrReplaceTempView("hudi_blob_view")
+
+    val result = sparkSession.sql("""
+      SELECT id, read_blob(file_info) AS data
+      FROM hudi_blob_view
+      ORDER BY id
+    """).collect()
+
+    assertEquals(3, result.length)
+    // Verify the bytes read from the external file match the recorded offsets.
+    result.zipWithIndex.foreach { case (row, idx) =>
+      assertEquals(idx + 1, row.getInt(0))
+      val bytes = row.getAs[Array[Byte]]("data")
+      assertEquals(100, bytes.length)
+      assertBytesContent(bytes, expectedOffset = idx * 100)
+    }
+  }
 
   @Test
   def testBasicReadBlobSQL(): Unit = {
