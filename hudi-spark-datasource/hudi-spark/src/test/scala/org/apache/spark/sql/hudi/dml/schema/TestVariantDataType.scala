@@ -93,60 +93,28 @@ class TestVariantDataType extends HoodieSparkSqlTestBase {
         checkAnswer(s"select id, name, cast(v as string), ts from $tableName order by id")(
           Seq(1, "row1", "{\"new_field\":123,\"updated\":true}", 1000)
         )
+
+        // Test MergeInto: exercises both MATCHED (UPDATE SET on the Variant
+        // column) and NOT MATCHED (INSERT of a new row carrying a Variant
+        // literal).
+        spark.sql(
+          s"""
+             |merge into $tableName t
+             |using (
+             |  select 1 as id, 'row1' as name, parse_json('{"key":"v1-merged"}') as v, 2000L as ts
+             |  union all
+             |  select 3 as id, 'row3' as name, parse_json('{"key":"v3"}') as v, 2000L as ts
+             |) s
+             |on t.id = s.id
+             |when matched then update set t.v = s.v, t.ts = s.ts
+             |when not matched then insert (id, name, v, ts) values (s.id, s.name, s.v, s.ts)
+             """.stripMargin)
+
+        checkAnswer(s"select id, name, cast(v as string), ts from $tableName order by id")(
+          Seq(1, "row1", "{\"key\":\"v1-merged\"}", 2000),
+          Seq(3, "row3", "{\"key\":\"v3\"}", 2000)
+        )
       })
-    }
-  }
-
-  test("Test MergeInto preserves Variant data type through write paths") {
-    assume(HoodieSparkUtils.gteqSpark4_0, "Variant type requires Spark 4.0 or higher")
-
-    withTempDir { tmp =>
-      val tableName = generateTableName
-      spark.sql(
-        s"""
-           |create table $tableName (
-           |  id bigint,
-           |  v variant,
-           |  ts long
-           |) using hudi
-           | location '${tmp.getCanonicalPath}/$tableName'
-           | tblproperties (
-           |  type = 'cow',
-           |  primaryKey = 'id',
-           |  preCombineField = 'ts'
-           | )
-         """.stripMargin)
-
-      spark.sql(
-        s"""
-           |insert into $tableName values
-           |  (1, parse_json('{"key":"v1"}'), 1000),
-           |  (2, parse_json('{"key":"v2"}'), 1000)
-           """.stripMargin)
-
-      // MERGE exercises both MATCHED (UPDATE SET on the Variant column) and
-      // NOT MATCHED (INSERT of a new row carrying a Variant literal). The
-      // USING CTE produces Variant values without any custom metadata, so
-      // this validates that the MERGE write path handles Variant correctly
-      // without a reattach dependency.
-      spark.sql(
-        s"""
-           |merge into $tableName t
-           |using (
-           |  select 2L as id, parse_json('{"key":"v2-merged"}') as v, 2000L as ts
-           |  union all
-           |  select 3L as id, parse_json('{"key":"v3"}') as v, 2000L as ts
-           |) s
-           |on t.id = s.id
-           |when matched then update set t.v = s.v, t.ts = s.ts
-           |when not matched then insert (id, v, ts) values (s.id, s.v, s.ts)
-           """.stripMargin)
-
-      checkAnswer(s"select id, cast(v as string), ts from $tableName order by id")(
-        Seq(1L, "{\"key\":\"v1\"}", 1000L),
-        Seq(2L, "{\"key\":\"v2-merged\"}", 2000L),
-        Seq(3L, "{\"key\":\"v3\"}", 2000L)
-      )
     }
   }
 
@@ -271,6 +239,11 @@ class TestVariantDataType extends HoodieSparkSqlTestBase {
       assert(readDf.schema("variant_data").dataType.typeName == "variant",
         s"variant_data should round-trip as native VariantType, got ${readDf.schema("variant_data").dataType}")
       assert(readDf.count() == 2)
+
+      val rows = readDf.selectExpr("id", "cast(variant_data as string) as v")
+        .orderBy("id").collect()
+      assert(rows(0).getString(1) == "{\"key\":\"value1\"}")
+      assert(rows(1).getString(1) == "{\"key\":\"value2\"}")
     }
   }
 
