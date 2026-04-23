@@ -107,7 +107,7 @@ object HoodieSpark41CatalystPlanUtils extends BaseHoodieCatalystPlanUtils {
 
   override def unapplyShowIndexes(plan: LogicalPlan): Option[(LogicalPlan, Seq[Attribute])] = {
     plan match {
-      case ci@ShowIndexes(table, output) =>
+      case ci@HoodieShowIndexes(table, output) =>
         Some((table, output))
       case _ =>
         None
