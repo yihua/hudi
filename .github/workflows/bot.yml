@@ -999,7 +999,7 @@ jobs:
           - scalaProfile: 'scala-2.13'
             flinkProfile: 'flink1.20'
             sparkProfile: 'spark4.1'
-            sparkRuntime: 'spark4.1.0'
+            sparkRuntime: 'spark4.1.1'
 
     steps:
       - uses: actions/checkout@v5
@@ -1111,7 +1111,7 @@ jobs:
             flinkAvroVersion: '1.11.4'
             flinkParquetVersion: '1.13.1'
             sparkProfile: 'spark4.1'
-            sparkRuntime: 'spark4.1.0'
+            sparkRuntime: 'spark4.1.1'
     steps:
       - uses: actions/checkout@v5
       - name: Set up JDK 17
