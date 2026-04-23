@@ -97,6 +97,59 @@ class TestVariantDataType extends HoodieSparkSqlTestBase {
     }
   }
 
+  test("Test MergeInto preserves Variant data type through write paths") {
+    assume(HoodieSparkUtils.gteqSpark4_0, "Variant type requires Spark 4.0 or higher")
+
+    withTempDir { tmp =>
+      val tableName = generateTableName
+      spark.sql(
+        s"""
+           |create table $tableName (
+           |  id bigint,
+           |  v variant,
+           |  ts long
+           |) using hudi
+           | location '${tmp.getCanonicalPath}/$tableName'
+           | tblproperties (
+           |  type = 'cow',
+           |  primaryKey = 'id',
+           |  preCombineField = 'ts'
+           | )
+         """.stripMargin)
+
+      spark.sql(
+        s"""
+           |insert into $tableName values
+           |  (1, parse_json('{"key":"v1"}'), 1000),
+           |  (2, parse_json('{"key":"v2"}'), 1000)
+           """.stripMargin)
+
+      // MERGE exercises both MATCHED (UPDATE SET on the Variant column) and
+      // NOT MATCHED (INSERT of a new row carrying a Variant literal). The
+      // USING CTE produces Variant values without any custom metadata, so
+      // this validates that the MERGE write path handles Variant correctly
+      // without a reattach dependency.
+      spark.sql(
+        s"""
+           |merge into $tableName t
+           |using (
+           |  select 2L as id, parse_json('{"key":"v2-merged"}') as v, 2000L as ts
+           |  union all
+           |  select 3L as id, parse_json('{"key":"v3"}') as v, 2000L as ts
+           |) s
+           |on t.id = s.id
+           |when matched then update set t.v = s.v, t.ts = s.ts
+           |when not matched then insert (id, v, ts) values (s.id, s.v, s.ts)
+           """.stripMargin)
+
+      checkAnswer(s"select id, cast(v as string), ts from $tableName order by id")(
+        Seq(1L, "{\"key\":\"v1\"}", 1000L),
+        Seq(2L, "{\"key\":\"v2-merged\"}", 2000L),
+        Seq(3L, "{\"key\":\"v3\"}", 2000L)
+      )
+    }
+  }
+
   test("Test toHiveCompatibleSchema converts VariantType to physical struct") {
     assume(HoodieSparkUtils.gteqSpark4_0, "Variant type requires Spark 4.0 or higher")
 
@@ -182,6 +235,43 @@ class TestVariantDataType extends HoodieSparkSqlTestBase {
     // Identity/provider fields pass through unchanged.
     assert(result.identifier == table.identifier)
     assert(result.provider == table.provider)
+  }
+
+  test("Test DataFrame writer with native VariantType round-trips through the V1 save path") {
+    assume(HoodieSparkUtils.gteqSpark4_0, "Variant type requires Spark 4.0 or higher")
+
+    withTempDir { tmp =>
+      val df = spark.sql(
+        """
+          |SELECT
+          |  1L AS id,
+          |  'row1' AS name,
+          |  parse_json('{"key":"value1"}') AS variant_data,
+          |  1000L AS ts
+          |UNION ALL
+          |SELECT
+          |  2L AS id,
+          |  'row2' AS name,
+          |  parse_json('{"key":"value2"}') AS variant_data,
+          |  1000L AS ts
+          |""".stripMargin)
+
+      // Sanity: the DataFrame carries a native VariantType column, not a metadata-tagged struct.
+      assert(df.schema("variant_data").dataType.typeName == "variant",
+        s"expected native VariantType, got ${df.schema("variant_data").dataType}")
+
+      df.write.format("hudi")
+        .option("hoodie.table.name", "variant_native_df_test")
+        .option("hoodie.datasource.write.recordkey.field", "id")
+        .option("hoodie.datasource.write.precombine.field", "ts")
+        .mode(SaveMode.Overwrite)
+        .save(tmp.getCanonicalPath)
+
+      val readDf = spark.read.format("hudi").load(tmp.getCanonicalPath)
+      assert(readDf.schema("variant_data").dataType.typeName == "variant",
+        s"variant_data should round-trip as native VariantType, got ${readDf.schema("variant_data").dataType}")
+      assert(readDf.count() == 2)
+    }
   }
 
   test("Test StructType with hudi_type=VARIANT metadata is promoted to VARIANT logical type") {
