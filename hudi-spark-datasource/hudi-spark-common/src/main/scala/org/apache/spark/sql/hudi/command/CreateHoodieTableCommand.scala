@@ -19,7 +19,7 @@ package org.apache.spark.sql.hudi.command
 
 import org.apache.hudi.{DataSourceWriteOptions, SparkAdapterSupport}
 import org.apache.hudi.common.model.HoodieTableType
-import org.apache.hudi.common.schema.HoodieSchema
+import org.apache.hudi.common.schema.{HoodieSchema, HoodieSchemaType}
 import org.apache.hudi.common.table.HoodieTableConfig
 import org.apache.hudi.common.util.ConfigUtils
 import org.apache.hudi.exception.{HoodieException, HoodieValidationException}
@@ -41,7 +41,7 @@ import org.apache.spark.sql.hudi.HoodieSqlCommonUtils.{isUsingHiveCatalog, isUsi
 import org.apache.spark.sql.hudi.command.CreateHoodieTableCommand.validateTableSchema
 import org.apache.spark.sql.hudi.command.exception.HoodieAnalysisException
 import org.apache.spark.sql.internal.StaticSQLConf.SCHEMA_STRING_LENGTH_THRESHOLD
-import org.apache.spark.sql.types.{ArrayType, BinaryType, DataType, MapType, StructField, StructType}
+import org.apache.spark.sql.types.{ArrayType, BinaryType, DataType, MapType, Metadata, StructField, StructType}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
@@ -249,7 +249,13 @@ object CreateHoodieTableCommand extends SparkAdapterSupport {
 
   /**
    * Converts Spark DataTypes that Hive doesn't support to their physical representations.
-   * Currently handles VariantType (Spark 4.0+) -> `struct<metadata:binary, value:binary>`.
+   * Currently handles:
+   *   - VariantType (Spark 4.0+) -> `struct<metadata:binary, value:binary>`
+   *   - VECTOR (Hudi custom logical type, exposed in Spark as ArrayType with `hudi_type`
+   *     metadata) -> `BinaryType`, matching its on-disk fixed_len_byte_array layout
+   *     (RFC-99). Field metadata is preserved so the full logical schema is still
+   *     serialized into `spark.sql.sources.schema.*` TBLPROPERTIES by the caller.
+   *
    * Recurses into nested StructType, ArrayType, and MapType so variants embedded in
    * complex types (e.g. `STRUCT<a: VARIANT>`, `ARRAY<VARIANT>`, `MAP<STRING, VARIANT>`)
    * are also converted.
@@ -258,7 +264,8 @@ object CreateHoodieTableCommand extends SparkAdapterSupport {
     toHiveCompatibleType(schema).asInstanceOf[StructType]
   }
 
-  private def toHiveCompatibleType(dataType: DataType): DataType = dataType match {
+  private def toHiveCompatibleType(dataType: DataType,
+                                   metadata: Metadata = Metadata.empty): DataType = dataType match {
     case dt if sparkAdapter.isVariantType(dt) =>
       // Canonical field order (metadata, value) matches the Parquet spec and Iceberg convention,
       // mirroring HoodieSchema.createVariant().
@@ -266,8 +273,12 @@ object CreateHoodieTableCommand extends SparkAdapterSupport {
         StructField(HoodieSchema.Variant.VARIANT_METADATA_FIELD, BinaryType, nullable = false),
         StructField(HoodieSchema.Variant.VARIANT_VALUE_FIELD, BinaryType, nullable = false)
       ))
+    case _: ArrayType if isVectorType(metadata) =>
+      // VECTOR is exposed in Spark as ArrayType(FloatType) with hudi_type metadata.
+      // HMS must store the column as BINARY matching the on-disk fixed_len_byte_array (RFC-99).
+      BinaryType
     case st: StructType =>
-      StructType(st.fields.map(f => f.copy(dataType = toHiveCompatibleType(f.dataType))))
+      StructType(st.fields.map(f => f.copy(dataType = toHiveCompatibleType(f.dataType, f.metadata))))
     case at: ArrayType =>
       at.copy(elementType = toHiveCompatibleType(at.elementType))
     case mt: MapType =>
@@ -275,6 +286,13 @@ object CreateHoodieTableCommand extends SparkAdapterSupport {
         keyType = toHiveCompatibleType(mt.keyType),
         valueType = toHiveCompatibleType(mt.valueType))
     case other => other
+  }
+
+  /** Mirrors the detection in HoodieSparkSchemaConverters.toHoodieTypeNested. */
+  private def isVectorType(metadata: Metadata): Boolean = {
+    metadata.contains(HoodieSchema.TYPE_METADATA_FIELD) &&
+      HoodieSchema.parseTypeDescriptor(
+        metadata.getString(HoodieSchema.TYPE_METADATA_FIELD)).getType == HoodieSchemaType.VECTOR
   }
 
   // This code is forked from org.apache.spark.sql.hive.HiveExternalCatalog#tableMetaToTableProps
