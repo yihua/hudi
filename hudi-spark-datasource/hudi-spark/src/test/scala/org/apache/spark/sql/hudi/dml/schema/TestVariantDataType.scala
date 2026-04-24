@@ -37,8 +37,8 @@ class TestVariantDataType extends HoodieSparkSqlTestBase {
 
   // TODO(SPARK-4.1): Re-enable after fixing JVM SIGSEGV crash on Spark 4.1
   override protected def beforeAll(): Unit = {
-    if (HoodieSparkUtils.gteqSpark4_0) {
-      cancel("Disabled on Spark 4.x due to JVM SIGSEGV crash in variant data type tests")
+    if (HoodieSparkUtils.gteqSpark4_1) {
+      cancel("Disabled on Spark 4.1 due to JVM SIGSEGV crash in variant data type tests")
     }
     super.beforeAll()
   }

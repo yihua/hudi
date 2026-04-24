@@ -49,8 +49,8 @@ class TestCreateTable extends HoodieSparkSqlTestBase {
 
   // TODO(SPARK-4.1): Re-enable after fixing inline compaction hang on Spark 4.1
   override protected def beforeAll(): Unit = {
-    if (HoodieSparkUtils.gteqSpark4_0) {
-      cancel("Disabled on Spark 4.x due to inline compaction hang during MOR table creation")
+    if (HoodieSparkUtils.gteqSpark4_1) {
+      cancel("Disabled on Spark 4.1 due to inline compaction hang during MOR table creation")
     }
     super.beforeAll()
   }

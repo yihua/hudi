@@ -19,12 +19,13 @@
 
 package org.apache.hudi.schema
 
-import org.apache.hudi.HoodieSchemaUtils
+import org.apache.hudi.{HoodieSchemaUtils, HoodieSparkUtils}
 import org.apache.hudi.exception.HoodieException
-import org.apache.hudi.testutils.DisabledOnSpark4
 
 import org.apache.spark.sql.types._
 import org.junit.jupiter.api.Assertions.{assertEquals, assertThrows}
+import org.junit.jupiter.api.Assumptions
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
@@ -32,8 +33,13 @@ import org.junit.jupiter.params.provider.CsvSource
 /**
  * Tests for {@link HoodieSchemaUtils#getSchemaForField}
  */
-@DisabledOnSpark4
 class TestHoodieSparkSchemaUtils {
+
+  // TODO(SPARK-4.1): Re-enable after fixing HoodieSchemaException on Spark 4.1
+  @BeforeEach
+  def skipOnSpark41(): Unit = {
+    Assumptions.assumeFalse(HoodieSparkUtils.gteqSpark4_1, "Disabled on Spark 4.1")
+  }
 
   // Test schemas
   private val simpleSchema = StructType(

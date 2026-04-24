@@ -65,6 +65,7 @@ private[hudi] trait SparkVersionsSupport {
   def gteqSpark3_4: Boolean = getSparkVersion >= "3.4"
   def gteqSpark3_5: Boolean = getSparkVersion >= "3.5"
   def gteqSpark4_0: Boolean = getSparkVersion >= "4.0"
+  def gteqSpark4_1: Boolean = getSparkVersion >= "4.1"
 }
 
 object HoodieSparkUtils extends SparkAdapterSupport with SparkVersionsSupport with Logging {
