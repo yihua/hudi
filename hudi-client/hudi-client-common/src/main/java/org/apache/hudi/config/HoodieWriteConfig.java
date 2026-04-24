@@ -1877,7 +1877,7 @@ public class HoodieWriteConfig extends HoodieConfig {
     return getBoolean(HoodieCleanConfig.AUTO_CLEAN);
   }
 
-  public long getIntervalHoursToCreateEmptyClean() {
+  public long getIntervalToCreateEmptyCleanHours() {
     return getLong(HoodieCleanConfig.INTERVAL_TO_CREATE_EMPTY_CLEAN_HOURS);
   }
 

@@ -249,7 +249,7 @@ public class CleanPlanActionExecutor<T, I, K, O> extends BaseActionExecutor<T, I
     // Note: For a dataset with incremental clean enabled, that does not receive any updates, cleaner plan always comes
     // with an empty list of files to be cleaned.  CleanActionExecutor would never be invoked for this dataset.
     // To avoid fullscan on the dataset with every ingestion run, empty clean commit is created here.
-    if (cleanPlanOpt.isEmpty() && config.incrementalCleanerModeEnabled() && cleanerPlan.getEarliestInstantToRetain() != null && config.getIntervalHoursToCreateEmptyClean() > 0) {
+    if (cleanPlanOpt.isEmpty() && config.incrementalCleanerModeEnabled() && cleanerPlan.getEarliestInstantToRetain() != null && config.getIntervalToCreateEmptyCleanHours() > 0) {
       // Only create an empty clean commit if earliestInstantToRetain is present in the plan
       boolean eligibleForEmptyCleanCommit = true;
 
@@ -260,7 +260,7 @@ public class CleanPlanActionExecutor<T, I, K, O> extends BaseActionExecutor<T, I
           ZonedDateTime latestDateTime = ZonedDateTime.ofInstant(java.time.Instant.now(), table.getMetaClient().getTableConfig().getTimelineTimezone().getZoneId());
           long currentCleanTimeMs = latestDateTime.toInstant().toEpochMilli();
           long lastCleanTimeMs = HoodieInstantTimeGenerator.parseDateFromInstantTime(lastCleanInstant.get().requestedTime()).toInstant().toEpochMilli();
-          eligibleForEmptyCleanCommit = currentCleanTimeMs - lastCleanTimeMs > (TimeUnit.HOURS.toMillis(config.getIntervalHoursToCreateEmptyClean()));
+          eligibleForEmptyCleanCommit = currentCleanTimeMs - lastCleanTimeMs > (TimeUnit.HOURS.toMillis(config.getIntervalToCreateEmptyCleanHours()));
         } catch (ParseException e) {
           log.error("Unable to parse last clean commit time", e);
           throw new HoodieException("Unable to parse last clean commit time", e);
