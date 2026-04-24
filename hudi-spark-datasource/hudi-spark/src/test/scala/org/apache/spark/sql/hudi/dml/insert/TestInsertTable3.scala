@@ -27,9 +27,9 @@ import org.apache.hudi.execution.bulkinsert.BulkInsertSortMode
 import org.apache.spark.sql.hudi.common.HoodieSparkSqlTestBase
 import org.apache.spark.sql.hudi.common.HoodieSparkSqlTestBase.getLastCommitMetadata
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.scalatest.Ignore
+import org.scalatest.DoNotDiscover
 
-@Ignore
+@DoNotDiscover
 class TestInsertTable3 extends HoodieSparkSqlTestBase {
   test("Test Insert Into With Catalog Identifier") {
     Seq("hudi", "parquet").foreach { format =>
