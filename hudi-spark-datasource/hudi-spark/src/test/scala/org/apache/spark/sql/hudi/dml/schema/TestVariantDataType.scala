@@ -93,6 +93,27 @@ class TestVariantDataType extends HoodieSparkSqlTestBase {
         checkAnswer(s"select id, name, cast(v as string), ts from $tableName order by id")(
           Seq(1, "row1", "{\"new_field\":123,\"updated\":true}", 1000)
         )
+
+        // Test MergeInto: exercises both MATCHED (UPDATE SET on the Variant
+        // column) and NOT MATCHED (INSERT of a new row carrying a Variant
+        // literal).
+        spark.sql(
+          s"""
+             |merge into $tableName t
+             |using (
+             |  select 1 as id, 'row1' as name, parse_json('{"key":"v1-merged"}') as v, 2000L as ts
+             |  union all
+             |  select 3 as id, 'row3' as name, parse_json('{"key":"v3"}') as v, 2000L as ts
+             |) s
+             |on t.id = s.id
+             |when matched then update set t.v = s.v, t.ts = s.ts
+             |when not matched then insert (id, name, v, ts) values (s.id, s.name, s.v, s.ts)
+             """.stripMargin)
+
+        checkAnswer(s"select id, name, cast(v as string), ts from $tableName order by id")(
+          Seq(1, "row1", "{\"key\":\"v1-merged\"}", 2000),
+          Seq(3, "row3", "{\"key\":\"v3\"}", 2000)
+        )
       })
     }
   }
@@ -182,6 +203,48 @@ class TestVariantDataType extends HoodieSparkSqlTestBase {
     // Identity/provider fields pass through unchanged.
     assert(result.identifier == table.identifier)
     assert(result.provider == table.provider)
+  }
+
+  test("Test DataFrame writer with native VariantType round-trips through the V1 save path") {
+    assume(HoodieSparkUtils.gteqSpark4_0, "Variant type requires Spark 4.0 or higher")
+
+    withTempDir { tmp =>
+      val df = spark.sql(
+        """
+          |SELECT
+          |  1L AS id,
+          |  'row1' AS name,
+          |  parse_json('{"key":"value1"}') AS variant_data,
+          |  1000L AS ts
+          |UNION ALL
+          |SELECT
+          |  2L AS id,
+          |  'row2' AS name,
+          |  parse_json('{"key":"value2"}') AS variant_data,
+          |  1000L AS ts
+          |""".stripMargin)
+
+      // Sanity: the DataFrame carries a native VariantType column, not a metadata-tagged struct.
+      assert(df.schema("variant_data").dataType.typeName == "variant",
+        s"expected native VariantType, got ${df.schema("variant_data").dataType}")
+
+      df.write.format("hudi")
+        .option("hoodie.table.name", "variant_native_df_test")
+        .option("hoodie.datasource.write.recordkey.field", "id")
+        .option("hoodie.datasource.write.precombine.field", "ts")
+        .mode(SaveMode.Overwrite)
+        .save(tmp.getCanonicalPath)
+
+      val readDf = spark.read.format("hudi").load(tmp.getCanonicalPath)
+      assert(readDf.schema("variant_data").dataType.typeName == "variant",
+        s"variant_data should round-trip as native VariantType, got ${readDf.schema("variant_data").dataType}")
+      assert(readDf.count() == 2)
+
+      val rows = readDf.selectExpr("id", "cast(variant_data as string) as v")
+        .orderBy("id").collect()
+      assert(rows(0).getString(1) == "{\"key\":\"value1\"}")
+      assert(rows(1).getString(1) == "{\"key\":\"value2\"}")
+    }
   }
 
   test("Test StructType with hudi_type=VARIANT metadata is promoted to VARIANT logical type") {
