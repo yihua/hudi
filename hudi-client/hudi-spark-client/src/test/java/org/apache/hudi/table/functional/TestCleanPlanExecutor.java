@@ -985,6 +985,13 @@ public class TestCleanPlanExecutor extends HoodieCleanerTestBase {
       String firstEarliestCommitToRetain = firstCleanMetadata.getEarliestCommitToRetain();
       writeClient.close();
 
+      // Add a new commit so that needsCleaning() passes for the second clean attempt
+      String file4P0C3 = UUID.randomUUID().toString();
+      String fourthCommitTs = HoodieInstantTimeGenerator.formatDate(Date.from(commitDateTime.minusHours(1).toInstant()));
+      commitToTestTable(testTable, fourthCommitTs, p0, file4P0C3);
+      testTable = tearDownTestTableAndReinit(testTable, config);
+      metaClient = HoodieTableMetaClient.reload(metaClient);
+
       // Now increase retention to 72 hours, which would make ECTR go backwards to firstCommitTs (70h ago)
       HoodieWriteConfig newConfig = HoodieWriteConfig.newBuilder().withPath(basePath)
           .withMetadataConfig(HoodieMetadataConfig.newBuilder().enable(false).build())
