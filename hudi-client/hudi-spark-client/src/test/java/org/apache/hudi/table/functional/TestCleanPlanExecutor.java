@@ -833,7 +833,7 @@ public class TestCleanPlanExecutor extends HoodieCleanerTestBase {
             .withFailedWritesCleaningPolicy(HoodieFailedWritesCleaningPolicy.EAGER)
             .withCleanBootstrapBaseFileEnabled(enableBootstrapSourceClean)
             .withCleanerPolicy(HoodieCleaningPolicy.KEEP_LATEST_BY_HOURS).cleanerNumHoursRetained(2)
-            .withMaxIntervalToCreateEmptyCleanHours(1)
+            .withIntervalToCreateEmptyCleanHours(1)
             .build())
         .build();
 
@@ -939,7 +939,7 @@ public class TestCleanPlanExecutor extends HoodieCleanerTestBase {
             .withFailedWritesCleaningPolicy(HoodieFailedWritesCleaningPolicy.EAGER)
             .withCleanBootstrapBaseFileEnabled(false)
             .withCleanerPolicy(HoodieCleaningPolicy.KEEP_LATEST_BY_HOURS).cleanerNumHoursRetained(24)
-            .withMaxIntervalToCreateEmptyCleanHours(1)
+            .withIntervalToCreateEmptyCleanHours(1)
             .build())
         .build();
 
@@ -990,7 +990,7 @@ public class TestCleanPlanExecutor extends HoodieCleanerTestBase {
               .withFailedWritesCleaningPolicy(HoodieFailedWritesCleaningPolicy.EAGER)
               .withCleanBootstrapBaseFileEnabled(false)
               .withCleanerPolicy(HoodieCleaningPolicy.KEEP_LATEST_BY_HOURS).cleanerNumHoursRetained(12)
-              .withMaxIntervalToCreateEmptyCleanHours(1)
+              .withIntervalToCreateEmptyCleanHours(1)
               .build())
           .build();
 
