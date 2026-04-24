@@ -2806,6 +2806,8 @@
         <spark4.version>${spark41.version}</spark4.version>
         <spark.version>${spark4.version}</spark.version>
         <sparkbundle.version>4.1</sparkbundle.version>
+        <!-- Spark 4.1 + Scala 2.13 needs more heap than Spark 3.x + Scala 2.12 -->
+        <argLine>-Xmx4g -Xms512m -XX:+UseParallelGC --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.invoke=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.net=ALL-UNNAMED --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.util.concurrent=ALL-UNNAMED --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/sun.nio.cs=ALL-UNNAMED --add-opens=java.base/sun.security.action=ALL-UNNAMED --add-opens=java.base/sun.util.calendar=ALL-UNNAMED --add-opens=java.security.jgss/sun.security.krb5=ALL-UNNAMED -Djol.magicFieldOffset=true -XX:-OmitStackTraceInFastThrow</argLine>
         <scala13.version>2.13.17</scala13.version>
         <scala.version>${scala13.version}</scala.version>
         <scala.binary.version>2.13</scala.binary.version>
