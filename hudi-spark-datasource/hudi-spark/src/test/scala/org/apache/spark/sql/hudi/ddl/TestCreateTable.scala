@@ -48,11 +48,12 @@ import scala.collection.JavaConverters._
 class TestCreateTable extends HoodieSparkSqlTestBase {
 
   // TODO(SPARK-4.1): Re-enable after fixing inline compaction hang on Spark 4.1
-  override protected def beforeAll(): Unit = {
+  override def withFixture(test: NoArgTest): Outcome = {
     if (HoodieSparkUtils.gteqSpark4_1) {
-      cancel("Disabled on Spark 4.1 due to inline compaction hang during MOR table creation")
+      Canceled("Disabled on Spark 4.1 due to inline compaction hang during MOR table creation")
+    } else {
+      super.withFixture(test)
     }
-    super.beforeAll()
   }
 
   test("Test Create Managed Hoodie Table") {
