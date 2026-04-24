@@ -931,14 +931,17 @@ public class TestCleanPlanExecutor extends HoodieCleanerTestBase {
 
   @Test
   void testEmptyCleanDoesNotGoBackwardsOnConfigChange() throws Exception {
-    // Test that earliestCommitToRetain never goes backwards when user changes cleaner config
+    // Test that earliestCommitToRetain never goes backwards when user increases retention.
+    // Scenario: user starts with short retention (12h), then increases to long retention (72h).
+    // The longer retention would compute an older ECTR, but the code should adjust it to
+    // the previous ECTR and still create the empty clean.
     HoodieWriteConfig config = HoodieWriteConfig.newBuilder().withPath(basePath)
         .withMetadataConfig(HoodieMetadataConfig.newBuilder().enable(false).build())
         .withCleanConfig(HoodieCleanConfig.newBuilder()
             .withIncrementalCleaningMode(true)
             .withFailedWritesCleaningPolicy(HoodieFailedWritesCleaningPolicy.EAGER)
             .withCleanBootstrapBaseFileEnabled(false)
-            .withCleanerPolicy(HoodieCleaningPolicy.KEEP_LATEST_BY_HOURS).cleanerNumHoursRetained(24)
+            .withCleanerPolicy(HoodieCleaningPolicy.KEEP_LATEST_BY_HOURS).cleanerNumHoursRetained(12)
             .withIntervalToCreateEmptyCleanHours(1)
             .build())
         .build();
@@ -949,27 +952,27 @@ public class TestCleanPlanExecutor extends HoodieCleanerTestBase {
       Instant instant = Instant.now();
       ZonedDateTime commitDateTime = ZonedDateTime.ofInstant(instant, metaClient.getTableConfig().getTimelineTimezone().getZoneId());
 
-      // Create first commit 48 hours ago
+      // Create first commit 70 hours ago
       String file1P0C0 = UUID.randomUUID().toString();
-      String firstCommitTs = HoodieInstantTimeGenerator.formatDate(Date.from(commitDateTime.minusHours(48).toInstant()));
+      String firstCommitTs = HoodieInstantTimeGenerator.formatDate(Date.from(commitDateTime.minusHours(70).toInstant()));
       commitToTestTable(testTable, firstCommitTs, p0, file1P0C0);
       testTable = tearDownTestTableAndReinit(testTable, config);
 
-      // Create second commit 36 hours ago
+      // Create second commit 48 hours ago
       String file2P0C1 = UUID.randomUUID().toString();
-      String secondCommitTs = HoodieInstantTimeGenerator.formatDate(Date.from(commitDateTime.minusHours(36).toInstant()));
+      String secondCommitTs = HoodieInstantTimeGenerator.formatDate(Date.from(commitDateTime.minusHours(48).toInstant()));
       commitToTestTable(testTable, secondCommitTs, p0, file2P0C1);
       testTable = tearDownTestTableAndReinit(testTable, config);
       metaClient = HoodieTableMetaClient.reload(metaClient);
 
-      // Create third commit 12 hours ago
+      // Create third commit 6 hours ago (well within 12h retention window)
       String file3P0C2 = UUID.randomUUID().toString();
-      String thirdCommitTs = HoodieInstantTimeGenerator.formatDate(Date.from(commitDateTime.minusHours(12).toInstant()));
+      String thirdCommitTs = HoodieInstantTimeGenerator.formatDate(Date.from(commitDateTime.minusHours(6).toInstant()));
       commitToTestTable(testTable, thirdCommitTs, p0, file3P0C2);
       testTable = tearDownTestTableAndReinit(testTable, config);
       metaClient = HoodieTableMetaClient.reload(metaClient);
 
-      // Run first empty clean 2 hours ago - should retain commits from 26 hours ago (24h retention + 2h safety)
+      // Run first empty clean with 12h retention - ECTR should be thirdCommitTs (6h ago)
       String firstCleanInstant = HoodieInstantTimeGenerator.formatDate(Date.from(commitDateTime.minusHours(2).toInstant()));
       SparkRDDWriteClient<?> writeClient = getHoodieWriteClient(config);
       List<HoodieCleanStat> hoodieCleanStatsOne = runCleaner(config, false, false, writeClient, firstCleanInstant);
@@ -982,34 +985,34 @@ public class TestCleanPlanExecutor extends HoodieCleanerTestBase {
       String firstEarliestCommitToRetain = firstCleanMetadata.getEarliestCommitToRetain();
       writeClient.close();
 
-      // Now change config to retain only 12 hours (which would normally make earliestCommitToRetain go backwards)
+      // Now increase retention to 72 hours, which would make ECTR go backwards to firstCommitTs (70h ago)
       HoodieWriteConfig newConfig = HoodieWriteConfig.newBuilder().withPath(basePath)
           .withMetadataConfig(HoodieMetadataConfig.newBuilder().enable(false).build())
           .withCleanConfig(HoodieCleanConfig.newBuilder()
               .withIncrementalCleaningMode(true)
               .withFailedWritesCleaningPolicy(HoodieFailedWritesCleaningPolicy.EAGER)
               .withCleanBootstrapBaseFileEnabled(false)
-              .withCleanerPolicy(HoodieCleaningPolicy.KEEP_LATEST_BY_HOURS).cleanerNumHoursRetained(12)
+              .withCleanerPolicy(HoodieCleaningPolicy.KEEP_LATEST_BY_HOURS).cleanerNumHoursRetained(72)
               .withIntervalToCreateEmptyCleanHours(1)
               .build())
           .build();
 
-      // Try to create another empty clean with the new config 61 minutes after first clean
+      // Create second empty clean 61 minutes after first clean
       String secondCleanInstant = HoodieInstantTimeGenerator.formatDate(Date.from(
           HoodieInstantTimeGenerator.parseDateFromInstantTime(firstCleanInstant).toInstant().plus(61, ChronoUnit.MINUTES)));
 
       writeClient = getHoodieWriteClient(newConfig);
       List<HoodieCleanStat> hoodieCleanStatsTwo = runCleaner(newConfig, false, false, writeClient, secondCleanInstant);
 
-      // The clean should be skipped because earliestCommitToRetain would go backwards
+      // The empty clean should still be created, but with ECTR adjusted to the previous value
       metaClient = HoodieTableMetaClient.reload(metaClient);
       HoodieTimeline cleanTimeline = metaClient.getActiveTimeline().getCleanerTimeline().filterCompletedInstants();
-      assertEquals(1, cleanTimeline.countInstants(), "Second clean should be skipped to prevent earliestCommitToRetain from going backwards");
+      assertEquals(2, cleanTimeline.countInstants(), "Second empty clean should be created with adjusted ECTR");
 
-      // Verify earliestCommitToRetain did not change
-      HoodieCleanMetadata latestCleanMetadata = CleanerUtils.getCleanerMetadata(metaClient, cleanTimeline.lastInstant().get());
-      assertEquals(firstEarliestCommitToRetain, latestCleanMetadata.getEarliestCommitToRetain(),
-          "earliestCommitToRetain should not go backwards");
+      // Verify earliestCommitToRetain did not go backwards
+      HoodieCleanMetadata secondCleanMetadata = CleanerUtils.getCleanerMetadata(metaClient, cleanTimeline.lastInstant().get());
+      assertEquals(firstEarliestCommitToRetain, secondCleanMetadata.getEarliestCommitToRetain(),
+          "earliestCommitToRetain should be adjusted to previous value, not go backwards");
       writeClient.close();
     } finally {
       testTable.close();
