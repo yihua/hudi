@@ -36,9 +36,9 @@ import org.apache.spark.sql.types.{ArrayType, BinaryType, DataType, LongType, Ma
 class TestVariantDataType extends HoodieSparkSqlTestBase {
 
   // TODO(SPARK-4.1): Re-enable after fixing JVM SIGSEGV crash on Spark 4.1
-  override def withFixture(test: NoArgTest): Outcome = {
+  override def withFixture(test: NoArgTest): org.scalatest.Outcome = {
     if (HoodieSparkUtils.gteqSpark4_1) {
-      Canceled("Disabled on Spark 4.1 due to JVM SIGSEGV crash in variant data type tests")
+      org.scalatest.Canceled("Disabled on Spark 4.1 due to JVM SIGSEGV crash in variant data type tests")
     } else {
       super.withFixture(test)
     }

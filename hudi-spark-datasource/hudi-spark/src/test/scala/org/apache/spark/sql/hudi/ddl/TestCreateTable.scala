@@ -48,9 +48,9 @@ import scala.collection.JavaConverters._
 class TestCreateTable extends HoodieSparkSqlTestBase {
 
   // TODO(SPARK-4.1): Re-enable after fixing inline compaction hang on Spark 4.1
-  override def withFixture(test: NoArgTest): Outcome = {
+  override def withFixture(test: NoArgTest): org.scalatest.Outcome = {
     if (HoodieSparkUtils.gteqSpark4_1) {
-      Canceled("Disabled on Spark 4.1 due to inline compaction hang during MOR table creation")
+      org.scalatest.Canceled("Disabled on Spark 4.1 due to inline compaction hang during MOR table creation")
     } else {
       super.withFixture(test)
     }
