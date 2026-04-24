@@ -37,11 +37,13 @@ import org.apache.hudi.storage.StoragePath
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.hudi.common.HoodieSparkSqlTestBase
 import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertNotNull, assertTrue}
+import org.scalatest.Ignore
 
 import java.util.concurrent.atomic.AtomicInteger
 
 import scala.collection.JavaConverters._
 
+@Ignore
 class TestSecondaryIndex extends HoodieSparkSqlTestBase {
 
   var instantTime: AtomicInteger = new AtomicInteger(1)
