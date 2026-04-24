@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.hudi.ddl
 
-import org.apache.hudi.DataSourceWriteOptions
+import org.apache.hudi.{DataSourceWriteOptions, HoodieSparkUtils}
 import org.apache.hudi.DataSourceWriteOptions._
 import org.apache.hudi.common.model.{HoodieRecord, HoodieTableType, WriteOperationType}
 import org.apache.hudi.common.schema.{HoodieSchema, HoodieSchemaType}
@@ -45,8 +45,15 @@ import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertNull, 
 
 import scala.collection.JavaConverters._
 
-// TODO(SPARK-4.1): Re-enable after fixing Spark 4.1 type alias parse errors (DOUBLE, FLOAT, INT8, BOOLEAN)
-abstract class TestCreateTable extends HoodieSparkSqlTestBase {
+class TestCreateTable extends HoodieSparkSqlTestBase {
+
+  // TODO(SPARK-4.1): Re-enable after fixing inline compaction hang on Spark 4.1
+  override protected def beforeAll(): Unit = {
+    if (HoodieSparkUtils.gteqSpark4_0) {
+      cancel("Disabled on Spark 4.x due to inline compaction hang during MOR table creation")
+    }
+    super.beforeAll()
+  }
 
   test("Test Create Managed Hoodie Table") {
     val databaseName = "hudi_database"
