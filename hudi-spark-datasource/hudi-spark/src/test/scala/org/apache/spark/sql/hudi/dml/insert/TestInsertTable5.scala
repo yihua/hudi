@@ -25,8 +25,8 @@ import org.apache.hudi.HoodieSparkUtils
 import org.apache.spark.sql.hudi.common.HoodieSparkSqlTestBase
 import org.scalatest.DoNotDiscover
 
-// TODO(SPARK-4.1): Re-enable after fixing Spark 4.1 parquet read failures
-abstract class TestInsertTable5 extends HoodieSparkSqlTestBase {
+
+class TestInsertTable5 extends HoodieSparkSqlTestBase {
   test("Test insert into with special cols") {
     withTempDir { tmp =>
       val targetTableA = generateTableName

@@ -65,8 +65,8 @@ import java.util.stream.Collectors
 
 import scala.collection.JavaConverters
 
-// TODO(SPARK-4.1): Re-enable after fixing Spark 4.1 expression index bootstrap failures
-abstract class TestExpressionIndex extends HoodieSparkSqlTestBase with SparkAdapterSupport {
+
+class TestExpressionIndex extends HoodieSparkSqlTestBase with SparkAdapterSupport {
 
   override protected def beforeAll(): Unit = {
     spark.sql("set hoodie.metadata.index.column.stats.enable=false")

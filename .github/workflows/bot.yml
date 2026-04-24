@@ -791,7 +791,7 @@ jobs:
         uses: actions/setup-java@v5
         with:
           java-version: '17'
-          distribution: 'temurin'
+          distribution: 'corretto'
           architecture: x64
           cache: maven
       - name: Build Project

@@ -29,8 +29,8 @@ import org.apache.spark.sql.hudi.common.HoodieSparkSqlTestBase.getLastCommitMeta
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.scalatest.DoNotDiscover
 
-// TODO(SPARK-4.1): Re-enable after fixing Spark 4.1 bucket index bulk insert failures
-abstract class TestInsertTable3 extends HoodieSparkSqlTestBase {
+
+class TestInsertTable3 extends HoodieSparkSqlTestBase {
   test("Test Insert Into With Catalog Identifier") {
     Seq("hudi", "parquet").foreach { format =>
       withTempDir { tmp =>
