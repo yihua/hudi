@@ -451,7 +451,7 @@ public class HoodieCleanConfig extends HoodieConfig {
       }
       long emptyCleanIntervalHours = cleanConfig.getLong(INTERVAL_TO_CREATE_EMPTY_CLEAN_HOURS);
       if (emptyCleanIntervalHours == 0 || emptyCleanIntervalHours < -1) {
-        throw new IllegalArgumentException(INTERVAL_TO_CREATE_EMPTY_CLEAN_HOURS.key() + " must be >= 1, but was " + emptyCleanIntervalHours);
+        throw new IllegalArgumentException(INTERVAL_TO_CREATE_EMPTY_CLEAN_HOURS.key() + " must be -1 (disabled) or >= 1, but was " + emptyCleanIntervalHours);
       }
       return cleanConfig;
     }
