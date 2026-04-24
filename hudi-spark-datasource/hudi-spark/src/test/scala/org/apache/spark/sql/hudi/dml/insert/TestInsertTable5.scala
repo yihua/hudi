@@ -23,7 +23,9 @@ import org.apache.hudi.DataSourceWriteOptions.{DROP_INSERT_DUP_POLICY, FAIL_INSE
 import org.apache.hudi.HoodieSparkUtils
 
 import org.apache.spark.sql.hudi.common.HoodieSparkSqlTestBase
+import org.scalatest.DoNotDiscover
 
+@DoNotDiscover
 class TestInsertTable5 extends HoodieSparkSqlTestBase {
   test("Test insert into with special cols") {
     withTempDir { tmp =>
