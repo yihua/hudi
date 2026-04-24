@@ -52,7 +52,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Tests {@link InLineFileSystem}.
  */
-@Disabled("Disabled due to pre-existing failures on upstream master")
+
+@Disabled("Pre-existing failure: testFileSystemApis fails on all Spark versions")
 public class TestInLineFileSystem {
   private Configuration conf;
   private List<Path> listOfGeneratedPaths;

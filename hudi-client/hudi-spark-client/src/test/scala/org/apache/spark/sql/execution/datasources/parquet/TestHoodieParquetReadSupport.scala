@@ -17,11 +17,12 @@
 
 package org.apache.spark.sql.execution.datasources.parquet
 
+import org.apache.hudi.testutils.DisabledOnSpark4
 import org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName
 import org.apache.parquet.schema.Types
-import org.junit.jupiter.api.{Assertions, Disabled, Test}
+import org.junit.jupiter.api.{Assertions, Test}
 
-@Disabled("Disabled due to pre-existing testSchemaTrimming_atLeastOneFieldMatches failures")
+@DisabledOnSpark4
 class TestHoodieParquetReadSupport {
 
   /**

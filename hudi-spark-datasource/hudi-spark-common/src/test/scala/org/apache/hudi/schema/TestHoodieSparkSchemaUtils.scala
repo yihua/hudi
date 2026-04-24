@@ -21,10 +21,10 @@ package org.apache.hudi.schema
 
 import org.apache.hudi.HoodieSchemaUtils
 import org.apache.hudi.exception.HoodieException
+import org.apache.hudi.testutils.DisabledOnSpark4
 
 import org.apache.spark.sql.types._
 import org.junit.jupiter.api.Assertions.{assertEquals, assertThrows}
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
@@ -32,7 +32,7 @@ import org.junit.jupiter.params.provider.CsvSource
 /**
  * Tests for {@link HoodieSchemaUtils#getSchemaForField}
  */
-@Disabled("Disabled due to pre-existing HoodieSchemaException failures on all Spark versions")
+@DisabledOnSpark4
 class TestHoodieSparkSchemaUtils {
 
   // Test schemas

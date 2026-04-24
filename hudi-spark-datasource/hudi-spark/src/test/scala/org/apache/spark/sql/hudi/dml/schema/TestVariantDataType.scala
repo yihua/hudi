@@ -35,6 +35,14 @@ import org.apache.spark.sql.types.{ArrayType, BinaryType, DataType, LongType, Ma
 
 class TestVariantDataType extends HoodieSparkSqlTestBase {
 
+  // TODO(SPARK-4.1): Re-enable after fixing JVM SIGSEGV crash on Spark 4.1
+  override protected def beforeAll(): Unit = {
+    if (HoodieSparkUtils.gteqSpark4_0) {
+      cancel("Disabled on Spark 4.x due to JVM SIGSEGV crash in variant data type tests")
+    }
+    super.beforeAll()
+  }
+
   test(s"Test Table with Variant Data Type") {
     // Variant type is only supported in Spark 4.0+
     assume(HoodieSparkUtils.gteqSpark4_0, "Variant type requires Spark 4.0 or higher")
