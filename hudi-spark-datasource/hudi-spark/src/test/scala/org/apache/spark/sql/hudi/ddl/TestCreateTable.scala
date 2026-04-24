@@ -42,15 +42,16 @@ import org.apache.spark.sql.hudi.common.HoodieSparkSqlTestBase
 import org.apache.spark.sql.hudi.common.HoodieSparkSqlTestBase.{disableComplexKeygenValidation, getLastCommitMetadata}
 import org.apache.spark.sql.types._
 import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertNull, assertTrue}
+import org.scalatest.{Canceled, Outcome}
 
 import scala.collection.JavaConverters._
 
 class TestCreateTable extends HoodieSparkSqlTestBase {
 
   // TODO(SPARK-4.1): Re-enable after fixing inline compaction hang on Spark 4.1
-  override def withFixture(test: NoArgTest): org.scalatest.Outcome = {
+  override def withFixture(test: NoArgTest): Outcome = {
     if (HoodieSparkUtils.gteqSpark4_1) {
-      org.scalatest.Canceled("Disabled on Spark 4.1 due to inline compaction hang during MOR table creation")
+      Canceled("Disabled on Spark 4.1 due to inline compaction hang during MOR table creation")
     } else {
       super.withFixture(test)
     }
