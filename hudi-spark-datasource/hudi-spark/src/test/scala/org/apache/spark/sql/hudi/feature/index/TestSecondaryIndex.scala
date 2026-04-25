@@ -37,7 +37,6 @@ import org.apache.hudi.storage.StoragePath
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.hudi.common.HoodieSparkSqlTestBase
 import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertNotNull, assertTrue}
-import org.scalatest.DoNotDiscover
 
 import java.util.concurrent.atomic.AtomicInteger
 

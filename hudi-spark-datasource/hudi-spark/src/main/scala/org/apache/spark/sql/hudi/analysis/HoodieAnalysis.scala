@@ -61,11 +61,11 @@ object HoodieAnalysis extends SparkAdapterSupport {
       "org.apache.spark.sql.hudi.analysis.HoodieSpark41DataSourceV2ToV1Fallback"
     } else if (HoodieSparkUtils.isSpark4_0) {
       "org.apache.spark.sql.hudi.analysis.HoodieSpark40DataSourceV2ToV1Fallback"
-    } else if (HoodieSparkUtils.isSpark3_5)
+    } else if (HoodieSparkUtils.isSpark3_5) {
       "org.apache.spark.sql.hudi.analysis.HoodieSpark35DataSourceV2ToV1Fallback"
-    else if (HoodieSparkUtils.isSpark3_4)
+    } else if (HoodieSparkUtils.isSpark3_4) {
       "org.apache.spark.sql.hudi.analysis.HoodieSpark34DataSourceV2ToV1Fallback"
-    else {
+    } else {
       // Spark 3.3.x
       "org.apache.spark.sql.hudi.analysis.HoodieSpark33DataSourceV2ToV1Fallback"
     }

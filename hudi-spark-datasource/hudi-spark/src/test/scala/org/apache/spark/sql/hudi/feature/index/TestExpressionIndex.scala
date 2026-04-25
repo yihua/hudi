@@ -59,7 +59,6 @@ import org.apache.spark.sql.hudi.command.{CreateIndexCommand, ShowIndexesCommand
 import org.apache.spark.sql.hudi.common.HoodieSparkSqlTestBase
 import org.apache.spark.sql.types._
 import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertTrue}
-import org.scalatest.DoNotDiscover
 
 import java.util.stream.Collectors
 

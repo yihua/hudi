@@ -28,11 +28,8 @@ import org.apache.hudi.testutils.HoodieClientTestUtils.createMetaClient
 import org.apache.spark.sql.hudi.HoodieSqlCommonUtils
 import org.apache.spark.sql.hudi.common.HoodieSparkSqlTestBase
 import org.apache.spark.sql.internal.SQLConf
-import org.scalatest.DoNotDiscover
 
 
-// @DoNotDiscover
-// class TestInsertTable extends HoodieSparkSqlTestBase {
 class TestInsertTable extends HoodieSparkSqlTestBase {
 
   test("Test Insert Into with subset of columns") {
