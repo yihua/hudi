@@ -19,9 +19,8 @@ package org.apache.spark.sql.execution.datasources.parquet
 
 import org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName
 import org.apache.parquet.schema.Types
-import org.junit.jupiter.api.{Assertions, Disabled, Test}
+import org.junit.jupiter.api.{Assertions, Test}
 
-@Disabled("Pre-existing failure on master: testSchemaTrimming_atLeastOneFieldMatches")
 class TestHoodieParquetReadSupport {
 
   /**
