@@ -105,9 +105,10 @@ public class LanceRecordIterator implements ClosableIterator<UnsafeRow> {
       currentBatch = null;
     }
 
-    // Try to load next batch
+    // Try to load next batch. Loop so zero-row batches (legitimately returned e.g. after
+    // filter pushdown) don't silently terminate iteration and drop subsequent non-empty batches.
     try {
-      if (arrowReader.loadNextBatch()) {
+      while (arrowReader.loadNextBatch()) {
         VectorSchemaRoot root = arrowReader.getVectorSchemaRoot();
 
         // Build ColumnVector[] in Spark-schema order by looking each field up by name;
@@ -140,7 +141,12 @@ public class LanceRecordIterator implements ClosableIterator<UnsafeRow> {
         // Create ColumnarBatch and keep it alive while iterating
         currentBatch = new ColumnarBatch(columnVectors, root.getRowCount());
         rowIterator = currentBatch.rowIterator();
-        return rowIterator.hasNext();
+        if (rowIterator.hasNext()) {
+          return true;
+        }
+        // Empty batch - close and continue to the next one.
+        currentBatch.close();
+        currentBatch = null;
       }
     } catch (IOException e) {
       throw new HoodieException("Failed to read next batch from Lance file: " + path, e);
