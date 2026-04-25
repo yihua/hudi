@@ -250,8 +250,8 @@ public class HoodieCleanConfig extends HoodieConfig {
       .markAdvanced()
       .withDocumentation("Maximum number of commits to clean in one clean commit. Applicable only when the clean policy is based on KEEP_LATEST_COMMITS or KEEP_LATEST_HOURS");
 
-  public static final ConfigProperty<Long> MAX_INTERVAL_TO_CREATE_EMPTY_CLEAN_HOURS = ConfigProperty
-      .key("hoodie.write.empty.clean.internval.hours")
+  public static final ConfigProperty<Long> INTERVAL_TO_CREATE_EMPTY_CLEAN_HOURS = ConfigProperty
+      .key("hoodie.write.empty.clean.interval.hours")
       .defaultValue(-1L)
       .markAdvanced()
       .withDocumentation("In some cases empty clean commit needs to be created to ensure the clean planner "
@@ -436,8 +436,8 @@ public class HoodieCleanConfig extends HoodieConfig {
       return this;
     }
 
-    public HoodieCleanConfig.Builder withMaxIntervalToCreateEmptyCleanHours(long durationHours) {
-      cleanConfig.setValue(MAX_INTERVAL_TO_CREATE_EMPTY_CLEAN_HOURS, String.valueOf(durationHours));
+    public HoodieCleanConfig.Builder withIntervalToCreateEmptyCleanHours(long emptyCleanIntervalHours) {
+      cleanConfig.setValue(INTERVAL_TO_CREATE_EMPTY_CLEAN_HOURS, String.valueOf(emptyCleanIntervalHours));
       return this;
     }
 
@@ -449,9 +449,9 @@ public class HoodieCleanConfig extends HoodieConfig {
       if (maxCommitsToClean < 1) {
         throw new IllegalArgumentException(MAX_COMMITS_TO_CLEAN.key() + " must be >= 1, but was " + maxCommitsToClean);
       }
-      long maxDurationHours = cleanConfig.getLong(MAX_INTERVAL_TO_CREATE_EMPTY_CLEAN_HOURS);
-      if (maxDurationHours == 0 || maxDurationHours < -1) {
-        throw new IllegalArgumentException(MAX_INTERVAL_TO_CREATE_EMPTY_CLEAN_HOURS.key() + " must be >= 1, but was " + maxDurationHours);
+      long emptyCleanIntervalHours = cleanConfig.getLong(INTERVAL_TO_CREATE_EMPTY_CLEAN_HOURS);
+      if (emptyCleanIntervalHours == 0 || emptyCleanIntervalHours < -1) {
+        throw new IllegalArgumentException(INTERVAL_TO_CREATE_EMPTY_CLEAN_HOURS.key() + " must be -1 (disabled) or >= 1, but was " + emptyCleanIntervalHours);
       }
       return cleanConfig;
     }
