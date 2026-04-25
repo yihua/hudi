@@ -1174,16 +1174,13 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
     )
 
     // Test 5: DELETE a row
-    // TODO(#18558): test DELETE with MOR table type once the bug is fixed
-    if (tableType == HoodieTableType.COPY_ON_WRITE) {
-      spark.sql(s"delete from $tableName where id = 3")
+    spark.sql(s"delete from $tableName where id = 3")
 
-      checkAnswer(s"select id, name, age, score, dt from $tableName order by id")(
-        Seq(1, "Alice", 31, 99.9, "2025-01-01"),
-        Seq(2, "Bob", 25, 87.3, "2025-01-02"),
-        Seq(4, "Diana", 40, null, "2025-01-01")
-      )
-    }
+    checkAnswer(s"select id, name, age, score, dt from $tableName order by id")(
+      Seq(1, "Alice", 31, 99.9, "2025-01-01"),
+      Seq(2, "Bob", 25, 87.3, "2025-01-02"),
+      Seq(4, "Diana", 40, null, "2025-01-01")
+    )
 
     // Test 6: INSERT with static partition (only for partitioned tables)
     if (isPartitioned) {
@@ -1192,22 +1189,12 @@ class TestLanceDataSource extends HoodieSparkClientTestBase {
         values (28, 5, 'Eve')
       """.stripMargin)
 
-      if (tableType == HoodieTableType.COPY_ON_WRITE) {
-        checkAnswer(s"select id, name, age, score, dt from $tableName order by id")(
-          Seq(1, "Alice", 31, 99.9, "2025-01-01"),
-          Seq(2, "Bob", 25, 87.3, "2025-01-02"),
-          Seq(4, "Diana", 40, null, "2025-01-01"),
-          Seq(5, "Eve", 28, null, "2025-01-05")
-        )
-      } else {
-        checkAnswer(s"select id, name, age, score, dt from $tableName order by id")(
-          Seq(1, "Alice", 31, 99.9, "2025-01-01"),
-          Seq(2, "Bob", 25, 87.3, "2025-01-02"),
-          Seq(3, "Charlie", 35, 92.1, "2025-01-02"),
-          Seq(4, "Diana", 40, null, "2025-01-01"),
-          Seq(5, "Eve", 28, null, "2025-01-05")
-        )
-      }
+      checkAnswer(s"select id, name, age, score, dt from $tableName order by id")(
+        Seq(1, "Alice", 31, 99.9, "2025-01-01"),
+        Seq(2, "Bob", 25, 87.3, "2025-01-02"),
+        Seq(4, "Diana", 40, null, "2025-01-01"),
+        Seq(5, "Eve", 28, null, "2025-01-05")
+      )
     }
 
     // Verify Lance files were created
