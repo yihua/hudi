@@ -136,8 +136,7 @@ object HoodieParquetReadSupport {
             } else {
               // Field exists in the requested schema but not in the file.
               // Exclude it from the Parquet read schema; Spark's schema evolution
-              // will fill it with null. Including it would violate Spark 4.1's
-              // ParquetRowConverter assertion (parquetType.getFieldCount <= catalystType.length).
+              // will fill it with null in the output row.
               None
             }
           }).filter(_.isDefined).map(_.get).asJava
