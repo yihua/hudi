@@ -55,70 +55,6 @@ public class InLineFsDataInputStream extends FSDataInputStream {
     outerStream.seek(startOffset);
   }
 
-  /**
-   * Wraps an {@link FSDataInputStream} and adjusts all positional reads by {@code startOffset}.
-   * Sequential reads delegate to the outer stream at its current position.
-   *
-   * <p>In Hadoop 3.3+, {@link PositionedReadable} gained a default {@code readVectored()} method
-   * that calls {@code VectoredReadUtils.readVectored(this, ...)} which ultimately invokes
-   * {@code this.readFully(range.getOffset(), ...)}. Because this class correctly shifts those
-   * offsets by {@code startOffset}, vectored reads land at the right place in the outer file.
-   */
-  private static final class OffsetAdjustingStream extends InputStream
-      implements Seekable, PositionedReadable {
-
-    private final FSDataInputStream outer;
-    private final long startOffset;
-
-    OffsetAdjustingStream(FSDataInputStream outer, long startOffset) {
-      this.outer = outer;
-      this.startOffset = startOffset;
-    }
-
-    // InputStream sequential reads — delegate to outer stream's current position
-    @Override
-    public int read() throws IOException {
-      return outer.read();
-    }
-
-    @Override
-    public int read(byte[] b, int off, int len) throws IOException {
-      return outer.read(b, off, len);
-    }
-
-    // Seekable
-    @Override
-    public long getPos() throws IOException {
-      return outer.getPos() - startOffset;
-    }
-
-    @Override
-    public void seek(long pos) throws IOException {
-      outer.seek(startOffset + pos);
-    }
-
-    @Override
-    public boolean seekToNewSource(long targetPos) throws IOException {
-      return outer.seekToNewSource(startOffset + targetPos);
-    }
-
-    // PositionedReadable — all positions are relative to the inline file start
-    @Override
-    public int read(long position, byte[] buffer, int offset, int length) throws IOException {
-      return outer.read(startOffset + position, buffer, offset, length);
-    }
-
-    @Override
-    public void readFully(long position, byte[] buffer, int offset, int length) throws IOException {
-      outer.readFully(startOffset + position, buffer, offset, length);
-    }
-
-    @Override
-    public void readFully(long position, byte[] buffer) throws IOException {
-      outer.readFully(startOffset + position, buffer, 0, buffer.length);
-    }
-  }
-
   @Override
   public void seek(long desired) throws IOException {
     if (desired > length) {
@@ -202,5 +138,69 @@ public class InLineFsDataInputStream extends FSDataInputStream {
   @Override
   public void unbuffer() {
     outerStream.unbuffer();
+  }
+
+  /**
+   * Wraps an {@link FSDataInputStream} and adjusts all positional reads by {@code startOffset}.
+   * Sequential reads delegate to the outer stream at its current position.
+   *
+   * <p>In Hadoop 3.3+, {@link PositionedReadable} gained a default {@code readVectored()} method
+   * that calls {@code VectoredReadUtils.readVectored(this, ...)} which ultimately invokes
+   * {@code this.readFully(range.getOffset(), ...)}. Because this class correctly shifts those
+   * offsets by {@code startOffset}, vectored reads land at the right place in the outer file.
+   */
+  private static final class OffsetAdjustingStream extends InputStream
+      implements Seekable, PositionedReadable {
+
+    private final FSDataInputStream outer;
+    private final long startOffset;
+
+    OffsetAdjustingStream(FSDataInputStream outer, long startOffset) {
+      this.outer = outer;
+      this.startOffset = startOffset;
+    }
+
+    // InputStream sequential reads — delegate to outer stream's current position
+    @Override
+    public int read() throws IOException {
+      return outer.read();
+    }
+
+    @Override
+    public int read(byte[] b, int off, int len) throws IOException {
+      return outer.read(b, off, len);
+    }
+
+    // Seekable
+    @Override
+    public long getPos() throws IOException {
+      return outer.getPos() - startOffset;
+    }
+
+    @Override
+    public void seek(long pos) throws IOException {
+      outer.seek(startOffset + pos);
+    }
+
+    @Override
+    public boolean seekToNewSource(long targetPos) throws IOException {
+      return outer.seekToNewSource(startOffset + targetPos);
+    }
+
+    // PositionedReadable — all positions are relative to the inline file start
+    @Override
+    public int read(long position, byte[] buffer, int offset, int length) throws IOException {
+      return outer.read(startOffset + position, buffer, offset, length);
+    }
+
+    @Override
+    public void readFully(long position, byte[] buffer, int offset, int length) throws IOException {
+      outer.readFully(startOffset + position, buffer, offset, length);
+    }
+
+    @Override
+    public void readFully(long position, byte[] buffer) throws IOException {
+      outer.readFully(startOffset + position, buffer, 0, buffer.length);
+    }
   }
 }
