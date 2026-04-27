@@ -33,12 +33,12 @@ class Spark41HoodieInternalRow(
   }
 
   override def getGeography(ordinal: Int): GeographyVal = {
-    ruleOutMetaFieldsAccess(ordinal, classOf[VariantVal])
+    ruleOutMetaFieldsAccess(ordinal, classOf[GeographyVal])
     sourceRow.getGeography(rebaseOrdinal(ordinal))
   }
 
   override def getGeometry(ordinal: Int): GeometryVal = {
-    ruleOutMetaFieldsAccess(ordinal, classOf[VariantVal])
+    ruleOutMetaFieldsAccess(ordinal, classOf[GeometryVal])
     sourceRow.getGeometry(rebaseOrdinal(ordinal))
   }
 

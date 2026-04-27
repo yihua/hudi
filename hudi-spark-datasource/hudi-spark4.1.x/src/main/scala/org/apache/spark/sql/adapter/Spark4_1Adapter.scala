@@ -57,7 +57,7 @@ import org.apache.spark.unsafe.types.UTF8String
 import scala.jdk.CollectionConverters.MapHasAsScala
 
 /**
- * Implementation of [[SparkAdapter]] for Spark 4.0.x branch
+ * Implementation of [[SparkAdapter]] for Spark 4.1.x branch
  */
 class Spark4_1Adapter extends BaseSpark4Adapter {
 
@@ -197,13 +197,14 @@ class Spark4_1Adapter extends BaseSpark4Adapter {
   }
 
   /**
-   * TODO
+   * Get ORC file reader
    *
-   * @param vectorized
-   * @param sqlConf
-   * @param options
-   * @param hadoopConf
-   * @return
+   * @param vectorized true if vectorized reading is not prohibited due to schema, reading mode, etc
+   * @param sqlConf    the [[SQLConf]] used for the read
+   * @param options    passed as a param to the file format
+   * @param hadoopConf some configs will be set for the hadoopConf
+   * @param dataSchema the data schema of the ORC file
+   * @return ORC file reader
    */
   override def createOrcFileReader(vectorized: Boolean,
                                    sqlConf: SQLConf,
