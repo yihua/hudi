@@ -109,7 +109,7 @@ public class KinesisSourceConfig extends HoodieConfig {
           + "Non-aggregated records pass through unchanged. Set to false if producers do not use KPL.");
 
   public static final ConfigProperty<Boolean> ENABLE_FAIL_ON_DATA_LOSS = ConfigProperty
-      .key(PREFIX + "enable.fail.on.data.loss")
+      .key(PREFIX + "fail.on.data.loss.enable")
       .defaultValue(false)
       .sinceVersion("1.2.0")
       .markAdvanced()
@@ -130,29 +130,29 @@ public class KinesisSourceConfig extends HoodieConfig {
       .withDocumentation("Maximum number of records to fetch per GetRecords API call. Kinesis limit is 10000.");
 
   public static final ConfigProperty<Long> KINESIS_GET_RECORDS_INTERVAL_MS = ConfigProperty
-      .key(PREFIX + "get_records.interval.ms")
+      .key(PREFIX + "get.records.interval.ms")
       .defaultValue(200L)
       .sinceVersion("1.2.0")
       .markAdvanced()
       .withDocumentation("Minimum interval in ms between two GetRecords API calls per shard.");
 
   public static final ConfigProperty<Long> KINESIS_RETRY_INITIAL_INTERVAL_MS = ConfigProperty
-      .key(PREFIX + "retry.initial_interval_ms")
+      .key(PREFIX + "retry.initial.interval.ms")
       .defaultValue(1000L)
       .sinceVersion("1.2.0")
       .markAdvanced()
       .withDocumentation("Initial backoff in ms when Kinesis returns ProvisionedThroughputExceededException. "
-          + "Backoff doubles each retry up to retry.max_interval_ms.");
+          + "Backoff doubles each retry up to retry.max.interval.ms.");
 
   public static final ConfigProperty<Long> KINESIS_RETRY_MAX_INTERVAL_MS = ConfigProperty
-      .key(PREFIX + "retry.max_interval_ms")
+      .key(PREFIX + "retry.max.interval.ms")
       .defaultValue(10000L)
       .sinceVersion("1.2.0")
       .markAdvanced()
       .withDocumentation("Maximum backoff in ms between retries for throughput exceeded.");
 
   public static final ConfigProperty<Long> KINESIS_THROTTLE_TIMEOUT_MS = ConfigProperty
-      .key(PREFIX + "retry.throttle_timeout_ms")
+      .key(PREFIX + "retry.throttle.timeout.ms")
       .defaultValue(600000L)
       .sinceVersion("1.2.0")
       .markAdvanced()
