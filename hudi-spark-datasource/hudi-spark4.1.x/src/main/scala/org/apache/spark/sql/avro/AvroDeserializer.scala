@@ -39,7 +39,6 @@ import org.apache.spark.unsafe.types.{UTF8String, VariantVal}
 
 import java.math.BigDecimal
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.util.TimeZone
 
 import scala.collection.JavaConverters._
@@ -283,10 +282,11 @@ private[sql] class AvroDeserializer(rootAvroType: Schema,
         val decimal = createDecimal(bigDecimal, d.getPrecision, d.getScale)
         updater.setDecimal(ordinal, decimal)
 
-      case (RECORD, VariantType) if avroType.getProp("logicalType") == HoodieSchema.VARIANT_TYPE_NAME =>
+      case (RECORD, VariantType) if avroType.getLogicalType != null
+        && avroType.getLogicalType.getName == HoodieSchema.VARIANT_TYPE_NAME =>
         // Validation & Pre-calculation with fail fast logic
-        val valueField = avroType.getField("value")
-        val metadataField = avroType.getField("metadata")
+        val valueField = avroType.getField(HoodieSchema.Variant.VARIANT_VALUE_FIELD)
+        val metadataField = avroType.getField(HoodieSchema.Variant.VARIANT_METADATA_FIELD)
 
         if (valueField == null || metadataField == null) {
           throw new IncompatibleSchemaException(incompatibleMsg +

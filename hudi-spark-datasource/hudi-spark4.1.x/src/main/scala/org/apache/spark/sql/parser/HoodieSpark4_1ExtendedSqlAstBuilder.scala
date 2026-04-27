@@ -39,10 +39,9 @@ import org.apache.spark.sql.catalyst.util.DateTimeUtils._
 import org.apache.spark.sql.connector.catalog.CatalogV2Implicits.BucketSpecHelper
 import org.apache.spark.sql.connector.catalog.TableCatalog
 import org.apache.spark.sql.connector.catalog.TableChange.ColumnPosition
-import org.apache.spark.sql.connector.expressions.{ApplyTransform, BucketTransform, DaysTransform, Expression => V2Expression, FieldReference, HoursTransform, IdentityTransform, LiteralValue, MonthsTransform, Transform, YearsTransform}
+import org.apache.spark.sql.connector.expressions.{ApplyTransform, BucketTransform, DaysTransform, FieldReference, HoursTransform, IdentityTransform, LiteralValue, MonthsTransform, Transform, YearsTransform, Expression => V2Expression}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
-import org.apache.spark.sql.types.BlobType
 import org.apache.spark.unsafe.types.{CalendarInterval, UTF8String}
 import org.apache.spark.util.Utils.isTesting
 import org.apache.spark.util.random.RandomSampler
@@ -2638,6 +2637,21 @@ class HoodieSpark4_1ExtendedSqlAstBuilder(conf: SQLConf, delegate: ParserInterfa
       case ("varchar", length :: Nil) => VarcharType(length.getText.toInt)
       case ("binary", Nil) => BinaryType
       case ("blob", Nil) => BlobType()
+      case ("vector", _ :: _) =>
+        // Delegate validation to HoodieSchema.parseTypeDescriptor which handles dimension
+        // range checks, element type validation, and canonical normalization.
+        val vectorSchema = try {
+          HoodieSchema.parseTypeDescriptor(ctx.getText).asInstanceOf[HoodieSchema.Vector]
+        } catch {
+          case e: IllegalArgumentException =>
+            throw new ParseException(s"Invalid VECTOR type: ${e.getMessage}", ctx)
+        }
+        val sparkElemType = vectorSchema.getVectorElementType match {
+          case HoodieSchema.Vector.VectorElementType.FLOAT => FloatType
+          case HoodieSchema.Vector.VectorElementType.DOUBLE => DoubleType
+          case HoodieSchema.Vector.VectorElementType.INT8 => ByteType
+        }
+        ArrayType(sparkElemType, containsNull = false)
       case ("decimal" | "dec" | "numeric", Nil) => DecimalType.USER_DEFAULT
       case ("decimal" | "dec" | "numeric", precision :: Nil) =>
         DecimalType(precision.getText.toInt, 0)
@@ -2734,8 +2748,13 @@ class HoodieSpark4_1ExtendedSqlAstBuilder(conf: SQLConf, delegate: ParserInterfa
 
   private def addMetadataForType(dataType: HoodieSqlBaseParser.DataTypeContext, builder: MetadataBuilder): Unit = {
     val typeText = dataType.getText
-    if (typeText.equalsIgnoreCase(HoodieSchemaType.BLOB.name())) {
+    val upperTypeText = typeText.toUpperCase(Locale.ROOT)
+    if (upperTypeText == HoodieSchemaType.BLOB.name()) {
       builder.putString(HoodieSchema.TYPE_METADATA_FIELD, HoodieSchemaType.BLOB.name())
+    } else if (upperTypeText.startsWith("VECTOR(")) {
+      // Normalize to canonical form (e.g. "VECTOR(128,FLOAT)" -> "VECTOR(128)")
+      val vectorSchema = HoodieSchema.parseTypeDescriptor(typeText).asInstanceOf[HoodieSchema.Vector]
+      builder.putString(HoodieSchema.TYPE_METADATA_FIELD, vectorSchema.toTypeDescriptor)
     }
   }
 
@@ -2760,10 +2779,12 @@ class HoodieSpark4_1ExtendedSqlAstBuilder(conf: SQLConf, delegate: ParserInterfa
   override def visitComplexColType(ctx: ComplexColTypeContext): StructField = withOrigin(ctx) {
     import ctx._
     val builder = new MetadataBuilder
-    Option(commentSpec).map(visitCommentSpec).foreach {
+    // Add comment to metadata
+    Option(commentSpec()).map(visitCommentSpec).foreach {
       builder.putString("comment", _)
     }
     addMetadataForType(ctx.dataType(), builder)
+
     StructField(
       name = identifier.getText,
       dataType = typedVisit(dataType()),
