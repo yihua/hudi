@@ -29,7 +29,6 @@ import org.apache.spark.sql.hudi.HoodieSqlCommonUtils
 import org.apache.spark.sql.hudi.common.HoodieSparkSqlTestBase
 import org.apache.spark.sql.internal.SQLConf
 
-
 class TestInsertTable extends HoodieSparkSqlTestBase {
 
   test("Test Insert Into with subset of columns") {

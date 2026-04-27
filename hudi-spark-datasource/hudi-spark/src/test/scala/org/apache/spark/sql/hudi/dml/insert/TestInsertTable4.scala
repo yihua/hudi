@@ -302,6 +302,7 @@ class TestInsertTable4 extends HoodieSparkSqlTestBase {
   }
 
   test("Test multiple partition fields pruning") {
+
     withTempDir { tmp =>
       val targetTable = generateTableName
       countDownLatch = new CountDownLatch(1)
@@ -354,6 +355,7 @@ class TestInsertTable4 extends HoodieSparkSqlTestBase {
   }
 
   test("Test single partiton field pruning") {
+
     withTempDir { tmp =>
       countDownLatch = new CountDownLatch(1)
       listenerCallCount = 0

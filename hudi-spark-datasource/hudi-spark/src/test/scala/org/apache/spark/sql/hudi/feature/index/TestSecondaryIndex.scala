@@ -42,7 +42,6 @@ import java.util.concurrent.atomic.AtomicInteger
 
 import scala.collection.JavaConverters._
 
-
 class TestSecondaryIndex extends HoodieSparkSqlTestBase {
 
   var instantTime: AtomicInteger = new AtomicInteger(1)

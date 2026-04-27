@@ -64,7 +64,6 @@ import java.util.stream.Collectors
 
 import scala.collection.JavaConverters
 
-
 class TestExpressionIndex extends HoodieSparkSqlTestBase with SparkAdapterSupport {
 
   override protected def beforeAll(): Unit = {
