@@ -51,7 +51,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Tests {@link InLineFileSystem}.
  */
-
 public class TestInLineFileSystem {
   private Configuration conf;
   private List<Path> listOfGeneratedPaths;

@@ -19,7 +19,7 @@
 
 package org.apache.hudi
 
-import org.apache.spark.sql.execution.streaming.runtime.{StreamExecution => SparkStreamExecution}
+import org.apache.spark.sql.execution.streaming.runtime.StreamExecution
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
@@ -32,7 +32,7 @@ class TestHoodieStreamingSinkConstants {
 
   @Test
   def testQueryIdKeyMatchesStreamExecution(): Unit = {
-    assertEquals(SparkStreamExecution.QUERY_ID_KEY, HoodieStreamingSink.QUERY_ID_KEY,
+    assertEquals(StreamExecution.QUERY_ID_KEY, HoodieStreamingSink.QUERY_ID_KEY,
       "HoodieStreamingSink.QUERY_ID_KEY must match StreamExecution.QUERY_ID_KEY")
   }
 }
