@@ -660,28 +660,7 @@ public class HoodieAvroUtils {
       return null;
     }
 
-    // Avro 1.12.1 may return java.time types (Instant, LocalDate) instead of raw Long/Integer.
-    // Normalize them back to primitives before further processing to ensure consistent types.
-    Object normalizedValue = normalizeAvroLogicalTypeValue(fieldValue);
-    return convertValueForAvroLogicalTypes(AvroSchemaUtils.getNonNullTypeFromUnion(fieldSchema), normalizedValue, consistentLogicalTimestampEnabled);
-  }
-
-  /**
-   * Normalizes values returned by Avro 1.12.1's ConvertingGenericData back to raw primitives.
-   * Avro 1.12.1 automatically converts logical types to java.time objects, but Hudi expects
-   * the raw Long/Integer values internally.
-   */
-  private static Object normalizeAvroLogicalTypeValue(Object value) {
-    if (value instanceof java.time.Instant) {
-      java.time.Instant instant = (java.time.Instant) value;
-      return instant.getEpochSecond() * 1000000L + instant.getNano() / 1000L;
-    } else if (value instanceof java.time.LocalDate) {
-      return (int) ((java.time.LocalDate) value).toEpochDay();
-    } else if (value instanceof java.time.LocalDateTime) {
-      java.time.Instant instant = ((java.time.LocalDateTime) value).toInstant(java.time.ZoneOffset.UTC);
-      return instant.getEpochSecond() * 1000000L + instant.getNano() / 1000L;
-    }
-    return value;
+    return convertValueForAvroLogicalTypes(AvroSchemaUtils.getNonNullTypeFromUnion(fieldSchema), fieldValue, consistentLogicalTimestampEnabled);
   }
 
   /**
@@ -968,19 +947,19 @@ public class HoodieAvroUtils {
               return oldValue;
             } else if (oldSchema.getLogicalType() instanceof LogicalTypes.TimestampMillis) {
               if (newSchema.getLogicalType() instanceof LogicalTypes.TimestampMicros) {
-                return DateTimeUtils.millisToMicros(avroValueToLong(oldValue));
+                return DateTimeUtils.millisToMicros((Long) oldValue);
               }
             } else if (oldSchema.getLogicalType() instanceof LogicalTypes.TimestampMicros) {
               if (newSchema.getLogicalType() instanceof LogicalTypes.TimestampMillis) {
-                return DateTimeUtils.microsToMillis(avroValueToLong(oldValue));
+                return DateTimeUtils.microsToMillis((Long) oldValue);
               }
             } else if (oldSchema.getLogicalType() instanceof LogicalTypes.LocalTimestampMillis) {
               if (newSchema.getLogicalType() instanceof LogicalTypes.LocalTimestampMicros) {
-                return DateTimeUtils.millisToMicros(avroValueToLong(oldValue));
+                return DateTimeUtils.millisToMicros((Long) oldValue);
               }
             } else if (oldSchema.getLogicalType() instanceof LogicalTypes.LocalTimestampMicros) {
               if (newSchema.getLogicalType() instanceof LogicalTypes.LocalTimestampMillis) {
-                return DateTimeUtils.microsToMillis(avroValueToLong(oldValue));
+                return DateTimeUtils.microsToMillis((Long) oldValue);
               }
             }
             throw new HoodieAvroSchemaException("Long type logical change from " + oldSchema.getLogicalType() + " to " + newSchema.getLogicalType() + " is not supported");
@@ -1031,13 +1010,13 @@ public class HoodieAvroUtils {
         break;
       case LONG:
         if (oldSchema.getType() == Schema.Type.INT) {
-          return ((long) avroValueToInt(oldValue));
+          return ((Integer) oldValue).longValue();
         }
         break;
       case FLOAT:
         if ((oldSchema.getType() == Schema.Type.INT)
             || (oldSchema.getType() == Schema.Type.LONG)) {
-          return oldSchema.getType() == Schema.Type.INT ? ((float) avroValueToInt(oldValue)) : ((float) avroValueToLong(oldValue));
+          return oldSchema.getType() == Schema.Type.INT ? ((Integer) oldValue).floatValue() : ((Long) oldValue).floatValue();
         }
         break;
       case DOUBLE:
@@ -1045,9 +1024,9 @@ public class HoodieAvroUtils {
           // java float cannot convert to double directly, deal with float precision change
           return Double.valueOf(oldValue + "");
         } else if (oldSchema.getType() == Schema.Type.INT) {
-          return ((double) avroValueToInt(oldValue));
+          return ((Integer) oldValue).doubleValue();
         } else if (oldSchema.getType() == Schema.Type.LONG) {
-          return ((double) avroValueToLong(oldValue));
+          return ((Long) oldValue).doubleValue();
         }
         break;
       case BYTES:
@@ -1066,10 +1045,6 @@ public class HoodieAvroUtils {
           return StringUtils.fromUTF8Bytes(((ByteBuffer) oldValue).array());
         }
         if (oldSchema.getLogicalType() == LogicalTypes.date()) {
-          // Avro 1.12.1 may return java.time.LocalDate instead of Integer for date logical type
-          if (oldValue instanceof java.time.LocalDate) {
-            return oldValue.toString();
-          }
           return toJavaDate((Integer) oldValue).toString();
         }
         if (oldSchema.getType() == Schema.Type.INT
@@ -1247,29 +1222,6 @@ public class HoodieAvroUtils {
    *
    * @VisibleForTesting
    */
-  /**
-   * Converts an Avro INT value to a Java int, handling Avro 1.12.1's conversion
-   * of date logical type values to {@link java.time.LocalDate}.
-   */
-  private static int avroValueToInt(Object value) {
-    if (value instanceof java.time.LocalDate) {
-      return (int) ((java.time.LocalDate) value).toEpochDay();
-    }
-    return (Integer) value;
-  }
-
-  /**
-   * Converts an Avro LONG value to a Java long, handling Avro 1.12.1's conversion
-   * of timestamp logical type values to {@link java.time.Instant}.
-   */
-  private static long avroValueToLong(Object value) {
-    if (value instanceof java.time.Instant) {
-      java.time.Instant instant = (java.time.Instant) value;
-      return instant.getEpochSecond() * 1000000L + instant.getNano() / 1000L;
-    }
-    return (Long) value;
-  }
-
   public static java.sql.Date toJavaDate(int days) {
     LocalDate date = LocalDate.ofEpochDay(days);
     ZoneId defaultZoneId = ZoneId.systemDefault();
