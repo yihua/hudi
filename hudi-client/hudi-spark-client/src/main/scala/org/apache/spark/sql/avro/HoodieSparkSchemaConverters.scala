@@ -147,12 +147,6 @@ object HoodieSparkSchemaConverters extends SparkAdapterSupport {
         validateVariantStructure(variantStruct)
         HoodieSchema.createVariant(recordName, nameSpace, null)
 
-      // Spark 4.1 PushVariantIntoScan rewrites VariantType columns as a StructType with positional
-      // field names ("0", "1", ...) annotated with VariantMetadata. Detect this before the generic
-      // StructType case to avoid trying to create Avro fields with digit-only names.
-      case st: StructType if sparkAdapter.isPushDownVariantStruct(st) =>
-        HoodieSchema.createVariant(recordName, nameSpace, null)
-
       case st: StructType =>
         val childNameSpace = if (nameSpace != "") s"$nameSpace.$recordName" else recordName
 

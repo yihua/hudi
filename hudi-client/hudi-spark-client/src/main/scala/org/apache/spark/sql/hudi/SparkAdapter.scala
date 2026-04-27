@@ -421,16 +421,6 @@ trait SparkAdapter extends Serializable {
   def isVariantType(dataType: DataType): Boolean
 
   /**
-   * Checks if the given StructType is a "push-down variant struct" produced by Spark 4.1+
-   * PushVariantIntoScan optimizer rule. Such structs have positional field names ("0", "1", ...)
-   * annotated with VariantMetadata, and represent a pushed-down variant column in the scan schema.
-   *
-   * @param dataType The data type to check
-   * @return true if it's a push-down variant struct, false otherwise
-   */
-  def isPushDownVariantStruct(dataType: DataType): Boolean = false
-
-  /**
    * Creates a ValueWriter function for VariantType if the data type is VariantType.
    * Returns null for Spark 3.x or if the data type is not VariantType.
    *

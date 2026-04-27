@@ -103,7 +103,7 @@ class Spark4_1Adapter extends BaseSpark4Adapter {
     new ParseException(command, start, exception.getErrorClass, exception.getMessageParameters.asScala.toMap)
   }
 
-  override def isPushDownVariantStruct(dataType: DataType): Boolean = VariantMetadata.isVariantStruct(dataType)
+
 
   override def createAvroSerializer(rootCatalystType: DataType, rootType: HoodieSchema, nullable: Boolean): HoodieAvroSerializer =
     new HoodieSpark4_1AvroSerializer(rootCatalystType, rootType.toAvroSchema, nullable)
