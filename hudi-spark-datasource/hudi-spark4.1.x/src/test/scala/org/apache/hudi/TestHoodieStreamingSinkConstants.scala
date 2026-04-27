@@ -19,18 +19,20 @@
 
 package org.apache.hudi
 
-import org.apache.hudi.common.model.FileSlice
+import org.apache.spark.sql.execution.streaming.runtime.StreamExecution
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Test
 
-import org.apache.spark.sql.catalyst.InternalRow
+/**
+ * Validates that HoodieStreamingSink.QUERY_ID_KEY matches the actual
+ * StreamExecution.QUERY_ID_KEY from Spark 4.1, where StreamExecution
+ * moved to org.apache.spark.sql.execution.streaming.runtime.
+ */
+class TestHoodieStreamingSinkConstants {
 
-class Spark4HoodiePartitionFileSliceMapping(values: InternalRow,
-                                            slices: Map[String, FileSlice])
-  extends Spark4HoodiePartitionValues(values)
-  with HoodiePartitionFileSliceMapping {
-
-  override def getSlice(fileId: String): Option[FileSlice] = {
-    slices.get(fileId)
+  @Test
+  def testQueryIdKeyMatchesStreamExecution(): Unit = {
+    assertEquals(StreamExecution.QUERY_ID_KEY, HoodieStreamingSink.QUERY_ID_KEY,
+      "HoodieStreamingSink.QUERY_ID_KEY must match StreamExecution.QUERY_ID_KEY")
   }
-
-  override def getPartitionValues: InternalRow = values
 }
