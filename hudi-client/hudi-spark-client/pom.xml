@@ -106,6 +106,12 @@
       <artifactId>${lance.spark.artifact}</artifactId>
     </dependency>
 
+    <!-- Vortex Spark connector -->
+    <dependency>
+      <groupId>dev.vortex</groupId>
+      <artifactId>${vortex.spark.artifact}</artifactId>
+    </dependency>
+
     <!-- Used for adding kryo serializers for protobuf -->
     <dependency>
       <groupId>com.twitter</groupId>

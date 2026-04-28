@@ -163,5 +163,10 @@
       <groupId>org.lance</groupId>
       <artifactId>lance-core</artifactId>
     </dependency>
+    <!-- Vortex JNI -->
+    <dependency>
+      <groupId>dev.vortex</groupId>
+      <artifactId>vortex-jni</artifactId>
+    </dependency>
   </dependencies>
 </project>

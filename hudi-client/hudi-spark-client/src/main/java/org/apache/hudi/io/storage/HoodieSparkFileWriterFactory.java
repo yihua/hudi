@@ -137,6 +137,31 @@ public class HoodieSparkFileWriterFactory extends HoodieFileWriterFactory {
         .build();
   }
 
+  @Override
+  protected HoodieFileWriter newVortexFileWriter(String instantTime, StoragePath path, HoodieConfig config, HoodieSchema schema,
+                                                 TaskContextSupplier taskContextSupplier) throws IOException {
+    boolean populateMetaFields = config.getBooleanOrDefault(HoodieTableConfig.POPULATE_META_FIELDS);
+    StructType structType = HoodieInternalRowUtils.getCachedSchema(schema);
+    boolean enableBloomFilter = enableBloomFilter(populateMetaFields, config);
+    Option<BloomFilter> bloomFilter = enableBloomFilter ? Option.of(createBloomFilter(config)) : Option.empty();
+    long maxFileSize = config.getLongOrDefault(HoodieStorageConfig.VORTEX_MAX_FILE_SIZE);
+    long allocatorSize = config.getLongOrDefault(HoodieStorageConfig.VORTEX_WRITE_ALLOCATOR_SIZE_BYTES);
+    long flushByteWatermark = config.getLongOrDefault(HoodieStorageConfig.VORTEX_WRITE_FLUSH_BYTE_WATERMARK);
+
+    return HoodieSparkVortexWriter.builder()
+        .file(path)
+        .sparkSchema(structType)
+        .instantTime(instantTime)
+        .taskContextSupplier(taskContextSupplier)
+        .storage(storage)
+        .populateMetaFields(populateMetaFields)
+        .bloomFilterOpt(bloomFilter)
+        .maxFileSize(maxFileSize)
+        .allocatorSize(allocatorSize)
+        .flushByteWatermark(flushByteWatermark)
+        .build();
+  }
+
   private static HoodieRowParquetWriteSupport getHoodieRowParquetWriteSupport(StorageConfiguration<?> conf, HoodieSchema schema,
                                                                               HoodieConfig config, boolean enableBloomFilter) {
     Option<BloomFilter> filter = enableBloomFilter ? Option.of(createBloomFilter(config)) : Option.empty();
