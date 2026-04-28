@@ -614,6 +614,9 @@ jobs:
           - scalaProfile: "scala-2.13"
             sparkProfile: "spark4.1"
             sparkModules: "hudi-spark-datasource/hudi-spark4.1.x"
+          - scalaProfile: "scala-2.13"
+            sparkProfile: "spark4.2"
+            sparkModules: "hudi-spark-datasource/hudi-spark4.2.x"
 
     steps:
       - uses: actions/checkout@v5
@@ -664,6 +667,9 @@ jobs:
           - scalaProfile: "scala-2.13"
             sparkProfile: "spark4.1"
             sparkModules: "hudi-spark-datasource/hudi-spark4.1.x"
+          - scalaProfile: "scala-2.13"
+            sparkProfile: "spark4.2"
+            sparkModules: "hudi-spark-datasource/hudi-spark4.2.x"
 
     steps:
       - uses: actions/checkout@v5
@@ -727,6 +733,9 @@ jobs:
           - scalaProfile: "scala-2.13"
             sparkProfile: "spark4.1"
             sparkModules: "hudi-spark-datasource/hudi-spark4.1.x"
+          - scalaProfile: "scala-2.13"
+            sparkProfile: "spark4.2"
+            sparkModules: "hudi-spark-datasource/hudi-spark4.2.x"
 
     steps:
       - uses: actions/checkout@v5
@@ -784,6 +793,9 @@ jobs:
           - scalaProfile: "scala-2.13"
             sparkProfile: "spark4.1"
             sparkModules: "hudi-spark-datasource/hudi-spark4.1.x"
+          - scalaProfile: "scala-2.13"
+            sparkProfile: "spark4.2"
+            sparkModules: "hudi-spark-datasource/hudi-spark4.2.x"
 
     steps:
       - uses: actions/checkout@v5
@@ -841,6 +853,9 @@ jobs:
           - scalaProfile: "scala-2.13"
             sparkProfile: "spark4.1"
             sparkModules: "hudi-spark-datasource/hudi-spark4.1.x"
+          - scalaProfile: "scala-2.13"
+            sparkProfile: "spark4.2"
+            sparkModules: "hudi-spark-datasource/hudi-spark4.2.x"
 
     steps:
       - uses: actions/checkout@v5
@@ -1000,6 +1015,10 @@ jobs:
             flinkProfile: 'flink1.20'
             sparkProfile: 'spark4.1'
             sparkRuntime: 'spark4.1.1'
+          - scalaProfile: 'scala-2.13'
+            flinkProfile: 'flink1.20'
+            sparkProfile: 'spark4.2'
+            sparkRuntime: 'spark4.2.0-preview4'
 
     steps:
       - uses: actions/checkout@v5
@@ -1112,6 +1131,12 @@ jobs:
             flinkParquetVersion: '1.13.1'
             sparkProfile: 'spark4.1'
             sparkRuntime: 'spark4.1.1'
+          - scalaProfile: 'scala-2.13'
+            flinkProfile: 'flink1.20'
+            flinkAvroVersion: '1.11.4'
+            flinkParquetVersion: '1.13.1'
+            sparkProfile: 'spark4.2'
+            sparkRuntime: 'spark4.2.0-preview4'
     steps:
       - uses: actions/checkout@v5
       - name: Set up JDK 17
