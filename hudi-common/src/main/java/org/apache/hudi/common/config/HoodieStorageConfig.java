@@ -125,6 +125,43 @@ public class HoodieStorageConfig extends HoodieConfig {
           + "reader for footer/metadata operations (schema, bloom filter). Independent of the "
           + "data allocator since metadata allocations are small and short-lived.");
 
+  public static final ConfigProperty<String> VORTEX_MAX_FILE_SIZE = ConfigProperty
+      .key("hoodie.vortex.max.file.size")
+      .defaultValue(String.valueOf(120 * 1024 * 1024))
+      .markAdvanced()
+      .withDocumentation("Target file size in bytes for Vortex base files.");
+
+  public static final ConfigProperty<String> VORTEX_WRITE_ALLOCATOR_SIZE_BYTES = ConfigProperty
+      .key("hoodie.vortex.write.allocator.size.bytes")
+      .defaultValue(String.valueOf(256 * 1024 * 1024))
+      .markAdvanced()
+      .withDocumentation("Maximum size in bytes of the Arrow child allocator used by the Vortex "
+          + "writer for buffering in-flight batch data. Must be large enough that the Arrow "
+          + "buffer's power-of-2 doubling growth never requests a buffer exceeding this cap, "
+          + "otherwise writes fail with OutOfMemoryException.");
+
+  public static final ConfigProperty<String> VORTEX_WRITE_FLUSH_BYTE_WATERMARK = ConfigProperty
+      .key("hoodie.vortex.write.flush.byte.watermark")
+      .defaultValue(String.valueOf(96 * 1024 * 1024))
+      .markAdvanced()
+      .withDocumentation("Byte-size watermark on the Vortex writer's in-flight Arrow buffers; "
+          + "the writer flushes the current batch when the sum of FieldVector buffer sizes "
+          + "reaches this value, in addition to the row-count batch threshold.");
+
+  public static final ConfigProperty<String> VORTEX_READ_ALLOCATOR_SIZE_BYTES = ConfigProperty
+      .key("hoodie.vortex.read.allocator.size.bytes")
+      .defaultValue(String.valueOf(256 * 1024 * 1024))
+      .markAdvanced()
+      .withDocumentation("Maximum size in bytes of the Arrow child allocator used by the Vortex "
+          + "reader for per-read data buffers.");
+
+  public static final ConfigProperty<String> VORTEX_READ_METADATA_ALLOCATOR_SIZE_BYTES = ConfigProperty
+      .key("hoodie.vortex.read.metadata.allocator.size.bytes")
+      .defaultValue(String.valueOf(8 * 1024 * 1024))
+      .markAdvanced()
+      .withDocumentation("Maximum size in bytes of the Arrow child allocator used by the Vortex "
+          + "reader for footer/metadata operations (schema, bloom filter).");
+
   public static final ConfigProperty<Boolean> HFILE_WRITER_TO_ALLOW_DUPLICATES = ConfigProperty
       .key("hoodie.hfile.writes.allow.duplicates")
       .defaultValue(false)
@@ -566,6 +603,11 @@ public class HoodieStorageConfig extends HoodieConfig {
 
     public Builder lanceMaxFileSize(long maxFileSize) {
       storageConfig.setValue(LANCE_MAX_FILE_SIZE, String.valueOf(maxFileSize));
+      return this;
+    }
+
+    public Builder vortexMaxFileSize(long maxFileSize) {
+      storageConfig.setValue(VORTEX_MAX_FILE_SIZE, String.valueOf(maxFileSize));
       return this;
     }
 

@@ -250,6 +250,9 @@
     <lance.spark.connector.version>0.4.0</lance.spark.connector.version>
     <lance.spark.artifact>lance-spark-3.5_${scala.binary.version}</lance.spark.artifact>
     <lance.skip.tests>false</lance.skip.tests>
+    <vortex.version>0.69.0</vortex.version>
+    <vortex.spark.artifact>vortex-spark_${scala.binary.version}</vortex.spark.artifact>
+    <vortex.skip.tests>false</vortex.skip.tests>
     <!-- The following properties are only used for Jacoco coverage report aggregation -->
     <copy.files>false</copy.files>
     <copy.files.target.dir>${maven.multiModuleProjectDirectory}</copy.files.target.dir>
@@ -522,6 +525,7 @@
             <systemPropertyVariables>
               <log4j.configurationFile>${surefire-log4j.file}</log4j.configurationFile>
               <lance.skip.tests>${lance.skip.tests}</lance.skip.tests>
+              <vortex.skip.tests>${vortex.skip.tests}</vortex.skip.tests>
             </systemPropertyVariables>
             <useSystemClassLoader>false</useSystemClassLoader>
             <forkedProcessExitTimeoutInSeconds>30</forkedProcessExitTimeoutInSeconds>
@@ -566,6 +570,7 @@
             <systemProperties>
               <log4j.configurationFile>${surefire-log4j.file}</log4j.configurationFile>
               <lance.skip.tests>${lance.skip.tests}</lance.skip.tests>
+              <vortex.skip.tests>${vortex.skip.tests}</vortex.skip.tests>
             </systemProperties>
           </configuration>
           <executions>
@@ -978,6 +983,24 @@
           <exclusion>
             <groupId>org.lance</groupId>
             <artifactId>lance-core</artifactId>
+          </exclusion>
+        </exclusions>
+      </dependency>
+      <!-- Vortex JNI -->
+      <dependency>
+        <groupId>dev.vortex</groupId>
+        <artifactId>vortex-jni</artifactId>
+        <version>${vortex.version}</version>
+      </dependency>
+      <!-- Vortex Spark connector -->
+      <dependency>
+        <groupId>dev.vortex</groupId>
+        <artifactId>${vortex.spark.artifact}</artifactId>
+        <version>${vortex.version}</version>
+        <exclusions>
+          <exclusion>
+            <groupId>dev.vortex</groupId>
+            <artifactId>vortex-jni</artifactId>
           </exclusion>
         </exclusions>
       </dependency>
@@ -2597,6 +2620,8 @@
         <!-- Lance: Skip tests for Spark 3.3 due to lack of support -->
         <lance.spark.artifact>lance-spark-base_${scala.binary.version}</lance.spark.artifact>
         <lance.skip.tests>true</lance.skip.tests>
+        <!-- Vortex: Skip tests for Spark 3.3 due to lack of support -->
+        <vortex.skip.tests>true</vortex.skip.tests>
         <!-- NOTE: Some Hudi modules require standalone Parquet/Orc/etc file-format dependency (hudi-hive-sync,
                    hudi-hadoop-mr, for ex). Since these Hudi modules might be used from w/in the execution engine(s)
                    bringing these file-formats as dependencies as well, we need to make sure that versions are
@@ -2642,6 +2667,8 @@
         <!-- Lance: Use Spark 3.4-specific artifact -->
         <lance.spark.artifact>lance-spark-3.4_${scala.binary.version}</lance.spark.artifact>
         <lance.skip.tests>true</lance.skip.tests>
+        <!-- Vortex: Skip tests for Spark 3.4 due to lack of support -->
+        <vortex.skip.tests>true</vortex.skip.tests>
         <!-- NOTE: Some Hudi modules require standalone Parquet/Orc/etc file-format dependency (hudi-hive-sync,
                    hudi-hadoop-mr, for ex). Since these Hudi modules might be used from w/in the execution engine(s)
                    bringing these file-formats as dependencies as well, we need to make sure that versions are
@@ -2697,6 +2724,9 @@
         <!-- Lance: Use Spark 3.5-specific artifact -->
         <lance.spark.artifact>lance-spark-3.5_${scala.binary.version}</lance.spark.artifact>
         <lance.skip.tests>false</lance.skip.tests>
+        <!-- Vortex: Use Spark 3.5 artifact -->
+        <vortex.spark.artifact>vortex-spark_${scala.binary.version}</vortex.spark.artifact>
+        <vortex.skip.tests>false</vortex.skip.tests>
         <!-- NOTE: Some Hudi modules require standalone Parquet/Orc/etc file-format dependency (hudi-hive-sync,
                    hudi-hadoop-mr, for ex). Since these Hudi modules might be used from w/in the execution engine(s)
                    bringing these file-formats as dependencies as well, we need to make sure that versions are
@@ -2760,6 +2790,9 @@
         <!-- Lance: Use Spark 4.0-specific artifact (Scala 2.13 only) -->
         <lance.spark.artifact>lance-spark-4.0_2.13</lance.spark.artifact>
         <lance.skip.tests>false</lance.skip.tests>
+        <!-- Vortex: Use Spark 4.0 artifact (Scala 2.13 only) -->
+        <vortex.spark.artifact>vortex-spark_2.13</vortex.spark.artifact>
+        <vortex.skip.tests>false</vortex.skip.tests>
         <!-- NOTE: Some Hudi modules require standalone Parquet/Orc/etc file-format dependency (hudi-hive-sync,
                    hudi-hadoop-mr, for ex). Since these Hudi modules might be used from w/in the execution engine(s)
                    bringing these file-formats as dependencies as well, we need to make sure that versions are
@@ -2824,6 +2857,9 @@
         <!-- TODO: Enable lance tests on Spark 4.1 (https://github.com/apache/hudi/issues/18607) -->
         <lance.spark.artifact>lance-spark-4.0_2.13</lance.spark.artifact>
         <lance.skip.tests>true</lance.skip.tests>
+        <!-- Vortex: Use Spark 4.1 artifact (Scala 2.13 only) -->
+        <vortex.spark.artifact>vortex-spark_2.13</vortex.spark.artifact>
+        <vortex.skip.tests>false</vortex.skip.tests>
         <!-- NOTE: Some Hudi modules require standalone Parquet/Orc/etc file-format dependency (hudi-hive-sync,
                    hudi-hadoop-mr, for ex). Since these Hudi modules might be used from w/in the execution engine(s)
                    bringing these file-formats as dependencies as well, we need to make sure that versions are
