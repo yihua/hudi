@@ -37,6 +37,7 @@ import static org.apache.hudi.common.model.HoodieFileFormat.HFILE;
 import static org.apache.hudi.common.model.HoodieFileFormat.LANCE;
 import static org.apache.hudi.common.model.HoodieFileFormat.ORC;
 import static org.apache.hudi.common.model.HoodieFileFormat.PARQUET;
+import static org.apache.hudi.common.model.HoodieFileFormat.VORTEX;
 
 public class HoodieFileWriterFactory {
   protected final HoodieStorage storage;
@@ -74,6 +75,9 @@ public class HoodieFileWriterFactory {
     }
     if (LANCE.getFileExtension().equals(extension)) {
       return newLanceFileWriter(instantTime, path, config, schema, taskContextSupplier);
+    }
+    if (VORTEX.getFileExtension().equals(extension)) {
+      return newVortexFileWriter(instantTime, path, config, schema, taskContextSupplier);
     }
     throw new UnsupportedOperationException(extension + " format not supported yet.");
   }
@@ -115,6 +119,12 @@ public class HoodieFileWriterFactory {
       String instantTime, StoragePath path, HoodieConfig config, HoodieSchema schema,
       TaskContextSupplier taskContextSupplier) throws IOException {
     throw new UnsupportedOperationException(HoodieFileFormat.LANCE_SPARK_ONLY_ERROR_MSG);
+  }
+
+  protected HoodieFileWriter newVortexFileWriter(
+      String instantTime, StoragePath path, HoodieConfig config, HoodieSchema schema,
+      TaskContextSupplier taskContextSupplier) throws IOException {
+    throw new UnsupportedOperationException(HoodieFileFormat.VORTEX_SPARK_ONLY_ERROR_MSG);
   }
 
   public static BloomFilter createBloomFilter(HoodieConfig config) {
