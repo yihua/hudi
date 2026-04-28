@@ -57,6 +57,13 @@ public class HoodieSparkFileReaderFactory extends HoodieFileReaderFactory {
   }
 
   @Override
+  protected HoodieFileReader newVortexFileReader(HoodieConfig hoodieConfig, StoragePath path) {
+    long dataAllocatorSize = hoodieConfig.getLongOrDefault(HoodieStorageConfig.VORTEX_READ_ALLOCATOR_SIZE_BYTES);
+    long metadataAllocatorSize = hoodieConfig.getLongOrDefault(HoodieStorageConfig.VORTEX_READ_METADATA_ALLOCATOR_SIZE_BYTES);
+    return new HoodieSparkVortexReader(path, dataAllocatorSize, metadataAllocatorSize);
+  }
+
+  @Override
   protected HoodieFileReader newHFileFileReader(HoodieConfig hoodieConfig,
                                                 StoragePath path,
                                                 Option<HoodieSchema> schemaOption) throws IOException {
