@@ -195,8 +195,10 @@ public class HoodieTestDataGenerator implements AutoCloseable {
 
   // Unstructured types fragment: nullable VARIANT, VECTOR (8-dim FLOAT, FIXED-backed) and BLOB.
   // Built from canonical HoodieSchema factories so the avro logicalType metadata stays in sync.
-  // Designated to be the default in TRIP_EXAMPLE_SCHEMA. Tests that cannot yet handle these types
-  // should opt out via TRIP_EXAMPLE_SCHEMA_NO_UNSTRUCTURED until engine support is in place.
+  // Spliced into TRIP_EXAMPLE_SCHEMA so it is the forward-looking default. Existing test infra
+  // continues to use the legacy TRIP_EXAMPLE_SCHEMA_NO_UNSTRUCTURED via the parsed AVRO_SCHEMA /
+  // HOODIE_SCHEMA constants and the no-arg data generator constructor; tests will be migrated
+  // schema-by-schema in follow-up PRs to surface bugs in writer/reader paths.
   public static final String UNSTRUCTURED_TYPES_SCHEMA;
   static {
     String variantType = HoodieSchema.createVariant().toAvroSchema().toString();
@@ -211,20 +213,19 @@ public class HoodieTestDataGenerator implements AutoCloseable {
 
   public static final String TRIP_EXAMPLE_SCHEMA_WITH_PAYLOAD_SPECIFIC_COLS =
       TRIP_SCHEMA_PREFIX + EXTRA_TYPE_SCHEMA + MAP_TYPE_SCHEMA + FARE_NESTED_SCHEMA
-          + TIP_NESTED_SCHEMA + UNSTRUCTURED_TYPES_SCHEMA + EXTRA_COL_SCHEMA_FOR_AWS_DMS_PAYLOAD + EXTRA_COL_SCHEMA_FOR_POSTGRES_PAYLOAD + TRIP_SCHEMA_SUFFIX;
-  // Backward-compatible variant without VARIANT/VECTOR/BLOB. To be removed once all tests/engines
-  // can handle the unstructured-types default.
+          + TIP_NESTED_SCHEMA + EXTRA_COL_SCHEMA_FOR_AWS_DMS_PAYLOAD + EXTRA_COL_SCHEMA_FOR_POSTGRES_PAYLOAD + TRIP_SCHEMA_SUFFIX;
+  // Legacy schema without VARIANT/VECTOR/BLOB. Currently aliased by the convenience parsed schemas
+  // (AVRO_SCHEMA, HOODIE_SCHEMA, etc.) so existing tests preserve behavior. Slated for removal
+  // once all tests/engines round-trip the unstructured-types default.
   public static final String TRIP_EXAMPLE_SCHEMA_NO_UNSTRUCTURED =
       TRIP_SCHEMA_PREFIX + EXTRA_TYPE_SCHEMA + MAP_TYPE_SCHEMA + FARE_NESTED_SCHEMA + TIP_NESTED_SCHEMA + TRIP_SCHEMA_SUFFIX;
   public static final String TRIP_EXAMPLE_SCHEMA =
       TRIP_SCHEMA_PREFIX + EXTRA_TYPE_SCHEMA + MAP_TYPE_SCHEMA + FARE_NESTED_SCHEMA + TIP_NESTED_SCHEMA
           + UNSTRUCTURED_TYPES_SCHEMA + TRIP_SCHEMA_SUFFIX;
   public static final String TRIP_EXAMPLE_SCHEMA_EVOLVED_1 =
-      TRIP_SCHEMA_PREFIX + EXTRA_TYPE_SCHEMA + MAP_TYPE_SCHEMA + FARE_NESTED_SCHEMA + TIP_NESTED_SCHEMA
-          + UNSTRUCTURED_TYPES_SCHEMA + EXTRA_COL_SCHEMA1 + TRIP_SCHEMA_SUFFIX;
+      TRIP_SCHEMA_PREFIX + EXTRA_TYPE_SCHEMA + MAP_TYPE_SCHEMA + FARE_NESTED_SCHEMA + TIP_NESTED_SCHEMA + EXTRA_COL_SCHEMA1 + TRIP_SCHEMA_SUFFIX;
   public static final String TRIP_EXAMPLE_SCHEMA_EVOLVED_2 =
-      TRIP_SCHEMA_PREFIX + EXTRA_TYPE_SCHEMA + MAP_TYPE_SCHEMA + FARE_NESTED_SCHEMA + TIP_NESTED_SCHEMA
-          + UNSTRUCTURED_TYPES_SCHEMA + EXTRA_COL_SCHEMA2 + TRIP_SCHEMA_SUFFIX;
+      TRIP_SCHEMA_PREFIX + EXTRA_TYPE_SCHEMA + MAP_TYPE_SCHEMA + FARE_NESTED_SCHEMA + TIP_NESTED_SCHEMA + EXTRA_COL_SCHEMA2 + TRIP_SCHEMA_SUFFIX;
   public static final String TRIP_FLATTENED_SCHEMA =
       TRIP_SCHEMA_PREFIX + FARE_FLATTENED_SCHEMA + TRIP_SCHEMA_SUFFIX;
   public static final String TRIP_LOGICAL_TYPES_SCHEMA_V6 =
@@ -255,11 +256,12 @@ public class HoodieTestDataGenerator implements AutoCloseable {
       + "{\"name\":\"driver\",\"type\":\"string\"},{\"name\":\"fare\",\"type\":\"double\"},{\"name\": \"_hoodie_is_deleted\", \"type\": \"boolean\", \"default\": false}]}";
 
   public static final String NULL_SCHEMA = Schema.create(Schema.Type.NULL).toString();
-  public static final String TRIP_HIVE_COLUMN_TYPES_NO_UNSTRUCTURED = "bigint,string,string,string,string,string,double,double,double,double,int,bigint,float,binary,int,bigint,decimal(10,6),"
-      + "map<string,string>,struct<amount:double,currency:string>,array<struct<amount:double,currency:string>>,boolean";
-  // Hive-side column types matching TRIP_EXAMPLE_SCHEMA. VARIANT/VECTOR/BLOB are mapped to their
-  // closest Hive analogue: variant -> struct of binaries, vector -> binary, blob -> nested struct.
+  // Hive-side column types matching TRIP_EXAMPLE_SCHEMA_NO_UNSTRUCTURED (the legacy schema currently
+  // backing AVRO_SCHEMA). The unstructured-aware counterpart maps variant -> struct of binaries,
+  // vector -> binary, blob -> nested struct.
   public static final String TRIP_HIVE_COLUMN_TYPES = "bigint,string,string,string,string,string,double,double,double,double,int,bigint,float,binary,int,bigint,decimal(10,6),"
+      + "map<string,string>,struct<amount:double,currency:string>,array<struct<amount:double,currency:string>>,boolean";
+  public static final String TRIP_HIVE_COLUMN_TYPES_WITH_UNSTRUCTURED = "bigint,string,string,string,string,string,double,double,double,double,int,bigint,float,binary,int,bigint,decimal(10,6),"
       + "map<string,string>,struct<amount:double,currency:string>,array<struct<amount:double,currency:string>>,"
       + "struct<value:binary,metadata:binary>,"
       + "binary,"
@@ -267,9 +269,10 @@ public class HoodieTestDataGenerator implements AutoCloseable {
       + "boolean";
 
 
-  public static final Schema AVRO_SCHEMA = new Schema.Parser().parse(TRIP_EXAMPLE_SCHEMA);
-  public static final Schema AVRO_SCHEMA_NO_UNSTRUCTURED = new Schema.Parser().parse(TRIP_EXAMPLE_SCHEMA_NO_UNSTRUCTURED);
+  public static final Schema AVRO_SCHEMA = new Schema.Parser().parse(TRIP_EXAMPLE_SCHEMA_NO_UNSTRUCTURED);
+  public static final Schema AVRO_SCHEMA_WITH_UNSTRUCTURED = new Schema.Parser().parse(TRIP_EXAMPLE_SCHEMA);
   public static final HoodieSchema HOODIE_SCHEMA = HoodieSchema.fromAvroSchema(AVRO_SCHEMA);
+  public static final HoodieSchema HOODIE_SCHEMA_WITH_UNSTRUCTURED = HoodieSchema.fromAvroSchema(AVRO_SCHEMA_WITH_UNSTRUCTURED);
   public static final Schema AVRO_SCHEMA_WITH_SPECIFIC_COLUMNS = new Schema.Parser().parse(TRIP_EXAMPLE_SCHEMA_WITH_PAYLOAD_SPECIFIC_COLS);
   public static final Schema NESTED_AVRO_SCHEMA = new Schema.Parser().parse(TRIP_NESTED_EXAMPLE_SCHEMA);
   public static final HoodieSchema NESTED_SCHEMA = HoodieSchema.fromAvroSchema(NESTED_AVRO_SCHEMA);
@@ -309,7 +312,7 @@ public class HoodieTestDataGenerator implements AutoCloseable {
   }
 
   public HoodieTestDataGenerator(long seed, String[] partitionPaths, Map<Integer, KeyPartition> keyPartitionMap) {
-    this(TRIP_EXAMPLE_SCHEMA, seed, partitionPaths, keyPartitionMap);
+    this(TRIP_EXAMPLE_SCHEMA_NO_UNSTRUCTURED, seed, partitionPaths, keyPartitionMap);
   }
 
   public HoodieTestDataGenerator(String schema, long seed, String[] partitionPaths, Map<Integer, KeyPartition> keyPartitionMap) {
@@ -417,7 +420,9 @@ public class HoodieTestDataGenerator implements AutoCloseable {
     if (!isDelete) {
       if (TRIP_FLATTENED_SCHEMA.equals(schemaStr)) {
         return generateRandomValue(key, commitTime, true, timestamp);
-      } else if (TRIP_EXAMPLE_SCHEMA.equals(schemaStr)) {
+      } else if (TRIP_EXAMPLE_SCHEMA_NO_UNSTRUCTURED.equals(schemaStr) || TRIP_EXAMPLE_SCHEMA.equals(schemaStr)) {
+        // TRIP_EXAMPLE_SCHEMA currently routes through the legacy AVRO_SCHEMA path. The unstructured
+        // variant will have its own generator added by phase 2 follow-ups.
         return generateRandomValue(key, commitTime, isFlattened, timestamp);
       } else if (TRIP_EXAMPLE_SCHEMA_EVOLVED_1.equals(schemaStr)) {
         return generateRandomValueForSchemaEvolved1(key, commitTime, isFlattened, timestamp);
@@ -441,7 +446,7 @@ public class HoodieTestDataGenerator implements AutoCloseable {
         return generatePayloadForLogicalTypesSchemaNoLTSV6(key, commitTime, false, timestamp);
       }
     } else {
-      if (TRIP_EXAMPLE_SCHEMA.equals(schemaStr)) {
+      if (TRIP_EXAMPLE_SCHEMA_NO_UNSTRUCTURED.equals(schemaStr) || TRIP_EXAMPLE_SCHEMA.equals(schemaStr)) {
         return generateRandomDeleteValue(key, commitTime, timestamp);
       } else if (TRIP_LOGICAL_TYPES_SCHEMA.equals(schemaStr)) {
         return generatePayloadForLogicalTypesSchema(key, commitTime, true, timestamp);

@@ -22,7 +22,6 @@ package org.apache.hudi.common.testutils;
 import org.apache.hudi.common.model.HoodieKey;
 
 import org.apache.avro.Schema;
-import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
 import org.junit.jupiter.api.Test;
 
@@ -33,16 +32,25 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
- * Validates that {@link HoodieTestDataGenerator} populates the unstructured-type columns
- * (VARIANT/VECTOR/BLOB) by default, while still supporting the legacy
- * {@code TRIP_EXAMPLE_SCHEMA_NO_UNSTRUCTURED} fallback for tests that have not yet been
- * migrated.
+ * Validates that {@link HoodieTestDataGenerator} exposes the unstructured-types schema as a
+ * forward-looking opt-in (via {@code TRIP_EXAMPLE_SCHEMA} / {@code AVRO_SCHEMA_WITH_UNSTRUCTURED}),
+ * while {@code AVRO_SCHEMA} and the no-arg constructor stay on the legacy
+ * {@code TRIP_EXAMPLE_SCHEMA_NO_UNSTRUCTURED} until tests are migrated by follow-up PRs.
  */
 class TestHoodieTestDataGenerator {
 
   @Test
-  void defaultSchemaIncludesUnstructuredTypes() {
+  void defaultAvroSchemaIsLegacyAndOmitsUnstructuredTypes() {
     Schema schema = HoodieTestDataGenerator.AVRO_SCHEMA;
+    assertNull(schema.getField("variant_data"));
+    assertNull(schema.getField("embedding"));
+    assertNull(schema.getField("blob_data"));
+  }
+
+  @Test
+  void unstructuredAvroSchemaCarriesAllThreeLogicalTypes() {
+    Schema schema = HoodieTestDataGenerator.AVRO_SCHEMA_WITH_UNSTRUCTURED;
+
     Schema variantField = unwrap(schema.getField("variant_data").schema());
     assertEquals(Schema.Type.RECORD, variantField.getType());
     assertEquals("variant", variantField.getLogicalType().getName());
@@ -57,32 +65,15 @@ class TestHoodieTestDataGenerator {
   }
 
   @Test
-  void defaultRecordsHaveUnstructuredFieldsPopulated() {
+  void defaultRecordsKeepLegacyShape() {
     HoodieTestDataGenerator gen = new HoodieTestDataGenerator(0L);
     HoodieKey key = new HoodieKey(UUID.randomUUID().toString(), HoodieTestDataGenerator.DEFAULT_FIRST_PARTITION_PATH);
     GenericRecord rec = (GenericRecord) gen.generateRandomValue(key, "001");
 
-    Object variant = rec.get("variant_data");
-    assertNotNull(variant);
-    assertEquals(Schema.Type.RECORD, ((GenericRecord) variant).getSchema().getType());
-
-    Object embedding = rec.get("embedding");
-    assertNotNull(embedding);
-    assertEquals(8 * Float.BYTES, ((GenericData.Fixed) embedding).bytes().length);
-
-    GenericRecord blob = (GenericRecord) rec.get("blob_data");
-    assertNotNull(blob);
-    assertEquals("INLINE", blob.get("type").toString());
-    assertNotNull(blob.get("data"));
-    assertNull(blob.get("reference"));
-  }
-
-  @Test
-  void legacySchemaOmitsUnstructuredTypes() {
-    Schema schema = HoodieTestDataGenerator.AVRO_SCHEMA_NO_UNSTRUCTURED;
-    assertNull(schema.getField("variant_data"));
-    assertNull(schema.getField("embedding"));
-    assertNull(schema.getField("blob_data"));
+    assertNotNull(rec.get("fare"));
+    assertNull(rec.getSchema().getField("variant_data"));
+    assertNull(rec.getSchema().getField("embedding"));
+    assertNull(rec.getSchema().getField("blob_data"));
   }
 
   private static Schema unwrap(Schema s) {
