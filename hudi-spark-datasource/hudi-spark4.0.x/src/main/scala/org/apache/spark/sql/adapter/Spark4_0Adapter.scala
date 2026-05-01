@@ -24,6 +24,7 @@ import org.apache.hudi.common.schema.HoodieSchema
 import org.apache.hudi.common.table.cdc.HoodieCDCFileSplit
 
 import org.apache.hadoop.conf.Configuration
+import org.apache.spark.SparkEnv
 import org.apache.spark.api.java.JavaSparkContext
 import org.apache.spark.sql._
 import org.apache.spark.sql.avro._
@@ -223,7 +224,13 @@ class Spark4_0Adapter extends BaseSpark4Adapter {
   }
 
   override def getDateTimeRebaseMode(): LegacyBehaviorPolicy.Value = {
-    LegacyBehaviorPolicy.withName(SQLConf.get.getConf(SQLConf.PARQUET_REBASE_MODE_IN_WRITE))
+    // See Spark3_5Adapter.getDateTimeRebaseMode for the rationale.
+    val key = SQLConf.PARQUET_REBASE_MODE_IN_WRITE.key
+    val fromSqlConf = Option(SQLConf.get.getConfString(key, null))
+    val fromSparkConf = Option(SparkEnv.get).map(_.conf.get(key, null)).filter(_ != null)
+    LegacyBehaviorPolicy.withName(
+      fromSqlConf.orElse(fromSparkConf)
+        .getOrElse(SQLConf.get.getConf(SQLConf.PARQUET_REBASE_MODE_IN_WRITE)))
   }
 
   override def isLegacyBehaviorPolicy(value: Object): Boolean = {
