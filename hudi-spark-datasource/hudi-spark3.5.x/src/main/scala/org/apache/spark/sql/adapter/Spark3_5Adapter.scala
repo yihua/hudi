@@ -203,9 +203,9 @@ class Spark3_5Adapter extends BaseSpark3Adapter {
     //      compaction dispatched via vanilla
     //      `JavaSparkContext.parallelize(...).map(...)`).
     //   3. The ConfigEntry's own default.
-    val key = SQLConf.PARQUET_REBASE_MODE_IN_WRITE.key
-    val fromSqlConf = Option(SQLConf.get.getConfString(key, null))
-    val fromSparkConf = Option(SparkEnv.get).flatMap(env => Option(env.conf.get(key, null)))
+    val fromSqlConf = Option(SQLConf.get.getConf(SQLConf.PARQUET_REBASE_MODE_IN_WRITE, null))
+    val fromSparkConf = Option(SparkEnv.get)
+      .flatMap(env => Option(env.conf.get(SQLConf.PARQUET_REBASE_MODE_IN_WRITE.key, null)))
     LegacyBehaviorPolicy.withName(
       fromSqlConf.orElse(fromSparkConf)
         .getOrElse(SQLConf.get.getConf(SQLConf.PARQUET_REBASE_MODE_IN_WRITE)))
