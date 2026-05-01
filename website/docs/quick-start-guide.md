@@ -46,9 +46,9 @@ From the extracted directory run spark-shell with Hudi:
 
 
 ```shell
-# For Spark versions: 3.3 - 4.0
+# For Spark versions: 3.3 - 4.1
 export SPARK_VERSION=3.5
-export HUDI_VERSION=1.1.1
+export HUDI_VERSION=1.2.0
 # For Scala versions: 2.12/2.13
 export SCALA_VERSION=2.13
 
@@ -67,9 +67,9 @@ From the extracted directory run pyspark with Hudi:
 
 ```shell
 export PYSPARK_PYTHON=$(which python3)
-# For Spark versions: 3.3 - 4.0
+# For Spark versions: 3.3 - 4.1
 export SPARK_VERSION=3.5
-export HUDI_VERSION=1.1.1
+export HUDI_VERSION=1.2.0
 # For Scala versions: 2.12/2.13
 export SCALA_VERSION=2.13
 
@@ -88,9 +88,9 @@ Hudi support using Spark SQL to write and read data with the **HoodieSparkSessio
 From the extracted directory run Spark SQL with Hudi:
 
 ```shell
-# For Spark versions: 3.3 - 4.0
+# For Spark versions: 3.3 - 4.1
 export SPARK_VERSION=3.5
-export HUDI_VERSION=1.1.1
+export HUDI_VERSION=1.2.0
 # For Scala versions: 2.12/2.13
 export SCALA_VERSION=2.13
 
