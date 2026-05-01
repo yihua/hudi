@@ -182,7 +182,7 @@ class Spark3_4Adapter extends BaseSpark3Adapter {
     // See Spark3_5Adapter.getDateTimeRebaseMode for the rationale.
     val key = SQLConf.PARQUET_REBASE_MODE_IN_WRITE.key
     val fromSqlConf = Option(SQLConf.get.getConfString(key, null))
-    val fromSparkConf = Option(SparkEnv.get).map(_.conf.get(key, null)).filter(_ != null)
+    val fromSparkConf = Option(SparkEnv.get).flatMap(env => Option(env.conf.get(key, null)))
     LegacyBehaviorPolicy.withName(
       fromSqlConf.orElse(fromSparkConf)
         .getOrElse(SQLConf.get.getConf(SQLConf.PARQUET_REBASE_MODE_IN_WRITE)))

@@ -205,7 +205,7 @@ class Spark3_5Adapter extends BaseSpark3Adapter {
     //   3. The ConfigEntry's own default.
     val key = SQLConf.PARQUET_REBASE_MODE_IN_WRITE.key
     val fromSqlConf = Option(SQLConf.get.getConfString(key, null))
-    val fromSparkConf = Option(SparkEnv.get).map(_.conf.get(key, null)).filter(_ != null)
+    val fromSparkConf = Option(SparkEnv.get).flatMap(env => Option(env.conf.get(key, null)))
     LegacyBehaviorPolicy.withName(
       fromSqlConf.orElse(fromSparkConf)
         .getOrElse(SQLConf.get.getConf(SQLConf.PARQUET_REBASE_MODE_IN_WRITE)))
