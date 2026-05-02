@@ -20,6 +20,7 @@ import org.apache.hudi.util.JFunction
 
 import org.apache.spark.sql.{SparkSession, SparkSessionExtensions}
 import org.apache.spark.sql.hudi.HoodieSparkSessionExtension
+import org.apache.spark.sql.internal.SQLConf
 import org.junit.jupiter.api.{AfterEach, BeforeEach, Test}
 import org.junit.jupiter.api.Assertions.assertEquals
 
@@ -50,10 +51,16 @@ class TestSparkAdapterRebaseModeDefault extends HoodieSparkClientTestBase {
     cleanupFileSystem()
   }
 
-  /** Adapter falls through to the ConfigEntry default (`EXCEPTION`). */
+  /**
+   * Adapter falls through to the ConfigEntry default. The default differs by
+   * Spark version (EXCEPTION on 3.x, CORRECTED on 4.1+), so we read it
+   * dynamically from SQLConf.
+   */
   @Test
   def testRebaseModeDefaultsToConfigEntryDefault(): Unit = {
-    assertEquals("EXCEPTION",
+    val expected = SQLConf.get.getConf(SQLConf.PARQUET_REBASE_MODE_IN_WRITE).toString
+
+    assertEquals(expected,
       SparkAdapterSupport.sparkAdapter.getDateTimeRebaseMode().toString,
       "driver-side adapter did not return the ConfigEntry default")
 
@@ -62,9 +69,9 @@ class TestSparkAdapterRebaseModeDefault extends HoodieSparkClientTestBase {
     }.collect()
 
     seenOnExecutor.zipWithIndex.foreach { case (mode, i) =>
-      assertEquals("EXCEPTION", mode,
+      assertEquals(expected, mode,
         s"executor task #$i resolved rebase mode to '$mode' with no overrides set; " +
-          "expected the ConfigEntry default (EXCEPTION).")
+          s"expected the ConfigEntry default ('$expected').")
     }
   }
 
