@@ -30,6 +30,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * Coverage for {@link HoodieRowParquetWriteSupport#resolveSessionLocalTimeZone()}.
+ * The full {@code init()} method is exercised end-to-end by integration tests in
+ * {@code hudi-spark-datasource/hudi-spark} (e.g. {@code TestHoodieInternalRowParquetWriter},
+ * {@code TestSparkAdapterRebaseModePropagation}). Constructing the write support
+ * directly from this module is not feasible because it requires a Spark
+ * adapter (e.g. {@code Spark3_5Adapter}) that is not on the test classpath
+ * here — the adapters live in sibling modules that depend on this one.
  */
 class TestHoodieRowParquetWriteSupport extends HoodieClientTestBase {
 
