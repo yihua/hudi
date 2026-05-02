@@ -31,12 +31,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 /**
  * Coverage for {@link HoodieRowParquetWriteSupport#resolveSessionLocalTimeZone()}.
  */
-public class TestHoodieRowParquetWriteSupport extends HoodieClientTestBase {
+class TestHoodieRowParquetWriteSupport extends HoodieClientTestBase {
 
   private static final String SESSION_LOCAL_TIME_ZONE_KEY = "spark.sql.session.timeZone";
 
   @Test
-  public void testResolveSessionLocalTimeZoneWithoutOverride() {
+  void testResolveSessionLocalTimeZoneWithoutOverride() {
     String expected = TimeZone.getDefault().getID();
 
     // Driver thread.
@@ -56,7 +56,7 @@ public class TestHoodieRowParquetWriteSupport extends HoodieClientTestBase {
   }
 
   @Test
-  public void testResolveSessionLocalTimeZoneWithSqlConfOverride() {
+  void testResolveSessionLocalTimeZoneWithSqlConfOverride() {
     // Pick a non-JVM-default zone so we can distinguish "fix worked" from
     // "fell back to JVM default".
     String jvmDefault = TimeZone.getDefault().getID();
