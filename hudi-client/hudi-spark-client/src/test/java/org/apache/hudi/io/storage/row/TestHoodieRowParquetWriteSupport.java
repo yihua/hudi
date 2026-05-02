@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.TimeZone;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 /**
  * Coverage for {@link HoodieRowParquetWriteSupport#resolveSessionLocalTimeZone()}.
@@ -75,6 +76,45 @@ class TestHoodieRowParquetWriteSupport extends HoodieClientTestBase {
           "helper did not return the SQLConf override on the driver");
     } finally {
       sqlContext.sparkSession().conf().unset(SESSION_LOCAL_TIME_ZONE_KEY);
+    }
+  }
+
+  /**
+   * SparkConf branch: when the override lives in SparkConf (broadcast to every
+   * executor) but is absent from the current thread's SQLConf, the helper
+   * must return it via {@code SparkEnv.get.conf}. Mirrors a compaction task
+   * thread that is outside any SQL execution context — exactly the
+   * production scenario the fix targets.
+   */
+  @Test
+  void testResolveSessionLocalTimeZoneWithSparkConfOverride() {
+    String jvmDefault = TimeZone.getDefault().getID();
+    String customTz = "Asia/Tokyo".equals(jvmDefault) ? "Pacific/Auckland" : "Asia/Tokyo";
+    assertNotEquals(customTz, jvmDefault,
+        "test setup is fragile if customTz matches the JVM default");
+
+    // Inject the key into SparkConf and remove it from the SparkSession's
+    // SQLConf so only the SparkEnv branch can satisfy the lookup.
+    jsc.sc().conf().set(SESSION_LOCAL_TIME_ZONE_KEY, customTz);
+    sqlContext.sparkSession().conf().unset(SESSION_LOCAL_TIME_ZONE_KEY);
+    try {
+      // Driver: SQLConf branch returns null → SparkEnv branch returns customTz.
+      assertEquals(customTz, HoodieRowParquetWriteSupport.resolveSessionLocalTimeZone(),
+          "driver helper should fall back to SparkEnv when SQLConf is unset");
+
+      // Executor task threads: SQLConf.get returns the fallback default (no
+      // override), so the SparkEnv branch is the only one that can satisfy
+      // the lookup. SparkEnv is shared by driver and executors in local mode.
+      List<String> seen = jsc.parallelize(Arrays.asList(1, 2, 3, 4), 4)
+          .map(i -> HoodieRowParquetWriteSupport.resolveSessionLocalTimeZone())
+          .collect();
+      for (int i = 0; i < seen.size(); i++) {
+        assertEquals(customTz, seen.get(i),
+            "executor task #" + i + " should resolve to SparkConf override '"
+                + customTz + "', got '" + seen.get(i) + "'");
+      }
+    } finally {
+      jsc.sc().conf().remove(SESSION_LOCAL_TIME_ZONE_KEY);
     }
   }
 }
