@@ -29,12 +29,11 @@ import java.util.TimeZone;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * Coverage for {@link HoodieRowParquetWriteSupport#resolveSessionLocalTimeZone()}:
- * the helper must return the SQLConf default (JVM default timezone) when no
- * override is set on the SparkSession or SparkConf, both on the driver and
- * inside Spark task closures.
+ * Coverage for {@link HoodieRowParquetWriteSupport#resolveSessionLocalTimeZone()}.
  */
 public class TestHoodieRowParquetWriteSupport extends HoodieClientTestBase {
+
+  private static final String SESSION_LOCAL_TIME_ZONE_KEY = "spark.sql.session.timeZone";
 
   @Test
   public void testResolveSessionLocalTimeZoneWithoutOverride() {
@@ -53,6 +52,23 @@ public class TestHoodieRowParquetWriteSupport extends HoodieClientTestBase {
       assertEquals(expected, seen.get(i),
           "executor task #" + i + " resolved sessionLocalTimeZone to '" + seen.get(i)
               + "' with no overrides; expected the JVM default ('" + expected + "')");
+    }
+  }
+
+  @Test
+  public void testResolveSessionLocalTimeZoneWithSqlConfOverride() {
+    // Pick a non-JVM-default zone so we can distinguish "fix worked" from
+    // "fell back to JVM default".
+    String jvmDefault = TimeZone.getDefault().getID();
+    String customTz = "Asia/Tokyo".equals(jvmDefault) ? "Pacific/Auckland" : "Asia/Tokyo";
+
+    sqlContext.sparkSession().conf().set(SESSION_LOCAL_TIME_ZONE_KEY, customTz);
+    try {
+      // Driver SQLConf carries the override; helper must return it via the first branch.
+      assertEquals(customTz, HoodieRowParquetWriteSupport.resolveSessionLocalTimeZone(),
+          "helper did not return the SQLConf override on the driver");
+    } finally {
+      sqlContext.sparkSession().conf().unset(SESSION_LOCAL_TIME_ZONE_KEY);
     }
   }
 }
