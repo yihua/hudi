@@ -118,8 +118,6 @@ public class HoodieRowParquetWriteSupport extends WriteSupport<InternalRow> {
   private static final String MAP_VALUE_NAME = "value";
 
   private static final String SESSION_LOCAL_TIME_ZONE_KEY = "spark.sql.session.timeZone";
-  private static final String PARQUET_METADATA_VERSION_KEY = "org.apache.spark.version";
-  private static final String PARQUET_METADATA_LEGACY_DATETIME_KEY = "org.apache.spark.legacyDateTime";
   private static final String PARQUET_METADATA_TIME_ZONE_KEY = "org.apache.spark.timeZone";
 
   @Getter
@@ -357,9 +355,9 @@ public class HoodieRowParquetWriteSupport extends WriteSupport<InternalRow> {
   @Override
   public WriteContext init(Configuration configuration) {
     Map<String, String> metadata = new HashMap<>();
-    metadata.put(PARQUET_METADATA_VERSION_KEY, VersionUtils.shortVersion(HoodieSparkUtils.getSparkVersion()));
+    metadata.put("org.apache.spark.version", VersionUtils.shortVersion(HoodieSparkUtils.getSparkVersion()));
     if (SparkAdapterSupport$.MODULE$.sparkAdapter().isLegacyBehaviorPolicy(datetimeRebaseMode)) {
-      metadata.put(PARQUET_METADATA_LEGACY_DATETIME_KEY, "");
+      metadata.put("org.apache.spark.legacyDateTime", "");
       metadata.put(PARQUET_METADATA_TIME_ZONE_KEY, resolveSessionLocalTimeZone());
     }
     String vectorMeta = HoodieSchema.buildVectorColumnsMetadataValue(schema);
