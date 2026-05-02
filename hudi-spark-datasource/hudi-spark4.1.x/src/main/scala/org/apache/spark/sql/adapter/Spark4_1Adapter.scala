@@ -227,12 +227,14 @@ class Spark4_1Adapter extends BaseSpark4Adapter {
   }
 
   override def getDateTimeRebaseMode(): LegacyBehaviorPolicy.Value = {
-    // See Spark3_5Adapter.getDateTimeRebaseMode for the rationale.
-    val key = SQLConf.PARQUET_REBASE_MODE_IN_WRITE.key
-    val fromSqlConf = Option(SQLConf.get.getConfString(key, null))
-    val fromSparkConf = Option(SparkEnv.get).flatMap(env => Option(env.conf.get(key, null)))
-    fromSqlConf.orElse(fromSparkConf)
+    // See Spark3_5Adapter.getDateTimeRebaseMode for the rationale. In Spark 4.1
+    // the ConfigEntry returns LegacyBehaviorPolicy.Value directly, so the
+    // SparkConf string is parsed via withName before the orElse chain.
+    val fromSqlConf = Option(SQLConf.get.getConf(SQLConf.PARQUET_REBASE_MODE_IN_WRITE, null))
+    val fromSparkConf = Option(SparkEnv.get)
+      .flatMap(env => Option(env.conf.get(SQLConf.PARQUET_REBASE_MODE_IN_WRITE.key, null)))
       .map(LegacyBehaviorPolicy.withName)
+    fromSqlConf.orElse(fromSparkConf)
       .getOrElse(SQLConf.get.getConf(SQLConf.PARQUET_REBASE_MODE_IN_WRITE))
   }
 

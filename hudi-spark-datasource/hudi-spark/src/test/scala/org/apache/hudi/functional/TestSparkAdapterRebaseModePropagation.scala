@@ -27,11 +27,9 @@ import org.junit.jupiter.api.Assertions.{assertEquals, assertNotEquals, assertTr
 import java.util.function.Consumer
 
 /**
- * Asserts that user-set rebase mode and session timezone are visible to Spark
- * executor tasks even when the task runs outside a Spark SQL execution context
- * (e.g. compaction dispatched via vanilla `JavaSparkContext.parallelize().map()`).
- * Each test fails without the SparkEnv.get.conf fallback in `getDateTimeRebaseMode`
- * and `HoodieRowParquetWriteSupport.resolveSessionLocalTimeZone`.
+ * User-set rebase mode and session timezone must reach Spark executor tasks
+ * dispatched outside a SQL execution context. Each test fails without the
+ * SparkEnv.get.conf fallback.
  */
 class TestSparkAdapterRebaseModePropagation extends HoodieSparkClientTestBase {
 
@@ -51,9 +49,9 @@ class TestSparkAdapterRebaseModePropagation extends HoodieSparkClientTestBase {
   }
 
   @BeforeEach override def setUp(): Unit = {
-    // LEGACY rebase + a non-default session timezone in SparkConf (broadcast to
-    // all executors) AND propagated into the driver SparkSession's SQLConf at
-    // startup.
+    // Customer-style config: LEGACY rebase + a non-default session timezone in
+    // SparkConf (broadcast to all executors) AND propagated into the driver
+    // SparkSession's SQLConf at startup.
     extraConf.put("spark.sql.parquet.datetimeRebaseModeInWrite", "LEGACY")
     extraConf.put("spark.sql.parquet.datetimeRebaseModeInRead", "LEGACY")
     extraConf.put("spark.sql.parquet.int96RebaseModeInWrite", "LEGACY")
@@ -114,11 +112,7 @@ class TestSparkAdapterRebaseModePropagation extends HoodieSparkClientTestBase {
     }
   }
 
-  /**
-   * Verifies the *mechanism* the fix relies on: SparkConf IS broadcast to every
-   * executor and is reachable via SparkEnv.get.conf inside a task closure.
-   * If this assertion ever fails, the adapter fallback's premise is broken.
-   */
+  /** SparkConf must be reachable on executor task threads via SparkEnv.get.conf. */
   @Test
   def testSparkConfIsVisibleOnExecutorViaSparkEnv(): Unit = {
     val key = "spark.sql.parquet.datetimeRebaseModeInWrite"
@@ -134,17 +128,7 @@ class TestSparkAdapterRebaseModePropagation extends HoodieSparkClientTestBase {
     }
   }
 
-  /**
-   * Parallel hole: HoodieRowParquetWriteSupport.init() reads
-   * `SQLConf.get().sessionLocalTimeZone()` to record the table's timezone
-   * metadata when LEGACY rebase is in effect. With the same SQLConf-on-executor
-   * bug, that read returned the JVM default timezone — not the user's
-   * `spark.sql.session.timeZone` override — when called from a compaction task.
-   *
-   * The fix: HoodieRowParquetWriteSupport.resolveSessionLocalTimeZone() falls
-   * back to SparkEnv.get.conf when SQLConf.get is the default. This test
-   * exercises that helper directly from an executor task closure to confirm.
-   */
+  /** Same shape as the rebase-mode test, for `HoodieRowParquetWriteSupport.resolveSessionLocalTimeZone`. */
   @Test
   def testSessionLocalTimeZoneReachesExecutorTask(): Unit = {
     // Sanity: customTimeZone is set on the driver session.
