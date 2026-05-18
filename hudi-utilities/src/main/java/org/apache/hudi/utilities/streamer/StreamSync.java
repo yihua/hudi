@@ -115,6 +115,7 @@ import org.apache.hudi.utilities.schema.SimpleSchemaProvider;
 import org.apache.hudi.utilities.sources.InputBatch;
 import org.apache.hudi.utilities.sources.Source;
 import org.apache.hudi.utilities.streamer.HoodieStreamer.Config;
+import org.apache.hudi.utilities.streamer.validator.SparkStreamerValidatorUtils;
 import org.apache.hudi.utilities.transform.Transformer;
 
 import com.codahale.metrics.Timer;
@@ -874,8 +875,30 @@ public class StreamSync implements Serializable, Closeable {
           totalSuccessfulRecords);
       String commitActionType = CommitUtils.getCommitActionType(cfg.operation, HoodieTableType.valueOf(cfg.tableType));
 
-      boolean success = writeClient.commit(instantTime, writeStatusRDD, Option.of(checkpointCommitMetadata), commitActionType, partitionToReplacedFileIds, Option.empty(),
-          Option.of(writeStatusValidator));
+      // Cache the RDD if not already persisted, so both validators (collect) and
+      // writeClient.commit() share the same materialized result without re-evaluation.
+      boolean weOwnCache = writeStatusRDD.getStorageLevel().equals(org.apache.spark.storage.StorageLevel.NONE());
+      if (weOwnCache) {
+        writeStatusRDD.cache();
+      }
+      List<WriteStatus> writeStatuses = writeStatusRDD.collect();
+
+      // Run pre-commit streaming offset validators (if configured).
+      // Placement before writeClient.commit() is intentional: offset validation is a stronger
+      // guard than commitOnErrors — if offset deviation indicates potential data loss, the commit
+      // must be prevented regardless of the commitOnErrors policy.
+      SparkStreamerValidatorUtils.runValidators(props, instantTime, writeStatuses,
+          checkpointCommitMetadata, metaClient);
+
+      boolean success;
+      try {
+        success = writeClient.commit(instantTime, writeStatusRDD, Option.of(checkpointCommitMetadata), commitActionType, partitionToReplacedFileIds, Option.empty(),
+            Option.of(writeStatusValidator));
+      } finally {
+        if (weOwnCache) {
+          writeStatusRDD.unpersist();
+        }
+      }
       releaseResourcesInvoked = true;
       if (success) {
         LOG.info("Commit " + instantTime + " successful!");
