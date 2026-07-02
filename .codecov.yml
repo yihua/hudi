@@ -58,6 +58,17 @@ ignore:
   # Metaserver is an incubating component with no shipped coverage. Remove this line
   # if it is taken into scope for the coverage initiative.
   - "hudi-platform-service/**"
+  # Standalone main()-style tools and legacy JSON/payload helpers carried over from the
+  # previous config; these are exercised by integration tests, not unit tests. Kept
+  # excluded for consistency (entries for since-deleted classes have been dropped).
+  - "hudi-common/src/main/java/org/apache/hudi/avro/MercifulJsonConverter.java"
+  - "hudi-common/src/main/java/org/apache/hudi/common/HoodieJsonPayload.java"
+  - "hudi-utilities/src/main/java/org/apache/hudi/utilities/HoodieCleaner.java"
+  - "hudi-utilities/src/main/java/org/apache/hudi/utilities/HoodieCompactionAdminTool.java"
+  - "hudi-utilities/src/main/java/org/apache/hudi/utilities/HoodieCompactor.java"
+  - "hudi-utilities/src/main/java/org/apache/hudi/utilities/HoodieWithTimelineServer.java"
+  - "hudi-utilities/src/main/java/org/apache/hudi/utilities/perf/TimelineServerPerf.java"
+  - "hudi-utilities/src/main/java/org/apache/hudi/utilities/HiveIncrementalPuller.java"
 
 # Post a coverage summary on every PR so reviewers can see the per-component and
 # per-patch delta (used to enforce the coverage-quality bar for the initiative).

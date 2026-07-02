@@ -125,8 +125,9 @@ This is the canonical per-PR view.
   ownership area (hudi-common, hudi-client, hudi-spark-datasource, hudi-flink, ...); and
   `flag_management` carries a flag's coverage forward when its job is skipped by the path filter,
   so a partial run does not report a false drop.
-- Generated code (Avro, Thrift, Protobuf, ANTLR) has no source committed to git, so it never
-  appears in the Codecov report and needs no exclusion.
+- Generated code (Thrift, Protobuf, ANTLR) has no source committed to git, so it never appears
+  in the Codecov report and needs no exclusion. The one committed generated path, the Avro model
+  classes, is still ignored defensively in `.codecov.yml`.
 - Codecov posts a summary comment on each PR with the project, per-component, and per-patch
   coverage delta. Statuses are informational (they do not fail the build); to gate a component
   against regression later, remove `informational` and set a `target`/`threshold` for it.
