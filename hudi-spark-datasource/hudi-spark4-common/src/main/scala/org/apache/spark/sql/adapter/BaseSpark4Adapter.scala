@@ -138,6 +138,8 @@ abstract class BaseSpark4Adapter extends SparkAdapter with Logging {
 
   override def getUTF8StringFactory: HoodieUTF8StringFactory = Spark4HoodieUTF8StringFactory
 
+  override def getSparkPartitionedFileUtils: HoodieSparkPartitionedFileUtils = HoodieSpark4PartitionedFileUtils
+
   override def splitFiles(sparkSession: SparkSession,
                           partitionDirectory: PartitionDirectory,
                           isSplitable: Boolean,

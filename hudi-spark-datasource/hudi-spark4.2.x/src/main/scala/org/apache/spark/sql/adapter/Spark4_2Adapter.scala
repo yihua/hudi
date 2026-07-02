@@ -98,8 +98,6 @@ class Spark4_2Adapter extends BaseSpark4Adapter {
 
   override def getSchemaUtils: HoodieSchemaUtils = HoodieSpark42SchemaUtils
 
-  override def getSparkPartitionedFileUtils: HoodieSparkPartitionedFileUtils = HoodieSpark42PartitionedFileUtils
-
   override def newParseException(command: Option[String],
                                  exception: AnalysisException,
                                  start: Origin,
