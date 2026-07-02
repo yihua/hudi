@@ -17,7 +17,6 @@
 
 package org.apache.spark.sql.adapter
 
-import org.apache.hudi.Spark35HoodieFileScanRDD
 import org.apache.hudi.common.schema.HoodieSchema
 import org.apache.hudi.storage.StorageConfiguration
 
@@ -30,7 +29,7 @@ import org.apache.spark.sql.avro._
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{EliminateSubqueryAliases, ResolvedTable}
 import org.apache.spark.sql.catalyst.catalog.CatalogTable
-import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Expression}
+import org.apache.spark.sql.catalyst.expressions.{Expression}
 import org.apache.spark.sql.catalyst.parser.ParserInterface
 import org.apache.spark.sql.catalyst.planning.PhysicalOperation
 import org.apache.spark.sql.catalyst.plans.logical._
@@ -101,14 +100,6 @@ class Spark3_5Adapter extends BaseSpark3Adapter {
 
   override def createLegacyHoodieParquetFileFormat(appendPartitionValues: Boolean): Option[ParquetFileFormat] = {
     Some(new Spark35LegacyHoodieParquetFileFormat(appendPartitionValues))
-  }
-
-  override def createHoodieFileScanRDD(sparkSession: SparkSession,
-                                       readFunction: PartitionedFile => Iterator[InternalRow],
-                                       filePartitions: Seq[FilePartition],
-                                       readDataSchema: StructType,
-                                       metadataColumns: Seq[AttributeReference] = Seq.empty): FileScanRDD = {
-    new Spark35HoodieFileScanRDD(sparkSession, readFunction, filePartitions, readDataSchema, metadataColumns)
   }
 
   override def extractDeleteCondition(deleteFromTable: Command): Expression = {
