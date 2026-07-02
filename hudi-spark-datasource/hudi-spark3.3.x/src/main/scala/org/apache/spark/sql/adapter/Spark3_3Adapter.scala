@@ -37,7 +37,7 @@ import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.util.{METADATA_COL_ATTR_KEY, RebaseDateTime}
 import org.apache.spark.sql.connector.catalog.{V1Table, V2TableWithV1Fallback}
 import org.apache.spark.sql.execution.datasources._
-import org.apache.spark.sql.execution.datasources.orc.Spark33OrcReader
+import org.apache.spark.sql.execution.datasources.orc.{OrcColumnarBatchReader, SparkOrcReaderBase}
 import org.apache.spark.sql.execution.datasources.parquet.{ParquetFileFormat, ParquetFilters, Spark33LegacyHoodieParquetFileFormat, Spark33ParquetReader}
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
 import org.apache.spark.sql.hudi.analysis.TableValuedFunctions
@@ -154,7 +154,8 @@ class Spark3_3Adapter extends BaseSpark3Adapter {
   }
 
   override def createOrcFileReader(vectorized: Boolean, sqlConf: SQLConf, options: Map[String, String], hadoopConf: Configuration, dataSchema: StructType): SparkColumnarFileReader = {
-    Spark33OrcReader.build(vectorized, sqlConf, options, hadoopConf, dataSchema)
+    SparkOrcReaderBase.build(vectorized, sqlConf, options, hadoopConf, dataSchema,
+      (capacity, _) => new OrcColumnarBatchReader(capacity))
   }
 
   override def createLanceFileReader(vectorized: Boolean,

@@ -43,7 +43,6 @@ import org.apache.spark.sql.catalyst.util.{METADATA_COL_ATTR_KEY, RebaseDateTime
 import org.apache.spark.sql.connector.catalog.{V1Table, V2TableWithV1Fallback}
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.execution.datasources.lance.SparkLanceReaderBase
-import org.apache.spark.sql.execution.datasources.orc.Spark42OrcReader
 import org.apache.spark.sql.execution.datasources.parquet.{ParquetFileFormat, Spark42LegacyHoodieParquetFileFormat, Spark42ParquetReader}
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
 import org.apache.spark.sql.execution.streaming.runtime.MemoryStream
@@ -188,24 +187,6 @@ class Spark4_2Adapter extends BaseSpark4Adapter {
                                        options: Map[String, String],
                                        hadoopConf: Configuration): SparkColumnarFileReader = {
     Spark42ParquetReader.build(vectorized, sqlConf, options, hadoopConf)
-  }
-
-  /**
-   * Get ORC file reader
-   *
-   * @param vectorized true if vectorized reading is not prohibited due to schema, reading mode, etc
-   * @param sqlConf    the [[SQLConf]] used for the read
-   * @param options    passed as a param to the file format
-   * @param hadoopConf some configs will be set for the hadoopConf
-   * @param dataSchema the data schema of the ORC file
-   * @return ORC file reader
-   */
-  override def createOrcFileReader(vectorized: Boolean,
-                                   sqlConf: SQLConf,
-                                   options: Map[String, String],
-                                   hadoopConf: Configuration,
-                                   dataSchema: StructType): SparkColumnarFileReader = {
-    Spark42OrcReader.build(vectorized, sqlConf, options, hadoopConf, dataSchema)
   }
 
   override def createLanceFileReader(vectorized: Boolean,

@@ -43,7 +43,6 @@ import org.apache.spark.sql.catalyst.util.RebaseDateTime.RebaseSpec
 import org.apache.spark.sql.connector.catalog.{V1Table, V2TableWithV1Fallback}
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.execution.datasources.lance.SparkLanceReaderBase
-import org.apache.spark.sql.execution.datasources.orc.Spark40OrcReader
 import org.apache.spark.sql.execution.datasources.parquet.{HoodieParquetReadSupport, ParquetFileFormat, Spark40HoodieParquetReadSupport, Spark40LegacyHoodieParquetFileFormat, Spark40ParquetReader}
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
 import org.apache.spark.sql.execution.streaming.MemoryStream
@@ -197,23 +196,6 @@ class Spark4_0Adapter extends BaseSpark4Adapter {
     new Spark40HoodieParquetReadSupport(
       convertTz, enableVectorizedReader, enableTimestampFieldRepair,
       datetimeRebaseSpec, getRebaseSpec("LEGACY"), tableSchemaOpt)
-  }
-
-  /**
-   * TODO
-   *
-   * @param vectorized
-   * @param sqlConf
-   * @param options
-   * @param hadoopConf
-   * @return
-   */
-  override def createOrcFileReader(vectorized: Boolean,
-                                   sqlConf: SQLConf,
-                                   options: Map[String, String],
-                                   hadoopConf: Configuration,
-                                   dataSchema: StructType): SparkColumnarFileReader = {
-    Spark40OrcReader.build(vectorized, sqlConf, options, hadoopConf, dataSchema)
   }
 
   override def createLanceFileReader(vectorized: Boolean,

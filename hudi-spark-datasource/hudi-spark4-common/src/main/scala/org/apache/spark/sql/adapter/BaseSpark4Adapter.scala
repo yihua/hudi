@@ -24,6 +24,7 @@ import org.apache.hudi.common.util.JsonUtils
 import org.apache.hudi.spark.internal.ReflectUtil
 import org.apache.hudi.storage.StorageConfiguration
 
+import org.apache.hadoop.conf.Configuration
 import org.apache.parquet.schema.{GroupType, MessageType, PrimitiveType, Type, Types}
 import org.apache.parquet.schema.Type.Repetition
 import org.apache.spark.api.java.JavaSparkContext
@@ -42,6 +43,7 @@ import org.apache.spark.sql.catalyst.util.DateFormatter
 import org.apache.spark.sql.classic.ColumnConversions
 import org.apache.spark.sql.execution.{PartitionedFileUtil, QueryExecution, SQLExecution}
 import org.apache.spark.sql.execution.datasources._
+import org.apache.spark.sql.execution.datasources.orc.{OrcColumnarBatchReader, SparkOrcReaderBase}
 import org.apache.spark.sql.execution.datasources.parquet.{HoodieFormatTrait, ParquetFilters, SparkShreddingUtils}
 import org.apache.spark.sql.hudi.SparkAdapter
 import org.apache.spark.sql.internal.SQLConf
@@ -107,6 +109,15 @@ abstract class BaseSpark4Adapter extends SparkAdapter with Logging {
                                        readDataSchema: StructType,
                                        metadataColumns: Seq[AttributeReference] = Seq.empty): FileScanRDD = {
     new HoodieFileScanRDD(sparkSession, readFunction, filePartitions, readDataSchema, metadataColumns)
+  }
+
+  override def createOrcFileReader(vectorized: Boolean,
+                                   sqlConf: SQLConf,
+                                   options: Map[String, String],
+                                   hadoopConf: Configuration,
+                                   dataSchema: StructType): SparkColumnarFileReader = {
+    SparkOrcReaderBase.build(vectorized, sqlConf, options, hadoopConf, dataSchema,
+      (capacity, memoryMode) => new OrcColumnarBatchReader(capacity, memoryMode))
   }
 
   override def createRelation(sqlContext: SQLContext,
