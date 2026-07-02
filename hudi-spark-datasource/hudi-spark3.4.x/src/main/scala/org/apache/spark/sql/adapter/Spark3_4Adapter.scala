@@ -31,26 +31,20 @@ import org.apache.spark.sql.avro._
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{EliminateSubqueryAliases, ResolvedTable}
 import org.apache.spark.sql.catalyst.catalog.CatalogTable
-import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Expression}
+import org.apache.spark.sql.catalyst.expressions.AttributeReference
 import org.apache.spark.sql.catalyst.parser.ParserInterface
 import org.apache.spark.sql.catalyst.planning.PhysicalOperation
 import org.apache.spark.sql.catalyst.plans.logical._
-import org.apache.spark.sql.catalyst.util.{METADATA_COL_ATTR_KEY, RebaseDateTime}
+import org.apache.spark.sql.catalyst.util.RebaseDateTime
 import org.apache.spark.sql.connector.catalog.{V1Table, V2TableWithV1Fallback}
 import org.apache.spark.sql.execution.datasources._
-import org.apache.spark.sql.execution.datasources.lance.SparkLanceReaderBase
 import org.apache.spark.sql.execution.datasources.orc.Spark34OrcReader
 import org.apache.spark.sql.execution.datasources.parquet.{ParquetFileFormat, ParquetFilters, Spark34LegacyHoodieParquetFileFormat, Spark34ParquetReader}
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
-import org.apache.spark.sql.hudi.analysis.TableValuedFunctions
-import org.apache.spark.sql.hudi.blob.{BatchedBlobReaderStrategy, ScalarFunctions}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.internal.SQLConf.LegacyBehaviorPolicy
 import org.apache.spark.sql.parser.{HoodieExtendedParserInterface, HoodieSpark3_4ExtendedSqlParser}
-import org.apache.spark.sql.types.{DataType, DataTypes, Metadata, MetadataBuilder, StructType}
-import org.apache.spark.sql.vectorized.ColumnarBatchRow
-import org.apache.spark.storage.StorageLevel
-import org.apache.spark.storage.StorageLevel._
+import org.apache.spark.sql.types.{DataType, DataTypes, StructType}
 
 /**
  * Implementation of [[SparkAdapter]] for Spark 3.4.x branch
@@ -72,13 +66,6 @@ class Spark3_4Adapter extends BaseSpark3Adapter {
       }
     }
   }
-
-  override def isColumnarBatchRow(r: InternalRow): Boolean = r.isInstanceOf[ColumnarBatchRow]
-
-  def createCatalystMetadataForMetaField: Metadata =
-    new MetadataBuilder()
-      .putBoolean(METADATA_COL_ATTR_KEY, value = true)
-      .build()
 
   override def getCatalystExpressionUtils: HoodieCatalystExpressionUtils = HoodieSpark34CatalystExpressionUtils
 
@@ -109,44 +96,6 @@ class Spark3_4Adapter extends BaseSpark3Adapter {
     new Spark34HoodieFileScanRDD(sparkSession, readFunction, filePartitions, readDataSchema, metadataColumns)
   }
 
-  override def extractDeleteCondition(deleteFromTable: Command): Expression = {
-    deleteFromTable.asInstanceOf[DeleteFromTable].condition
-  }
-
-  override def injectTableFunctions(extensions: SparkSessionExtensions): Unit = {
-    TableValuedFunctions.funcs.foreach(extensions.injectTableFunction)
-  }
-
-  override def injectScalarFunctions(extensions: SparkSessionExtensions): Unit = {
-    ScalarFunctions.funcs.foreach(extensions.injectFunction)
-  }
-
-  override def injectPlannerStrategies(extensions: SparkSessionExtensions): Unit = {
-    extensions.injectPlannerStrategy { session =>
-      BatchedBlobReaderStrategy(session)
-    }
-  }
-
-  /**
-   * Converts instance of [[StorageLevel]] to a corresponding string
-   */
-  override def convertStorageLevelToString(level: StorageLevel): String = level match {
-    case NONE => "NONE"
-    case DISK_ONLY => "DISK_ONLY"
-    case DISK_ONLY_2 => "DISK_ONLY_2"
-    case DISK_ONLY_3 => "DISK_ONLY_3"
-    case MEMORY_ONLY => "MEMORY_ONLY"
-    case MEMORY_ONLY_2 => "MEMORY_ONLY_2"
-    case MEMORY_ONLY_SER => "MEMORY_ONLY_SER"
-    case MEMORY_ONLY_SER_2 => "MEMORY_ONLY_SER_2"
-    case MEMORY_AND_DISK => "MEMORY_AND_DISK"
-    case MEMORY_AND_DISK_2 => "MEMORY_AND_DISK_2"
-    case MEMORY_AND_DISK_SER => "MEMORY_AND_DISK_SER"
-    case MEMORY_AND_DISK_SER_2 => "MEMORY_AND_DISK_SER_2"
-    case OFF_HEAP => "OFF_HEAP"
-    case _ => throw new IllegalArgumentException(s"Invalid StorageLevel: $level")
-  }
-
   /**
    * Get parquet file reader
    *
@@ -165,13 +114,6 @@ class Spark3_4Adapter extends BaseSpark3Adapter {
 
   override def createOrcFileReader(vectorized: Boolean, sqlConf: SQLConf, options: Map[String, String], hadoopConf: Configuration, dataSchema: StructType): SparkColumnarFileReader = {
     Spark34OrcReader.build(vectorized, sqlConf, options, hadoopConf, dataSchema)
-  }
-
-  override def createLanceFileReader(vectorized: Boolean,
-                                     sqlConf: SQLConf,
-                                     options: Map[String, String],
-                                     hadoopConf: Configuration): Option[SparkColumnarFileReader] = {
-    Some(new SparkLanceReaderBase(vectorized))
   }
 
   override def stopSparkContext(jssc: JavaSparkContext, exitCode: Int): Unit = {
