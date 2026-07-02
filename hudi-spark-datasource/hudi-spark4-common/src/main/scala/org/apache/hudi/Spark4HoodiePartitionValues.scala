@@ -20,11 +20,18 @@
 package org.apache.hudi
 
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.unsafe.types.VariantVal
 
-case class Spark40HoodiePartitionValues(override val values: InternalRow)
-  extends Spark4HoodiePartitionValues(values) {
+/**
+ * Base class for Spark 4.x HoodiePartitionValues implementations.
+ * Adds the delegation logic available in all Spark 4.x versions on top of
+ * [[BaseHoodiePartitionValues]]. Version-specific subclasses only implement
+ * `copy()` and the getters introduced by a newer Spark version.
+ */
+abstract class Spark4HoodiePartitionValues(values: InternalRow)
+  extends BaseHoodiePartitionValues(values) {
 
-  override def copy(): InternalRow = {
-    Spark40HoodiePartitionValues(values.copy())
+  override def getVariant(ordinal: Int): VariantVal = {
+    values.getVariant(ordinal)
   }
 }
