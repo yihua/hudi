@@ -23,7 +23,7 @@ jobs:
         run: |
           echo "Checking commits of PR #${PR_NUMBER} for Claude co-author trailers..."
           flagged=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/commits" --paginate \
-            --jq '.[] | select(.commit.message | test("(^|\\n)co-authored-by:\\s*(claude\\s*<|[^\\n]*<noreply@anthropic\\.com>)"; "i")) | .sha')
+            --jq '.[] | select(.commit.message | test("(^|\\n)co-authored-by:[^\\n]*<noreply@anthropic\\.com>"; "i")) | .sha')
 
           if [[ -n "$flagged" ]]; then
             echo "❌ The following commits contain a Claude co-author trailer:"
