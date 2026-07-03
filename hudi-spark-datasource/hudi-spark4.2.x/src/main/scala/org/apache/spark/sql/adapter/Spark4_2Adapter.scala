@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.adapter
 
-import org.apache.hudi.{HoodiePartitionCDCFileGroupMapping, HoodiePartitionFileSliceMapping, Spark42HoodieFileScanRDD, Spark42HoodiePartitionCDCFileGroupMapping, Spark42HoodiePartitionFileSliceMapping}
+import org.apache.hudi.{HoodiePartitionCDCFileGroupMapping, HoodiePartitionFileSliceMapping, Spark42HoodiePartitionCDCFileGroupMapping, Spark42HoodiePartitionFileSliceMapping}
 import org.apache.hudi.client.model.{HoodieInternalRow, Spark42HoodieInternalRow}
 import org.apache.hudi.common.model.FileSlice
 import org.apache.hudi.common.schema.HoodieSchema
@@ -32,7 +32,7 @@ import org.apache.spark.sql.avro._
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.{EliminateSubqueryAliases, ResolvedTable}
 import org.apache.spark.sql.catalyst.catalog.CatalogTable
-import org.apache.spark.sql.catalyst.expressions.{AttributeReference, BoundReference, CreateNamedStruct, Expression, Literal, UnsafeProjection}
+import org.apache.spark.sql.catalyst.expressions.{BoundReference, CreateNamedStruct, Expression, Literal, UnsafeProjection}
 import org.apache.spark.sql.catalyst.expressions.variant.VariantGet
 import org.apache.spark.sql.catalyst.parser.{ParseException, ParserInterface}
 import org.apache.spark.sql.catalyst.planning.PhysicalOperation
@@ -43,7 +43,6 @@ import org.apache.spark.sql.catalyst.util.{METADATA_COL_ATTR_KEY, RebaseDateTime
 import org.apache.spark.sql.connector.catalog.{V1Table, V2TableWithV1Fallback}
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.execution.datasources.lance.SparkLanceReaderBase
-import org.apache.spark.sql.execution.datasources.orc.Spark42OrcReader
 import org.apache.spark.sql.execution.datasources.parquet.{ParquetFileFormat, Spark42LegacyHoodieParquetFileFormat, Spark42ParquetReader}
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
 import org.apache.spark.sql.execution.streaming.runtime.MemoryStream
@@ -98,8 +97,6 @@ class Spark4_2Adapter extends BaseSpark4Adapter {
 
   override def getSchemaUtils: HoodieSchemaUtils = HoodieSpark42SchemaUtils
 
-  override def getSparkPartitionedFileUtils: HoodieSparkPartitionedFileUtils = HoodieSpark42PartitionedFileUtils
-
   override def newParseException(command: Option[String],
                                  exception: AnalysisException,
                                  start: Origin,
@@ -136,14 +133,6 @@ class Spark4_2Adapter extends BaseSpark4Adapter {
   override def createPartitionFileSliceMapping(values: InternalRow,
                                                slices: Map[String, FileSlice]): HoodiePartitionFileSliceMapping = {
     new Spark42HoodiePartitionFileSliceMapping(values, slices)
-  }
-
-  override def createHoodieFileScanRDD(sparkSession: SparkSession,
-                                       readFunction: PartitionedFile => Iterator[InternalRow],
-                                       filePartitions: Seq[FilePartition],
-                                       readDataSchema: StructType,
-                                       metadataColumns: Seq[AttributeReference] = Seq.empty): FileScanRDD = {
-    new Spark42HoodieFileScanRDD(sparkSession, readFunction, filePartitions, readDataSchema, metadataColumns)
   }
 
   override def extractDeleteCondition(deleteFromTable: Command): Expression = {
@@ -198,24 +187,6 @@ class Spark4_2Adapter extends BaseSpark4Adapter {
                                        options: Map[String, String],
                                        hadoopConf: Configuration): SparkColumnarFileReader = {
     Spark42ParquetReader.build(vectorized, sqlConf, options, hadoopConf)
-  }
-
-  /**
-   * Get ORC file reader
-   *
-   * @param vectorized true if vectorized reading is not prohibited due to schema, reading mode, etc
-   * @param sqlConf    the [[SQLConf]] used for the read
-   * @param options    passed as a param to the file format
-   * @param hadoopConf some configs will be set for the hadoopConf
-   * @param dataSchema the data schema of the ORC file
-   * @return ORC file reader
-   */
-  override def createOrcFileReader(vectorized: Boolean,
-                                   sqlConf: SQLConf,
-                                   options: Map[String, String],
-                                   hadoopConf: Configuration,
-                                   dataSchema: StructType): SparkColumnarFileReader = {
-    Spark42OrcReader.build(vectorized, sqlConf, options, hadoopConf, dataSchema)
   }
 
   override def createLanceFileReader(vectorized: Boolean,
