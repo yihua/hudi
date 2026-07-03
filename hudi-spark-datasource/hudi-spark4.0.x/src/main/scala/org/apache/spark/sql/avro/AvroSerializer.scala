@@ -63,10 +63,11 @@ private[sql] class AvroSerializer(rootCatalystType: DataType,
                                   positionalFieldMatch: Boolean,
                                   datetimeRebaseMode: LegacyBehaviorPolicy.Value) extends Logging {
 
-  // NOTE: The convenience constructor that read AVRO_REBASE_MODE_IN_WRITE from SQLConf was moved into the
-  //       per-version HoodieSpark4_xAvroSerializer wrappers. SQLConf.getConf on that entry returns a raw String
-  //       on Spark 4.0 but a LegacyBehaviorPolicy.Value on Spark 4.1+, so the read cannot be expressed once in
-  //       this shared source; each wrapper performs its version-correct read and passes the resolved enum in.
+  def this(rootCatalystType: DataType, rootAvroType: Schema, nullable: Boolean) = {
+    this(rootCatalystType, rootAvroType, nullable, positionalFieldMatch = false,
+      LegacyBehaviorPolicy.withName(SQLConf.get.getConf(SQLConf.AVRO_REBASE_MODE_IN_WRITE,
+        LegacyBehaviorPolicy.CORRECTED.toString)))
+  }
 
   def serialize(catalystData: Any): Any = {
     converter.apply(catalystData)

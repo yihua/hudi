@@ -26,8 +26,8 @@ import org.apache.avro.LogicalTypes.{LocalTimestampMicros, LocalTimestampMillis,
 import org.apache.avro.Schema.Type._
 import org.apache.avro.generic._
 import org.apache.avro.util.Utf8
+import org.apache.spark.sql.avro.AvroDeserializer.{createDateRebaseFuncInRead, createTimestampRebaseFuncInRead, RebaseSpec}
 import org.apache.spark.sql.avro.AvroUtils.{toFieldStr, AvroMatchedField}
-import org.apache.spark.sql.avro.Spark40AvroDeserializer.{createDateRebaseFuncInRead, createTimestampRebaseFuncInRead, RebaseSpec}
 import org.apache.spark.sql.catalyst.{InternalRow, NoopFilters, StructFilters}
 import org.apache.spark.sql.catalyst.expressions.{SpecificInternalRow, UnsafeArrayData}
 import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, ArrayData, DateTimeUtils, GenericArrayData, RebaseDateTime}
@@ -52,19 +52,12 @@ import scala.collection.JavaConverters._
  * branches (3.2.x, 3.1.x, etc)
  *
  * PLEASE REFRAIN MAKING ANY CHANGES TO THIS CODE UNLESS ABSOLUTELY NECESSARY
- *
- * NOTE: This is the Spark 4.0-specific deserializer. It is deliberately kept separate from the shared
- *       hudi-spark4-common AvroDeserializer (used by Spark 4.1+) because Spark 4.1+ pulls in Avro 1.12.1,
- *       which enables the Avro fast reader and requires read-side java.time normalization that Spark 4.0
- *       (Avro 1.12.0, fast reader off) does not. It is named Spark40AvroDeserializer rather than
- *       AvroDeserializer so it does not collide on the classpath with the shared hudi-spark4-common copy,
- *       which hudi-spark4.0.x depends on.
  */
-private[sql] class Spark40AvroDeserializer(rootAvroType: Schema,
-                                           rootCatalystType: DataType,
-                                           positionalFieldMatch: Boolean,
-                                           datetimeRebaseSpec: RebaseSpec,
-                                           filters: StructFilters) {
+private[sql] class AvroDeserializer(rootAvroType: Schema,
+                                    rootCatalystType: DataType,
+                                    positionalFieldMatch: Boolean,
+                                    datetimeRebaseSpec: RebaseSpec,
+                                    filters: StructFilters) {
 
   def this(rootAvroType: Schema,
            rootCatalystType: DataType,
@@ -529,9 +522,9 @@ private[sql] class Spark40AvroDeserializer(rootAvroType: Schema,
   }
 }
 
-object Spark40AvroDeserializer {
+object AvroDeserializer {
 
-  // NOTE: Following methods have been renamed in Spark 3.2.1 [1] making [[Spark40AvroDeserializer]] implementation
+  // NOTE: Following methods have been renamed in Spark 3.2.1 [1] making [[AvroDeserializer]] implementation
   //       (which relies on it) be only compatible with the exact same version of [[DataSourceUtils]].
   //       To make sure this implementation is compatible w/ all Spark versions w/in Spark 3.2.x branch,
   //       we're preemptively cloned those methods to make sure Hudi is compatible w/ Spark 3.2.0 as well as
