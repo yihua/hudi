@@ -102,8 +102,10 @@ class TestHoodieLogFileProcedure extends HoodieSparkProcedureTestBase {
   }
 
   test("Test Call show_logfile_records Procedure with merge and filter") {
-    // Keep automatic cleaning off so the pre-compaction log files survive for the merged scan.
-    withSQLConf("hoodie.clean.automatic" -> "false") {
+    // Keep automatic cleaning off so the pre-compaction log files survive for the merged scan, and
+    // lower the compaction trigger so the explicit run_compaction below actually schedules and
+    // executes (producing the commit instant that the merged scan needs to find the latest instant).
+    withSQLConf("hoodie.clean.automatic" -> "false", "hoodie.compact.inline.max.delta.commits" -> "1") {
       withTempDir { tmp =>
         val tableName = generateTableName
         val tablePath = s"${tmp.getCanonicalPath}/$tableName"

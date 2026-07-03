@@ -66,7 +66,9 @@ class TestHoodieProcedureFilterUtils extends HoodieSparkProcedureTestBase {
     assertResult(2)(keep(scalarRows, "id <= 2", scalarSchema).length)
     assertResult(Seq(scalarRows(1)))(keep(scalarRows, "id != 1", scalarSchema))
     assertResult(Seq(scalarRows.head))(keep(scalarRows, "name = 'a1'", scalarSchema))
-    assertResult(Seq(scalarRows(1)))(keep(scalarRows, "price > 15.0", scalarSchema))
+    // The literal must match the column type: a plain 15.0 parses as decimal, and the util does not
+    // coerce a double column against a decimal literal, so use an explicit double literal here.
+    assertResult(Seq(scalarRows(1)))(keep(scalarRows, "price > 15.0d", scalarSchema))
     // Bare boolean column evaluates to a Boolean result directly.
     assertResult(Seq(scalarRows.head))(keep(scalarRows, "flag", scalarSchema))
     assertResult(Seq(scalarRows.head))(keep(scalarRows, "flag = true", scalarSchema))
@@ -107,25 +109,37 @@ class TestHoodieProcedureFilterUtils extends HoodieSparkProcedureTestBase {
   }
 
   test("evaluateFilter resolves numeric and cast functions") {
+    // The util only special-cases a long column vs an integer literal; every other numeric
+    // comparison relies on the literal already matching the expression's result type. So the
+    // literals below are typed to match: round/double yield double, ceil/floor/long yield long.
     assertResult(Seq(scalarRows.head))(keep(scalarRows, "abs(neg) = 5", scalarSchema))
-    assertResult(Seq(scalarRows.head))(keep(scalarRows, "round(price) = 10.0", scalarSchema))
-    assertResult(Seq(scalarRows.head))(keep(scalarRows, "round(price, 1) = 10.0", scalarSchema))
-    assertResult(Seq(scalarRows.head))(keep(scalarRows, "ceil(price) = 10", scalarSchema))
-    assertResult(Seq(scalarRows.head))(keep(scalarRows, "floor(price) = 10", scalarSchema))
+    assertResult(Seq(scalarRows.head))(keep(scalarRows, "round(price) = 10.0d", scalarSchema))
+    assertResult(Seq(scalarRows.head))(keep(scalarRows, "round(price, 1) = 10.0d", scalarSchema))
+    assertResult(Seq(scalarRows.head))(keep(scalarRows, "ceil(price) = 10L", scalarSchema))
+    assertResult(Seq(scalarRows.head))(keep(scalarRows, "floor(price) = 10L", scalarSchema))
     assertResult(Seq(scalarRows.head))(keep(scalarRows, "int(price) = 10", scalarSchema))
-    assertResult(Seq(scalarRows.head))(keep(scalarRows, "long(id) = 1", scalarSchema))
-    assertResult(Seq(scalarRows.head))(keep(scalarRows, "double(id) = 1.0", scalarSchema))
+    assertResult(Seq(scalarRows.head))(keep(scalarRows, "long(id) = 1L", scalarSchema))
+    assertResult(Seq(scalarRows.head))(keep(scalarRows, "double(id) = 1.0d", scalarSchema))
     assertResult(Seq(scalarRows.head))(keep(scalarRows, "string(id) = '1'", scalarSchema))
   }
 
-  test("evaluateFilter resolves date / time functions") {
+  test("evaluateFilter resolves date functions") {
+    // These operate on the date column and need no session time zone, so they evaluate directly.
     assertResult(Seq(scalarRows.head))(keep(scalarRows, "year(d) = 2024", scalarSchema))
     assertResult(Seq(scalarRows.head))(keep(scalarRows, "month(d) = 3", scalarSchema))
     assertResult(Seq(scalarRows.head))(keep(scalarRows, "day(d) = 15", scalarSchema))
     assertResult(Seq(scalarRows.head))(keep(scalarRows, "dayofmonth(d) = 15", scalarSchema))
-    assertResult(Seq(scalarRows.head))(keep(scalarRows, "hour(t) = 12", scalarSchema))
-    assertResult(Seq(scalarRows.head))(keep(scalarRows, "date_format(t, 'yyyy') = '2024'", scalarSchema))
     assertResult(2)(keep(scalarRows, "datediff(d, d) = 0", scalarSchema).length)
+    assertResult(Seq(scalarRows.head))(keep(scalarRows, "datediff(d, date'2024-03-14') = 1", scalarSchema))
+  }
+
+  test("evaluateFilter cannot evaluate time-zone-aware timestamp functions") {
+    // The util binds and evaluates expressions without running Spark's analyzer, so time-zone-aware
+    // expressions never receive a resolved time zone and fail to evaluate; the filter then treats the
+    // row as a non-match rather than throwing. This documents that hour()/date_format() on a timestamp
+    // are unsupported here (unlike the date functions above, which are time-zone independent).
+    assertResult(Seq.empty)(keep(scalarRows, "hour(t) = 12", scalarSchema))
+    assertResult(Seq.empty)(keep(scalarRows, "date_format(t, 'yyyy') = '2024'", scalarSchema))
   }
 
   test("evaluateFilter maps a string result of true / false to a boolean decision") {

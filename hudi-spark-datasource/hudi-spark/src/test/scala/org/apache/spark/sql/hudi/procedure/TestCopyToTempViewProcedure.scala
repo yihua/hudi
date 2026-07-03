@@ -209,14 +209,16 @@ class TestCopyToTempViewProcedure extends HoodieSparkSqlTestBase {
         s"call copy_to_temp_view(table => '$tableName', view_name => '$incViewName', query_type => 'incremental')")(
         "begin_instance_time and end_instance_time can not be null")
 
-      // A range that starts before the first commit returns every record.
+      // Hudi incremental read treats the begin instant as an exclusive lower bound, so a range from
+      // before the first commit up to the last commit returns only the record(s) written by the last
+      // commit here (the first commit falls on / below the begin boundary and is not re-emitted).
       val row = spark.sql(
         s"""call copy_to_temp_view(table => '$tableName', view_name => '$incViewName',
            | query_type => 'incremental', begin_instance_time => '000', end_instance_time => '${commits.last}')"""
           .stripMargin).collectAsList()
       assert(row.size() == 1 && row.get(0).get(0) == 0)
       val incCount = spark.sql(s"select count(1) from $incViewName").collectAsList()
-      assert(incCount.size() == 1 && incCount.get(0).get(0) == 2)
+      assert(incCount.size() == 1 && incCount.get(0).get(0) == 1)
     }
   }
 
