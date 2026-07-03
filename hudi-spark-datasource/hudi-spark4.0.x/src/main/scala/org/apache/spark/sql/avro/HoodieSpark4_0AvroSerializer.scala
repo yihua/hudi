@@ -18,12 +18,16 @@
 package org.apache.spark.sql.avro
 
 import org.apache.avro.Schema
+import org.apache.spark.sql.internal.{LegacyBehaviorPolicy, SQLConf}
 import org.apache.spark.sql.types.DataType
 
 class HoodieSpark4_0AvroSerializer(rootCatalystType: DataType, rootAvroType: Schema, nullable: Boolean)
   extends HoodieAvroSerializer {
 
-  val avroSerializer = new AvroSerializer(rootCatalystType, rootAvroType, nullable)
+  // On Spark 4.0 the AVRO_REBASE_MODE_IN_WRITE ConfigEntry is typed as String, so resolve the enum here.
+  val avroSerializer = new AvroSerializer(rootCatalystType, rootAvroType, nullable, positionalFieldMatch = false,
+    LegacyBehaviorPolicy.withName(SQLConf.get.getConf(SQLConf.AVRO_REBASE_MODE_IN_WRITE,
+      LegacyBehaviorPolicy.CORRECTED.toString)))
 
   override def serialize(catalystData: Any): Any = avroSerializer.serialize(catalystData)
 }
