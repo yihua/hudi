@@ -116,12 +116,14 @@ class TestFileGroupReaderReadPath extends HoodieSparkClientTestBase with ScalaAs
 
     val firstCompletion = DataSourceTestUtils.latestCommitCompletionTime(storage, basePath)
 
-    // V2: introduce column `bonus`; update id2/id5 and insert id8/id9
-    val v2 = Seq(
-      ("id2", "n2u", 12, 2L, "p1", 100.0d),
-      ("id5", "n5u", 15, 2L, "p2", 200.0d),
-      ("id8", "n8", 20, 2L, "p1", 300.0d),
-      ("id9", "n9", 21, 2L, "p2", 400.0d)
+    // V2: introduce column `bonus`; update id2/id5 and insert id8/id9. The new column is
+    // nullable (Option[Double]) so that add-column auto-evolution passes the backwards
+    // compatibility check (a non-nullable added column has no default for the older rows).
+    val v2 = Seq[(String, String, Int, Long, String, Option[Double])](
+      ("id2", "n2u", 12, 2L, "p1", Some(100.0d)),
+      ("id5", "n5u", 15, 2L, "p2", Some(200.0d)),
+      ("id8", "n8", 20, 2L, "p1", Some(300.0d)),
+      ("id9", "n9", 21, 2L, "p2", Some(400.0d))
     ).toDF("id", "name", "age", "ts", "part", "bonus")
     v2.write.format("hudi")
       .options(writeOpts)
@@ -151,7 +153,9 @@ class TestFileGroupReaderReadPath extends HoodieSparkClientTestBase with ScalaAs
     assertEquals(10, byId("id0").getInt(2))
     assertTrue(byId("id0").isNullAt(3))
 
-    // Incremental read of everything written after V1 must return exactly the V2 records.
+    // Incremental read of everything written after V1 must return exactly the V2 records. The
+    // incremental range is start-exclusive (OPEN_CLOSED), so starting from V1's completion time
+    // pulls only the commits that landed after it (i.e. V2).
     val incremental = spark.read.format("hudi")
       .option("hoodie.schema.on.read.enable", "true")
       .option(DataSourceReadOptions.QUERY_TYPE.key, DataSourceReadOptions.QUERY_TYPE_INCREMENTAL_OPT_VAL)
@@ -227,10 +231,11 @@ class TestFileGroupReaderReadPath extends HoodieSparkClientTestBase with ScalaAs
   /**
    * Partition pruning + typed partition-value projection over the file-group reader.
    *
-   * Partition columns are dropped from the data files, forcing the reader to reconstruct them
-   * from the partition path through the per-version HoodiePartitionValues getters (string + int).
-   * We assert both the pruned partition/file list produced by HoodieFileIndex and the rows /
-   * typed values returned by the corresponding DataFrame read.
+   * A multi-column partition key mixes a string column (`dt`) and an integer column (`region`),
+   * so the reader reconstructs partition values from the partition path through the per-version
+   * HoodiePartitionValues getters (string + int). We assert both the pruned partition/file list
+   * produced by HoodieFileIndex (which parses typed values from the path) and the rows / typed
+   * values returned by the corresponding DataFrame read.
    */
   @ParameterizedTest
   @EnumSource(classOf[HoodieTableType])
@@ -243,8 +248,7 @@ class TestFileGroupReaderReadPath extends HoodieSparkClientTestBase with ScalaAs
       DataSourceWriteOptions.PARTITIONPATH_FIELD.key -> "dt,region",
       DataSourceWriteOptions.KEYGENERATOR_CLASS_NAME.key -> "org.apache.hudi.keygen.ComplexKeyGenerator",
       DataSourceWriteOptions.URL_ENCODE_PARTITIONING.key -> "false",
-      DataSourceWriteOptions.HIVE_STYLE_PARTITIONING.key -> "false",
-      "hoodie.datasource.write.drop.partition.columns" -> "true"
+      DataSourceWriteOptions.HIVE_STYLE_PARTITIONING.key -> "false"
     )
 
     // 4 partitions: dt in {2024-01-01, 2024-01-02} x region in {1, 2}, 3 rows each
@@ -268,6 +272,8 @@ class TestFileGroupReaderReadPath extends HoodieSparkClientTestBase with ScalaAs
     val fileIndex = HoodieFileIndex(spark, metaClient, None, readOpts)
 
     // Prune to a single (dt, region) partition; the int predicate exercises typed value parsing.
+    // `region` is an integer partition column, so the pruning predicate is bound to the typed
+    // (Integer) partition value reconstructed from the path and compares against an int literal.
     val singlePartitionFilter = And(
       EqualTo(attr("dt", StringType), lit("2024-01-01")),
       EqualTo(attr("region", IntegerType), lit(1))
@@ -294,7 +300,7 @@ class TestFileGroupReaderReadPath extends HoodieSparkClientTestBase with ScalaAs
 
     val onePartition = readDf.filter("dt = '2024-01-01' AND region = 1")
     assertEquals(3, onePartition.count())
-    // region is served from the reconstructed partition values (columns were dropped from data)
+    // region is served as a typed integer partition value
     val regions = onePartition.select("region").collect().map(_.getInt(0)).toSet
     assertEquals(Set(1), regions)
     val dates = onePartition.select("dt").collect().map(_.getString(0)).toSet
