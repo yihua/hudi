@@ -150,7 +150,6 @@ import static org.apache.hudi.metadata.HoodieTableMetadataUtil.getLocationFromRe
 import static org.apache.hudi.metadata.HoodieTableMetadataUtil.getLogFileColumnRangeMetadata;
 
 /**
- * TODO: [HUDI-8294]
  * A validator with spark-submit to compare information, such as partitions, file listing, index, etc.,
  * between metadata table and filesystem.
  * <p>
@@ -177,7 +176,7 @@ import static org.apache.hudi.metadata.HoodieTableMetadataUtil.getLogFileColumnR
  * --master spark://xxxx:7077 \
  * --driver-memory 1g \
  * --executor-memory 1g \
- * $HUDI_DIR/packaging/hudi-utilities-bundle/target/hudi-utilities-bundle_2.11-0.13.0-SNAPSHOT.jar \
+ * $HUDI_DIR/packaging/hudi-utilities-bundle/target/hudi-utilities-bundle_2.12-1.3.0-SNAPSHOT.jar \
  * --base-path basePath \
  * --validate-latest-file-slices \
  * --validate-latest-base-files \
@@ -195,7 +194,7 @@ import static org.apache.hudi.metadata.HoodieTableMetadataUtil.getLogFileColumnR
  * --master spark://xxxx:7077 \
  * --driver-memory 1g \
  * --executor-memory 1g \
- * $HUDI_DIR/packaging/hudi-utilities-bundle/target/hudi-utilities-bundle_2.11-0.13.0-SNAPSHOT.jar \
+ * $HUDI_DIR/packaging/hudi-utilities-bundle/target/hudi-utilities-bundle_2.12-1.3.0-SNAPSHOT.jar \
  * --base-path basePath \
  * --validate-latest-file-slices \
  * --validate-latest-base-files \
