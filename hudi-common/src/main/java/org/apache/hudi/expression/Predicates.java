@@ -20,6 +20,7 @@ package org.apache.hudi.expression;
 
 import org.apache.hudi.internal.schema.Type;
 
+import lombok.EqualsAndHashCode;
 import lombok.Getter;
 
 import java.util.ArrayList;
@@ -122,6 +123,19 @@ public class Predicates {
     public String toString() {
       return "TRUE";
     }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) {
+        return true;
+      }
+      return o != null && getClass() == o.getClass();
+    }
+
+    @Override
+    public int hashCode() {
+      return getClass().hashCode();
+    }
   }
 
   public static class FalseExpression extends LeafExpression implements Predicate {
@@ -151,8 +165,22 @@ public class Predicates {
     public String toString() {
       return "FALSE";
     }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) {
+        return true;
+      }
+      return o != null && getClass() == o.getClass();
+    }
+
+    @Override
+    public int hashCode() {
+      return getClass().hashCode();
+    }
   }
 
+  @EqualsAndHashCode(callSuper = true)
   public static class And extends BinaryExpression implements Predicate {
 
     public And(Expression left, Expression right) {
@@ -188,6 +216,7 @@ public class Predicates {
     }
   }
 
+  @EqualsAndHashCode(callSuper = true)
   public static class Or extends BinaryExpression implements Predicate {
 
     public Or(Expression left, Expression right) {
@@ -225,6 +254,7 @@ public class Predicates {
     }
   }
 
+  @EqualsAndHashCode(callSuper = true)
   public static class StringStartsWith extends BinaryExpression implements Predicate {
 
     StringStartsWith(Expression left, Expression right) {
@@ -242,6 +272,7 @@ public class Predicates {
     }
   }
 
+  @EqualsAndHashCode(callSuper = true)
   public static class StringContains extends BinaryExpression implements Predicate {
 
     StringContains(Expression left, Expression right) {
@@ -259,6 +290,7 @@ public class Predicates {
     }
   }
 
+  @EqualsAndHashCode
   public static class In implements Predicate {
 
     protected final Expression value;
@@ -301,6 +333,7 @@ public class Predicates {
     }
   }
 
+  @EqualsAndHashCode
   public static class IsNull implements Predicate {
 
     protected final Expression child;
@@ -330,6 +363,7 @@ public class Predicates {
     }
   }
 
+  @EqualsAndHashCode
   public static class IsNotNull implements Predicate {
 
     protected final Expression child;
@@ -359,6 +393,7 @@ public class Predicates {
     }
   }
 
+  @EqualsAndHashCode
   public static class Not implements Predicate {
 
     Expression child;
@@ -374,7 +409,7 @@ public class Predicates {
 
     @Override
     public Boolean eval(StructLike data) {
-      return ! (Boolean) child.eval(data);
+      return !(Boolean) child.eval(data);
     }
 
     @Override
@@ -388,6 +423,7 @@ public class Predicates {
     }
   }
 
+  @EqualsAndHashCode(callSuper = true)
   public static class BinaryComparison extends BinaryExpression implements Predicate {
 
     public BinaryComparison(Expression left, Operator operator, Expression right) {
@@ -417,6 +453,7 @@ public class Predicates {
     }
   }
 
+  @EqualsAndHashCode
   public static class StringStartsWithAny implements Predicate {
 
     @Getter
