@@ -18,8 +18,8 @@
 package org.apache.spark.sql.hudi.analysis
 
 import org.apache.hudi.{HoodieSchemaUtils, HoodieSparkUtils, SparkAdapterSupport}
-import org.apache.hudi.common.util.ValidationUtils
 import org.apache.hudi.common.util.ReflectionUtils.loadClass
+import org.apache.hudi.common.util.ValidationUtils
 
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.TableIdentifier
