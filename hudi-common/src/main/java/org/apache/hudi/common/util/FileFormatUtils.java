@@ -18,7 +18,7 @@
 
 package org.apache.hudi.common.util;
 
-import org.apache.hudi.avro.HoodieBloomFilterWriteSupport;
+import org.apache.hudi.common.avro.HoodieBloomFilterWriteSupport;
 import org.apache.hudi.common.bloom.BloomFilter;
 import org.apache.hudi.common.bloom.BloomFilterFactory;
 import org.apache.hudi.common.bloom.BloomFilterTypeCode;
@@ -33,8 +33,8 @@ import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.keygen.BaseKeyGenerator;
 import org.apache.hudi.metadata.HoodieIndexVersion;
 import org.apache.hudi.metadata.HoodieTableMetadataUtil;
-import org.apache.hudi.stats.HoodieColumnRangeMetadata;
-import org.apache.hudi.stats.ValueMetadata;
+import org.apache.hudi.metadata.stats.HoodieColumnRangeMetadata;
+import org.apache.hudi.metadata.stats.ValueMetadata;
 import org.apache.hudi.storage.HoodieStorage;
 import org.apache.hudi.storage.StoragePath;
 

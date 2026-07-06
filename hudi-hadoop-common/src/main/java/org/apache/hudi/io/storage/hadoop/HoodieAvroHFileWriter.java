@@ -19,12 +19,13 @@
 
 package org.apache.hudi.io.storage.hadoop;
 
-import org.apache.hudi.avro.HoodieAvroUtils;
+import org.apache.hudi.common.avro.HoodieAvroUtils;
 import org.apache.hudi.common.engine.TaskContextSupplier;
 import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.schema.HoodieSchemaField;
 import org.apache.hudi.common.util.HFileUtils;
+import org.apache.hudi.common.util.HoodieStorageUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.core.io.storage.HoodieAvroFileWriter;
 import org.apache.hudi.core.io.storage.HoodieAvroHFileReaderImplBase;
@@ -35,7 +36,6 @@ import org.apache.hudi.hadoop.fs.HoodieWrapperFileSystem;
 import org.apache.hudi.io.hfile.HFileContext;
 import org.apache.hudi.io.hfile.HFileWriter;
 import org.apache.hudi.io.hfile.HFileWriterImpl;
-import org.apache.hudi.storage.HoodieStorageUtils;
 import org.apache.hudi.storage.StorageConfiguration;
 import org.apache.hudi.storage.StoragePath;
 import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;

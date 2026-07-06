@@ -18,9 +18,6 @@
 
 package org.apache.hudi.metadata;
 
-import org.apache.hudi.avro.ConvertingGenericData;
-import org.apache.hudi.avro.HoodieAvroReaderContext;
-import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.avro.model.BooleanWrapper;
 import org.apache.hudi.avro.model.DateWrapper;
 import org.apache.hudi.avro.model.DoubleWrapper;
@@ -38,6 +35,9 @@ import org.apache.hudi.avro.model.LongWrapper;
 import org.apache.hudi.avro.model.StringWrapper;
 import org.apache.hudi.avro.model.TimeMicrosWrapper;
 import org.apache.hudi.avro.model.TimestampMicrosWrapper;
+import org.apache.hudi.common.avro.ConvertingGenericData;
+import org.apache.hudi.common.avro.HoodieAvroReaderContext;
+import org.apache.hudi.common.avro.HoodieAvroUtils;
 import org.apache.hudi.common.bloom.BloomFilter;
 import org.apache.hudi.common.config.HoodieConfig;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
@@ -96,6 +96,8 @@ import org.apache.hudi.common.table.timeline.TimelineFactory;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.util.CollectionUtils;
 import org.apache.hudi.common.util.FileFormatUtils;
+import org.apache.hudi.common.util.HoodieStorageUtils;
+import org.apache.hudi.common.util.Lazy;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.PartitionPathEncodeUtils;
 import org.apache.hudi.common.util.StringUtils;
@@ -113,14 +115,12 @@ import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.exception.HoodieIndexException;
 import org.apache.hudi.exception.HoodieMetadataException;
 import org.apache.hudi.exception.HoodieNotSupportedException;
-import org.apache.hudi.stats.HoodieColumnRangeMetadata;
-import org.apache.hudi.stats.ValueMetadata;
+import org.apache.hudi.metadata.stats.HoodieColumnRangeMetadata;
+import org.apache.hudi.metadata.stats.ValueMetadata;
 import org.apache.hudi.storage.HoodieStorage;
-import org.apache.hudi.storage.HoodieStorageUtils;
 import org.apache.hudi.storage.StorageConfiguration;
 import org.apache.hudi.storage.StoragePath;
 import org.apache.hudi.storage.StoragePathInfo;
-import org.apache.hudi.util.Lazy;
 
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -183,8 +183,8 @@ import static org.apache.hudi.common.util.StringUtils.getUTF8Bytes;
 import static org.apache.hudi.common.util.StringUtils.isNullOrEmpty;
 import static org.apache.hudi.common.util.ValidationUtils.checkArgument;
 import static org.apache.hudi.common.util.ValidationUtils.checkState;
-import static org.apache.hudi.index.expression.HoodieExpressionIndex.EXPRESSION_OPTION;
-import static org.apache.hudi.index.expression.HoodieExpressionIndex.IDENTITY_TRANSFORM;
+import static org.apache.hudi.core.index.expression.HoodieExpressionIndex.EXPRESSION_OPTION;
+import static org.apache.hudi.core.index.expression.HoodieExpressionIndex.IDENTITY_TRANSFORM;
 import static org.apache.hudi.metadata.HoodieMetadataPayload.COLUMN_STATS_FIELD_IS_TIGHT_BOUND;
 import static org.apache.hudi.metadata.HoodieMetadataPayload.RECORD_INDEX_MISSING_FILEINDEX_FALLBACK;
 import static org.apache.hudi.metadata.HoodieTableMetadata.EMPTY_PARTITION_NAME;
@@ -193,7 +193,7 @@ import static org.apache.hudi.metadata.HoodieTableMetadata.SOLO_COMMIT_TIMESTAMP
 import static org.apache.hudi.metadata.MetadataPartitionType.fromPartitionPath;
 import static org.apache.hudi.metadata.MetadataPartitionType.isNewExpressionIndexDefinitionRequired;
 import static org.apache.hudi.metadata.MetadataPartitionType.isNewSecondaryIndexDefinitionRequired;
-import static org.apache.hudi.stats.ValueMetadata.getValueMetadata;
+import static org.apache.hudi.metadata.stats.ValueMetadata.getValueMetadata;
 
 /**
  * A utility to convert timeline information to metadata table records.
@@ -3178,5 +3178,16 @@ public class HoodieTableMetadataUtil {
     properties.setProperty(DISK_MAP_BITCASK_COMPRESSION_ENABLED.key(),
         Boolean.toString(storageConf.getBoolean(DISK_MAP_BITCASK_COMPRESSION_ENABLED.key(), DISK_MAP_BITCASK_COMPRESSION_ENABLED.defaultValue())));
     return properties;
+  }
+
+  /**
+   * Predicate matching partition paths that equal, or are subdirectories of, any of the given
+   * relative path prefixes; an empty prefix matches all partitions. Partition paths stored in
+   * the metadata table carry no trailing slash, hence the explicit prefix + "/" check.
+   */
+  public static java.util.function.Predicate<String> relativePathPrefixPredicate(List<String> relativePathPrefixes) {
+    return path -> relativePathPrefixes.stream().anyMatch(relativePathPrefix ->
+        StringUtils.isNullOrEmpty(relativePathPrefix)
+            || path.equals(relativePathPrefix) || path.startsWith(relativePathPrefix + "/"));
   }
 }

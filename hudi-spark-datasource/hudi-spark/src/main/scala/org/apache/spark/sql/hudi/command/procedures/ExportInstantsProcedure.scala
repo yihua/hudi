@@ -18,8 +18,8 @@
 package org.apache.spark.sql.hudi.command.procedures
 
 import org.apache.hudi.HoodieCLIUtils
-import org.apache.hudi.avro.HoodieAvroUtils
 import org.apache.hudi.avro.model.HoodieArchivedMetaEntry
+import org.apache.hudi.common.avro.HoodieAvroUtils
 import org.apache.hudi.common.model.HoodieLogFile
 import org.apache.hudi.common.model.HoodieRecord.HoodieRecordType
 import org.apache.hudi.common.schema.HoodieSchema
@@ -27,10 +27,11 @@ import org.apache.hudi.common.table.HoodieTableMetaClient
 import org.apache.hudi.common.table.log.HoodieLogFormat
 import org.apache.hudi.common.table.log.block.HoodieAvroDataBlock
 import org.apache.hudi.common.table.timeline.{HoodieInstant, HoodieTimeline}
+import org.apache.hudi.common.util.HoodieStorageUtils
 import org.apache.hudi.exception.HoodieException
 import org.apache.hudi.hadoop.fs.HadoopFSUtils
 import org.apache.hudi.hadoop.fs.HadoopFSUtils.convertToStoragePath
-import org.apache.hudi.storage.{HoodieStorage, HoodieStorageUtils, StoragePath}
+import org.apache.hudi.storage.{HoodieStorage, StoragePath}
 
 import org.apache.avro.generic.GenericRecord
 import org.apache.avro.specific.SpecificData

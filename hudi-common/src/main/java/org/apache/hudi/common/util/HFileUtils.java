@@ -19,7 +19,7 @@
 
 package org.apache.hudi.common.util;
 
-import org.apache.hudi.avro.HoodieAvroUtils;
+import org.apache.hudi.common.avro.HoodieAvroUtils;
 import org.apache.hudi.common.bloom.BloomFilter;
 import org.apache.hudi.common.bloom.BloomFilterFactory;
 import org.apache.hudi.common.config.HoodieReaderConfig;
@@ -47,7 +47,7 @@ import org.apache.hudi.io.hfile.HFileWriterImpl;
 import org.apache.hudi.io.hfile.UTF8StringKey;
 import org.apache.hudi.keygen.BaseKeyGenerator;
 import org.apache.hudi.metadata.HoodieIndexVersion;
-import org.apache.hudi.stats.HoodieColumnRangeMetadata;
+import org.apache.hudi.metadata.stats.HoodieColumnRangeMetadata;
 import org.apache.hudi.storage.HoodieStorage;
 import org.apache.hudi.storage.StoragePath;
 
