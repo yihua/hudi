@@ -18,13 +18,13 @@
 
 package org.apache.hudi.utilities.sources;
 
-import org.apache.hudi.BaseHoodieTableFileIndex;
 import org.apache.hudi.client.SparkRDDWriteClient;
 import org.apache.hudi.client.WriteClientTestUtils;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.common.config.HoodieCommonConfig;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.config.TypedProperties;
+import org.apache.hudi.common.config.metrics.HoodieMetricsConfig;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieRecord;
@@ -50,7 +50,7 @@ import org.apache.hudi.config.HoodieArchivalConfig;
 import org.apache.hudi.config.HoodieCleanConfig;
 import org.apache.hudi.config.HoodieCompactionConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
-import org.apache.hudi.config.metrics.HoodieMetricsConfig;
+import org.apache.hudi.core.read.BaseHoodieTableFileIndex;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.storage.HoodieStorageUtils;
 import org.apache.hudi.storage.StorageConfiguration;
