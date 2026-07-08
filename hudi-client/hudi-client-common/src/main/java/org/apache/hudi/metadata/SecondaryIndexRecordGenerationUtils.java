@@ -51,6 +51,7 @@ import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.core.io.storage.HoodieIOFactory;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
+import org.apache.hudi.metadata.model.FileSliceAndPartition;
 import org.apache.hudi.storage.StoragePath;
 import org.apache.hudi.storage.StoragePathInfo;
 
@@ -235,7 +236,7 @@ public class SecondaryIndexRecordGenerationUtils {
   }
 
   public static <T> HoodieData<HoodieRecord> readSecondaryKeysFromFileSlices(HoodieEngineContext engineContext,
-                                                                             List<Pair<String, FileSlice>> partitionFileSlicePairs,
+                                                                             List<FileSliceAndPartition> partitionFileSlicePairs,
                                                                              int secondaryIndexMaxParallelism,
                                                                              String activeModule, HoodieTableMetaClient metaClient,
                                                                              HoodieIndexDefinition indexDefinition,
@@ -255,8 +256,8 @@ public class SecondaryIndexRecordGenerationUtils {
     engineContext.setJobStatus(activeModule, "Secondary Index: reading secondary keys from " + partitionFileSlicePairs.size() + " file slices");
     HoodieFileFormat baseFileFormat = metaClient.getTableConfig().getBaseFileFormat();
     return engineContext.parallelize(partitionFileSlicePairs, parallelism).flatMap(partitionAndBaseFile -> {
-      final String partition = partitionAndBaseFile.getKey();
-      final FileSlice fileSlice = partitionAndBaseFile.getValue();
+      final String partition = partitionAndBaseFile.partitionPath();
+      final FileSlice fileSlice = partitionAndBaseFile.fileSlice();
       Option<StoragePath> dataFilePath = Option.ofNullable(fileSlice.getBaseFile().map(baseFile -> FSUtils.getAbsoluteFilePath(basePath, partition, baseFile.getFileName())).orElseGet(null));
       HoodieSchema readerSchema;
       if (dataFilePath.isPresent()) {
