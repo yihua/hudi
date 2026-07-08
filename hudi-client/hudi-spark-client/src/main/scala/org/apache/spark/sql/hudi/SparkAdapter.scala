@@ -244,6 +244,20 @@ trait SparkAdapter extends Serializable {
                             hadoopConf: Configuration): Option[SparkColumnarFileReader]
 
   /**
+   * Get Vortex file reader
+   *
+   * @param vectorized true if vectorized reading is not prohibited due to schema, reading mode, etc
+   * @param sqlConf    the [[SQLConf]] used for the read
+   * @param options    passed as a param to the file format
+   * @param hadoopConf some configs will be set for the hadoopConf
+   * @return Vortex file reader wrapped in Option; None if Vortex format is not supported in current Spark version (i.e 3.3, 3.4)
+   */
+  def createVortexFileReader(vectorized: Boolean,
+                             sqlConf: SQLConf,
+                             options: Map[String, String],
+                             hadoopConf: Configuration): Option[SparkColumnarFileReader]
+
+  /**
    * Build the [[HoodieParquetReadSupport]] for a parquet read. Spark 4.0 overrides to return
    * its variant-aware subclass (variant group field reorder for the positional converter).
    * int96 rebase mode is fixed to LEGACY (Hudi convention for timestamp compatibility).

@@ -116,7 +116,8 @@ class TestHoodieFileGroupReaderOnSpark extends TestHoodieFileGroupReaderBase[Int
     val dataSchema = HoodieSchemaConversionUtils.convertHoodieSchemaToStructType(schema)
     val orcReader = sparkAdapter.createOrcFileReader(vectorized = false, spark.sessionState.conf, Map.empty, storageConf.unwrapAs(classOf[Configuration]), dataSchema)
     val lanceReader = sparkAdapter.createLanceFileReader(vectorized = false, spark.sessionState.conf, Map.empty, storageConf.unwrapAs(classOf[Configuration])).orNull
-    val multiFormatReader = new MultipleColumnarFileFormatReader(parquetReader, orcReader, lanceReader)
+    val vortexReader = sparkAdapter.createVortexFileReader(vectorized = false, spark.sessionState.conf, Map.empty, storageConf.unwrapAs(classOf[Configuration])).orNull
+    val multiFormatReader = new MultipleColumnarFileFormatReader(parquetReader, orcReader, lanceReader, vortexReader)
     new SparkFileFormatInternalRowReaderContext(multiFormatReader, Seq.empty, Seq.empty, getStorageConf, metaClient.getTableConfig)
   }
 

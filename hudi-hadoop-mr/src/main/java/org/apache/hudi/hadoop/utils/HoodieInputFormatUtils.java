@@ -43,6 +43,7 @@ import org.apache.hudi.hadoop.FileStatusWithBootstrapBaseFile;
 import org.apache.hudi.hadoop.HoodieHFileInputFormat;
 import org.apache.hudi.hadoop.HoodieLanceInputFormat;
 import org.apache.hudi.hadoop.HoodieParquetInputFormat;
+import org.apache.hudi.hadoop.HoodieVortexInputFormat;
 import org.apache.hudi.hadoop.LocatedFileStatusWithBootstrapBaseFile;
 import org.apache.hudi.hadoop.fs.HadoopFSUtils;
 import org.apache.hudi.hadoop.realtime.HoodieHFileRealtimeInputFormat;
@@ -50,6 +51,7 @@ import org.apache.hudi.hadoop.realtime.HoodieLanceRealtimeInputFormat;
 import org.apache.hudi.hadoop.realtime.HoodieParquetRealtimeInputFormat;
 import org.apache.hudi.hadoop.realtime.HoodieRealtimeFileSplit;
 import org.apache.hudi.hadoop.realtime.HoodieRealtimePath;
+import org.apache.hudi.hadoop.realtime.HoodieVortexRealtimeInputFormat;
 import org.apache.hudi.hadoop.realtime.RealtimeSplit;
 import org.apache.hudi.storage.HoodieStorage;
 import org.apache.hudi.storage.StoragePath;
@@ -135,6 +137,16 @@ public class HoodieInputFormatUtils {
           inputFormat.setConf(conf);
           return inputFormat;
         }
+      case VORTEX:
+        if (realtime) {
+          HoodieVortexRealtimeInputFormat inputFormat = new HoodieVortexRealtimeInputFormat();
+          inputFormat.setConf(conf);
+          return inputFormat;
+        } else {
+          HoodieVortexInputFormat inputFormat = new HoodieVortexInputFormat();
+          inputFormat.setConf(conf);
+          return inputFormat;
+        }
       default:
         throw new HoodieIOException("Hoodie InputFormat not implemented for base file format " + baseFileFormat);
     }
@@ -164,6 +176,12 @@ public class HoodieInputFormatUtils {
         } else {
           return HoodieLanceInputFormat.class.getName();
         }
+      case VORTEX:
+        if (realtime) {
+          return HoodieVortexRealtimeInputFormat.class.getName();
+        } else {
+          return HoodieVortexInputFormat.class.getName();
+        }
       case ORC:
         return OrcInputFormat.class.getName();
       default:
@@ -176,6 +194,7 @@ public class HoodieInputFormatUtils {
       case PARQUET:
       case HFILE:
       case LANCE:
+      case VORTEX:
         return MapredParquetOutputFormat.class.getName();
       case ORC:
         return OrcOutputFormat.class.getName();
@@ -189,6 +208,7 @@ public class HoodieInputFormatUtils {
       case PARQUET:
       case HFILE:
       case LANCE:
+      case VORTEX:
         return ParquetHiveSerDe.class.getName();
       case ORC:
         return OrcSerde.class.getName();
@@ -207,6 +227,9 @@ public class HoodieInputFormatUtils {
     }
     if (extension.equals(HoodieFileFormat.LANCE.getFileExtension())) {
       return getInputFormat(HoodieFileFormat.LANCE, realtime, conf);
+    }
+    if (extension.equals(HoodieFileFormat.VORTEX.getFileExtension())) {
+      return getInputFormat(HoodieFileFormat.VORTEX, realtime, conf);
     }
     // now we support read log file, try to find log file
     if (HadoopFSUtils.isLogFile(new Path(path)) && realtime) {

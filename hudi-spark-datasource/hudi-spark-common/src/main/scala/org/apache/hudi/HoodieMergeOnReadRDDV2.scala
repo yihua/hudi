@@ -117,7 +117,8 @@ class HoodieMergeOnReadRDDV2(@transient sc: SparkContext,
         val parquetReader = sparkAdapter.createParquetFileReader(vectorized = false, sqlConf, updatedOptions, config)
         val orcReader = sparkAdapter.createOrcFileReader(vectorized = false, sqlConf, updatedOptions, config, tableSchema.structTypeSchema)
         val lanceReader = sparkAdapter.createLanceFileReader(vectorized = false, sqlConf, updatedOptions, config).orNull
-        val multiReader = new MultipleColumnarFileFormatReader(parquetReader, orcReader, lanceReader)
+        val vortexReader = sparkAdapter.createVortexFileReader(vectorized = false, sqlConf, updatedOptions, config).orNull
+        val multiReader = new MultipleColumnarFileFormatReader(parquetReader, orcReader, lanceReader, vortexReader)
         sc.broadcast(multiReader)
       } else if (metaClient.getTableConfig.getBaseFileFormat == HoodieFileFormat.PARQUET) {
         sc.broadcast(sparkAdapter.createParquetFileReader(vectorized = false, sqlConf, updatedOptions, config))
@@ -125,6 +126,8 @@ class HoodieMergeOnReadRDDV2(@transient sc: SparkContext,
         sc.broadcast(sparkAdapter.createOrcFileReader(vectorized = false, sqlConf, updatedOptions, config, tableSchema.structTypeSchema))
       } else if (metaClient.getTableConfig.getBaseFileFormat == HoodieFileFormat.LANCE) {
         sc.broadcast(sparkAdapter.createLanceFileReader(vectorized = false, sqlConf, updatedOptions, config).orNull)
+      } else if (metaClient.getTableConfig.getBaseFileFormat == HoodieFileFormat.VORTEX) {
+        sc.broadcast(sparkAdapter.createVortexFileReader(vectorized = false, sqlConf, updatedOptions, config).orNull)
       } else {
         throw new IllegalArgumentException(s"Unsupported base file format: ${metaClient.getTableConfig.getBaseFileFormat}")
       }
