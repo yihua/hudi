@@ -17,10 +17,13 @@
 
 package org.apache.spark.sql.hudi.command.index
 
+import org.apache.hudi.common.schema.{HoodieSchema, HoodieSchemaType}
+
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.analysis.UnresolvedRelation
 import org.apache.spark.sql.catalyst.plans.logical.{CreateIndex, DropIndex, HoodieShowIndexes, RefreshIndex}
 import org.apache.spark.sql.hudi.common.HoodieSparkSqlTestBase
+import org.apache.spark.sql.types.{ArrayType, BlobType, FloatType}
 
 /**
  * Coverage for the Hudi-specific surface of the extended SQL parser: index DDL
@@ -33,6 +36,8 @@ import org.apache.spark.sql.hudi.common.HoodieSparkSqlTestBase
  */
 class TestExtendedSqlParserCoverage extends HoodieSparkSqlTestBase {
 
+  // parsePlan is purely syntactic and never consults the catalog, so the index-DDL
+  // tests below parse against table names that are never created.
   private def parse(sql: String) = spark.sessionState.sqlParser.parsePlan(sql)
 
   private def tableName(plan: org.apache.spark.sql.catalyst.plans.logical.LogicalPlan): Seq[String] =
@@ -40,12 +45,6 @@ class TestExtendedSqlParserCoverage extends HoodieSparkSqlTestBase {
 
   test("Test parse CREATE INDEX into a CreateIndex plan") {
     val tableName = generateTableName
-    spark.sql(
-      s"""
-         |create table $tableName (id int, name string) using hudi
-         |tblproperties(primaryKey = 'id')
-         |""".stripMargin)
-
     val plan = parse(s"create index idx_name on $tableName using bloom (name)")
     assertResult(classOf[CreateIndex].getName)(plan.getClass.getName)
     val createIndex = plan.asInstanceOf[CreateIndex]
@@ -56,12 +55,6 @@ class TestExtendedSqlParserCoverage extends HoodieSparkSqlTestBase {
 
   test("Test parse DROP INDEX into a DropIndex plan") {
     val tableName = generateTableName
-    spark.sql(
-      s"""
-         |create table $tableName (id int, name string) using hudi
-         |tblproperties(primaryKey = 'id')
-         |""".stripMargin)
-
     val plan = parse(s"drop index idx_name on $tableName")
     assertResult(classOf[DropIndex].getName)(plan.getClass.getName)
     val dropIndex = plan.asInstanceOf[DropIndex]
@@ -71,12 +64,6 @@ class TestExtendedSqlParserCoverage extends HoodieSparkSqlTestBase {
 
   test("Test parse SHOW INDEXES into a HoodieShowIndexes plan") {
     val tableName = generateTableName
-    spark.sql(
-      s"""
-         |create table $tableName (id int, name string) using hudi
-         |tblproperties(primaryKey = 'id')
-         |""".stripMargin)
-
     val plan = parse(s"show indexes from $tableName")
     assertResult(classOf[HoodieShowIndexes].getName)(plan.getClass.getName)
     assert(this.tableName(plan).last.equalsIgnoreCase(tableName))
@@ -84,12 +71,6 @@ class TestExtendedSqlParserCoverage extends HoodieSparkSqlTestBase {
 
   test("Test parse REFRESH INDEX into a RefreshIndex plan") {
     val tableName = generateTableName
-    spark.sql(
-      s"""
-         |create table $tableName (id int, name string) using hudi
-         |tblproperties(primaryKey = 'id')
-         |""".stripMargin)
-
     val plan = parse(s"refresh index idx_name on $tableName")
     assertResult(classOf[RefreshIndex].getName)(plan.getClass.getName)
     val refreshIndex = plan.asInstanceOf[RefreshIndex]
@@ -106,7 +87,9 @@ class TestExtendedSqlParserCoverage extends HoodieSparkSqlTestBase {
          |""".stripMargin)
 
     val schema = spark.sessionState.catalog.getTableMetadata(TableIdentifier(tableName)).schema
-    assert(schema.exists(_.name == "b"))
+    val blobField = schema.find(_.name == "b").get
+    assertResult(HoodieSchemaType.BLOB.name())(blobField.metadata.getString(HoodieSchema.TYPE_METADATA_FIELD))
+    assertResult(BlobType())(blobField.dataType)
   }
 
   test("Test parse a VECTOR column type into the catalog schema") {
@@ -118,6 +101,9 @@ class TestExtendedSqlParserCoverage extends HoodieSparkSqlTestBase {
          |""".stripMargin)
 
     val schema = spark.sessionState.catalog.getTableMetadata(TableIdentifier(tableName)).schema
-    assert(schema.exists(_.name == "v"))
+    val vectorField = schema.find(_.name == "v").get
+    // Canonical descriptor: the default FLOAT element type is dropped by toTypeDescriptor.
+    assertResult("VECTOR(3)")(vectorField.metadata.getString(HoodieSchema.TYPE_METADATA_FIELD))
+    assertResult(ArrayType(FloatType, containsNull = false))(vectorField.dataType)
   }
 }
