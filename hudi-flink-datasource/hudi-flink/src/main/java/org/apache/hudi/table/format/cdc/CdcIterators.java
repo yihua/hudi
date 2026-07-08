@@ -526,9 +526,9 @@ public final class CdcIterators {
     }
 
     private static boolean isNativeCdcFileSplit(HoodieCDCFileSplit fileSplit) {
-      boolean nativeCdc = FSUtils.matchNativeLogFile(fileSplit.getCdcFiles().get(0)).isPresent();
+      boolean nativeCdc = FSUtils.isNativeLogFile(fileSplit.getCdcFiles().get(0));
       ValidationUtils.checkState(fileSplit.getCdcFiles().stream()
-              .allMatch(path -> FSUtils.matchNativeLogFile(path).isPresent() == nativeCdc),
+              .allMatch(path -> FSUtils.isNativeLogFile(path) == nativeCdc),
           "CDC file split cannot mix inline and native CDC log files");
       return nativeCdc;
     }
@@ -789,9 +789,11 @@ public final class CdcIterators {
   }
 
   public static MergeOnReadInputSplit singleLogFile2Split(String tablePath, String filePath, long maxCompactionMemoryInBytes) {
+    StoragePath logPath = new StoragePath(filePath);
+    HoodieLogFile logFile = new HoodieLogFile(logPath);
     return new MergeOnReadInputSplit(0, null, Option.of(Collections.singletonList(filePath)),
-            FSUtils.getDeltaCommitTimeFromLogPath(new StoragePath(filePath)), tablePath, maxCompactionMemoryInBytes,
-            FlinkOptions.REALTIME_PAYLOAD_COMBINE, null, FSUtils.getFileIdFromLogPath(new StoragePath(filePath)),
-            FSUtils.getRelativePartitionPath(new StoragePath(tablePath), new StoragePath(filePath).getParent()));
+            logFile.getDeltaCommitTime(), tablePath, maxCompactionMemoryInBytes,
+            FlinkOptions.REALTIME_PAYLOAD_COMBINE, null, logFile.getFileId(),
+            FSUtils.getRelativePartitionPath(new StoragePath(tablePath), logPath.getParent()));
   }
 }
