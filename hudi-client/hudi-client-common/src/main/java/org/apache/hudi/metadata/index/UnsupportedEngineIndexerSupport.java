@@ -19,43 +19,38 @@
 
 package org.apache.hudi.metadata.index;
 
-import org.apache.hudi.client.utils.SparkMetadataWriterUtils;
 import org.apache.hudi.common.data.HoodieData;
+import org.apache.hudi.common.data.HoodiePairData;
 import org.apache.hudi.common.engine.EngineType;
-import org.apache.hudi.common.engine.HoodieEngineContext;
+import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieIndexDefinition;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.HoodieTableVersion;
 import org.apache.hudi.common.util.Option;
-import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieNotSupportedException;
-import org.apache.hudi.index.expression.HoodieSparkExpressionIndex;
-import org.apache.hudi.metadata.HoodieTableMetadataUtil;
+import org.apache.hudi.metadata.HoodieTableMetadata;
 import org.apache.hudi.metadata.model.FileInfoAndPartition;
+import org.apache.hudi.metadata.stats.HoodieColumnRangeMetadata;
 import org.apache.hudi.storage.StorageConfiguration;
 
 import java.util.List;
 
-import static org.apache.hudi.metadata.HoodieTableMetadataUtil.PARTITION_NAME_COLUMN_STATS;
-
 /**
- * Spark implementation of {@link EngineIndexSupport}.
+ * Fallback {@link EngineIndexerSupport} for engines without a metadata index implementation.
  */
-public class SparkEngineIndexSupport implements EngineIndexSupport {
-  private final HoodieEngineContext engineContext;
-  private final HoodieWriteConfig dataTableWriteConfig;
+public class UnsupportedEngineIndexerSupport implements EngineIndexerSupport {
 
-  public SparkEngineIndexSupport(HoodieEngineContext engineContext,
-                                 HoodieWriteConfig dataTableWriteConfig) {
-    this.engineContext = engineContext;
-    this.dataTableWriteConfig = dataTableWriteConfig;
+  private final EngineType engineType;
+
+  public UnsupportedEngineIndexerSupport(EngineType engineType) {
+    this.engineType = engineType;
   }
 
   @Override
   public EngineType getEngineType() {
-    return EngineType.SPARK;
+    return engineType;
   }
 
   @Override
@@ -67,18 +62,25 @@ public class SparkEngineIndexSupport implements EngineIndexSupport {
       HoodieSchema tableSchema,
       HoodieSchema readerSchema,
       StorageConfiguration<?> storageConf,
+      String instantTime,
+      Option<EngineIndexerSupport.PartitionStatsRecordsFunction> partitionRecordsFunctionOpt) {
+    if (metaClient.getTableConfig().getTableVersion().lesserThan(HoodieTableVersion.EIGHT)) {
+      throw new HoodieNotSupportedException("Table version 7 and below does not support expression index");
+    }
+    throw new HoodieNotSupportedException(engineType + " engine does not support building expression index yet");
+  }
+
+  @Override
+  public HoodiePairData<String, HoodieColumnRangeMetadata<Comparable>> loadExpressionIndexPartitionStats(
+      HoodieTableMetaClient metaClient,
+      HoodieTableMetadata tableMetadata,
+      HoodieCommitMetadata commitMetadata,
+      HoodieIndexDefinition indexDefinition,
+      String indexPartition,
       String instantTime) {
     if (metaClient.getTableConfig().getTableVersion().lesserThan(HoodieTableVersion.EIGHT)) {
-      throw new HoodieNotSupportedException("Hudi tables prior to version 8 do not support expression index.");
+      throw new HoodieNotSupportedException("Table version 7 and below does not support expression index");
     }
-    HoodieSparkExpressionIndex.ExpressionIndexComputationMetadata expressionIndexComputationMetadata = SparkMetadataWriterUtils.getExprIndexRecords(
-        filesToIndex, indexDefinition, metaClient, parallelism, tableSchema, readerSchema, instantTime, engineContext, dataTableWriteConfig,
-        Option.of(rangeMetadata ->
-            HoodieTableMetadataUtil.collectAndProcessExprIndexPartitionStatRecords(rangeMetadata, true, Option.of(indexDefinition.getIndexName()))));
-    HoodieData<HoodieRecord> exprIndexRecords = expressionIndexComputationMetadata.getExpressionIndexRecords();
-    if (indexDefinition.getIndexType().equals(PARTITION_NAME_COLUMN_STATS)) {
-      exprIndexRecords = exprIndexRecords.union(expressionIndexComputationMetadata.getPartitionStatRecordsOpt().get());
-    }
-    return exprIndexRecords;
+    throw new HoodieNotSupportedException(engineType + " engine does not support building expression index yet");
   }
 }

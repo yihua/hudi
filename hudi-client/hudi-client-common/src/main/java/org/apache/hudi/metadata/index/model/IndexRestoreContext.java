@@ -17,32 +17,26 @@
  * under the License.
  */
 
-package org.apache.hudi.metadata.model;
+package org.apache.hudi.metadata.index.model;
 
+import org.apache.hudi.metadata.model.FileInfo;
+
+import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.experimental.Accessors;
 
-import java.io.Serializable;
+import java.util.List;
+import java.util.Map;
 
 /**
- * Immutable descriptor for a file that should be scanned during index bootstrap.
+ * Shared input context for restoring metadata index entries.
  */
+@AllArgsConstructor(staticName = "of")
 @Getter
 @Accessors(fluent = true)
-public class FileInfoAndPartition implements Serializable {
-  private static final long serialVersionUID = 1L;
-
-  private final String partitionPath;
-  private final String filePath;
-  private final long size;
-
-  private FileInfoAndPartition(String partitionPath, String filePath, long size) {
-    this.partitionPath = partitionPath;
-    this.filePath = filePath;
-    this.size = size;
-  }
-
-  public static FileInfoAndPartition of(String partition, String filePath, long size) {
-    return new FileInfoAndPartition(partition, filePath, size);
-  }
+public class IndexRestoreContext {
+  private final String instantTime;
+  private final List<String> deletedPartitions;
+  private final Map<String, List<FileInfo>> filesAdded;
+  private final Map<String, List<String>> filesDeleted;
 }

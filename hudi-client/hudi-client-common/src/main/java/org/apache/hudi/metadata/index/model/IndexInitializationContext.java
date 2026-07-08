@@ -17,32 +17,31 @@
  * under the License.
  */
 
-package org.apache.hudi.metadata.model;
+package org.apache.hudi.metadata.index.model;
 
+import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.util.Lazy;
+import org.apache.hudi.common.util.Option;
+import org.apache.hudi.metadata.model.FileInfo;
+import org.apache.hudi.metadata.model.FileSliceAndPartition;
+
+import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.experimental.Accessors;
 
-import java.io.Serializable;
+import java.util.List;
+import java.util.Map;
 
 /**
- * Immutable descriptor for a file that should be scanned during index bootstrap.
+ * Shared input context for metadata index initialization.
  */
+@AllArgsConstructor(staticName = "of")
 @Getter
 @Accessors(fluent = true)
-public class FileInfoAndPartition implements Serializable {
-  private static final long serialVersionUID = 1L;
-
-  private final String partitionPath;
-  private final String filePath;
-  private final long size;
-
-  private FileInfoAndPartition(String partitionPath, String filePath, long size) {
-    this.partitionPath = partitionPath;
-    this.filePath = filePath;
-    this.size = size;
-  }
-
-  public static FileInfoAndPartition of(String partition, String filePath, long size) {
-    return new FileInfoAndPartition(partition, filePath, size);
-  }
+public class IndexInitializationContext {
+  private final String dataInstantTime;
+  private final String metadataInstantTime;
+  private final Map<String, List<FileInfo>> allFiles;
+  private final Lazy<List<FileSliceAndPartition>> latestFileSlices;
+  private final Lazy<Option<HoodieSchema>> tableSchema;
 }

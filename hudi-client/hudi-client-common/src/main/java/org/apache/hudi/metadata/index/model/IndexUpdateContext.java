@@ -17,32 +17,26 @@
  * under the License.
  */
 
-package org.apache.hudi.metadata.model;
+package org.apache.hudi.metadata.index.model;
 
+import org.apache.hudi.common.model.HoodieCommitMetadata;
+import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
+import org.apache.hudi.common.util.Lazy;
+import org.apache.hudi.metadata.HoodieBackedTableMetadata;
+
+import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.experimental.Accessors;
 
-import java.io.Serializable;
-
 /**
- * Immutable descriptor for a file that should be scanned during index bootstrap.
+ * Shared input context for updating a metadata index partition from commit metadata.
  */
+@AllArgsConstructor(staticName = "of")
 @Getter
 @Accessors(fluent = true)
-public class FileInfoAndPartition implements Serializable {
-  private static final long serialVersionUID = 1L;
-
-  private final String partitionPath;
-  private final String filePath;
-  private final long size;
-
-  private FileInfoAndPartition(String partitionPath, String filePath, long size) {
-    this.partitionPath = partitionPath;
-    this.filePath = filePath;
-    this.size = size;
-  }
-
-  public static FileInfoAndPartition of(String partition, String filePath, long size) {
-    return new FileInfoAndPartition(partition, filePath, size);
-  }
+public class IndexUpdateContext {
+  private final String instantTime;
+  private final HoodieBackedTableMetadata tableMetadata;
+  private final Lazy<HoodieTableFileSystemView> lazyFileSystemView;
+  private final HoodieCommitMetadata commitMetadata;
 }

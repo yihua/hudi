@@ -16,29 +16,26 @@
  * limitations under the License.
  */
 
-package org.apache.hudi.metadata.model;
+package org.apache.hudi.metadata.index.model;
 
-import org.apache.hudi.common.model.FileSlice;
+import org.apache.hudi.common.data.HoodieData;
+import org.apache.hudi.common.model.HoodieRecord;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
-import lombok.ToString;
-
-import java.io.Serializable;
+import lombok.experimental.Accessors;
 
 /**
- * Holder for a {@link FileSlice} and its partition path.
+ * Holds metadata records and the concrete metadata table partition they should be written to.
  */
 @AllArgsConstructor
 @Getter
-@ToString
-public class FileSliceAndPartition implements Serializable {
-  private static final long serialVersionUID = 1L;
+@Accessors(fluent = true)
+public class IndexPartitionAndRecords {
+  private final String indexPartitionName;
+  private final HoodieData<HoodieRecord> indexRecords;
 
-  private final String partitionPath;
-  private final FileSlice fileSlice;
-
-  public static FileSliceAndPartition of(String partitionPath, FileSlice fileSlice) {
-    return new FileSliceAndPartition(partitionPath, fileSlice);
+  public static IndexPartitionAndRecords of(String indexPartitionName, HoodieData<HoodieRecord> indexRecords) {
+    return new IndexPartitionAndRecords(indexPartitionName, indexRecords);
   }
 }
