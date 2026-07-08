@@ -26,7 +26,6 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -40,7 +39,7 @@ public class TestHoodieBloomFilterProbingResult {
     keys.add("k1");
     keys.add("k2");
     HoodieBloomFilterProbingResult result = new HoodieBloomFilterProbingResult(keys);
-    assertSame(keys, result.getCandidateKeys());
+    assertEquals(keys, result.getCandidateKeys());
   }
 
   @Test

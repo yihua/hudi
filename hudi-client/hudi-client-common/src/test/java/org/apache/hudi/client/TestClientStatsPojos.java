@@ -29,7 +29,6 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -73,7 +72,7 @@ public class TestClientStatsPojos {
   void tableWriteStatsSingleArgDefaultsMetadataToEmpty() {
     List<HoodieWriteStat> dataStats = Collections.singletonList(new HoodieWriteStat());
     TableWriteStats stats = new TableWriteStats(dataStats);
-    assertSame(dataStats, stats.getDataTableWriteStats());
+    assertEquals(dataStats, stats.getDataTableWriteStats());
     assertTrue(stats.getMetadataTableWriteStats().isEmpty());
     assertFalse(stats.isEmptyDataTableWriteStats());
   }

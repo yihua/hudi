@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -61,6 +62,8 @@ public class TestBloomIndexFileInfo {
   @Test
   void isKeyInRangeRequiresBounds() {
     BloomIndexFileInfo noRange = new BloomIndexFileInfo("f1");
+    // isKeyInRange does not guard on hasKeyRanges(); with no bounds set it currently
+    // fails fast with an NPE from Objects.requireNonNull rather than returning false.
     assertThrows(NullPointerException.class, () -> noRange.isKeyInRange("key10"));
   }
 
@@ -71,6 +74,6 @@ public class TestBloomIndexFileInfo {
     BloomIndexFileInfo different = new BloomIndexFileInfo("f2", "min", "max");
     assertEquals(a, same);
     assertEquals(a.hashCode(), same.hashCode());
-    assertFalse(a.equals(different));
+    assertNotEquals(a, different);
   }
 }
