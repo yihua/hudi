@@ -54,7 +54,6 @@ public class TestVortexReaderWriterRoundTrip {
 
   @Test
   public void testWriteReadRoundTrip() throws Exception {
-    HoodieStorage storage = HoodieTestUtils.getStorage(tempDir.getAbsolutePath());
     SparkTaskContextSupplier taskContextSupplier = new SparkTaskContextSupplier();
 
     StructType schema = new StructType()
@@ -65,48 +64,47 @@ public class TestVortexReaderWriterRoundTrip {
     StoragePath path = new StoragePath(tempDir.getAbsolutePath() + "/roundtrip.vortex");
 
     int numRows = 2500; // > default batch size (1000) to force multiple flushed batches
-    try (HoodieSparkVortexWriter writer = HoodieSparkVortexWriter.builder()
-        .file(path)
-        .sparkSchema(schema)
-        .instantTime("20251201120000000")
-        .taskContextSupplier(taskContextSupplier)
-        .storage(storage)
-        .populateMetaFields(false)
-        .build()) {
-      for (int i = 0; i < numRows; i++) {
-        InternalRow row = new GenericInternalRow(new Object[] {
-            (long) (100 + i), UTF8String.fromString("name" + i), (double) i + 0.5});
-        writer.writeRow(row);
-      }
-    }
-
-    assertTrue(storage.exists(path), "Vortex file should exist");
-
-    try (HoodieSparkVortexReader reader = new HoodieSparkVortexReader(path)) {
-      assertEquals(numRows, reader.getTotalRecords(), "row count");
-
-      HoodieSchema readSchema = reader.getSchema();
-      assertEquals(3, readSchema.getFields().size(), "schema field count");
-
-      int count = 0;
-      try (ClosableIterator<HoodieRecord<InternalRow>> it = reader.getRecordIterator(readSchema)) {
-        while (it.hasNext()) {
-          InternalRow row = it.next().getData();
-          assertEquals(100L + count, row.getLong(0), "id at row " + count);
-          assertEquals("name" + count, row.getUTF8String(1).toString(), "name at row " + count);
-          assertEquals((double) count + 0.5, row.getDouble(2), 1e-9, "score at row " + count);
-          count++;
+    try (HoodieStorage storage = HoodieTestUtils.getStorage(tempDir.getAbsolutePath())) {
+      try (HoodieSparkVortexWriter writer = HoodieSparkVortexWriter.builder()
+          .file(path)
+          .sparkSchema(schema)
+          .instantTime("20251201120000000")
+          .taskContextSupplier(taskContextSupplier)
+          .storage(storage)
+          .populateMetaFields(false)
+          .build()) {
+        for (int i = 0; i < numRows; i++) {
+          InternalRow row = new GenericInternalRow(new Object[] {
+              (long) (100 + i), UTF8String.fromString("name" + i), (double) i + 0.5});
+          writer.writeRow(row);
         }
       }
-      assertEquals(numRows, count, "rows read back");
-    }
 
-    storage.close();
+      assertTrue(storage.exists(path), "Vortex file should exist");
+
+      try (HoodieSparkVortexReader reader = new HoodieSparkVortexReader(path)) {
+        assertEquals(numRows, reader.getTotalRecords(), "row count");
+
+        HoodieSchema readSchema = reader.getSchema();
+        assertEquals(3, readSchema.getFields().size(), "schema field count");
+
+        int count = 0;
+        try (ClosableIterator<HoodieRecord<InternalRow>> it = reader.getRecordIterator(readSchema)) {
+          while (it.hasNext()) {
+            InternalRow row = it.next().getData();
+            assertEquals(100L + count, row.getLong(0), "id at row " + count);
+            assertEquals("name" + count, row.getUTF8String(1).toString(), "name at row " + count);
+            assertEquals((double) count + 0.5, row.getDouble(2), 1e-9, "score at row " + count);
+            count++;
+          }
+        }
+        assertEquals(numRows, count, "rows read back");
+      }
+    }
   }
 
   @Test
   public void testProjectedRead() throws Exception {
-    HoodieStorage storage = HoodieTestUtils.getStorage(tempDir.getAbsolutePath());
     SparkTaskContextSupplier taskContextSupplier = new SparkTaskContextSupplier();
 
     StructType schema = new StructType()
@@ -114,27 +112,30 @@ public class TestVortexReaderWriterRoundTrip {
         .add("name", DataTypes.StringType, false);
 
     StoragePath path = new StoragePath(tempDir.getAbsolutePath() + "/projected.vortex");
-    try (HoodieSparkVortexWriter writer = HoodieSparkVortexWriter.builder()
-        .file(path).sparkSchema(schema).instantTime("20251201120000000")
-        .taskContextSupplier(taskContextSupplier).storage(storage).populateMetaFields(false).build()) {
-      for (int i = 0; i < 3; i++) {
-        writer.writeRow(new GenericInternalRow(new Object[] {(long) i, UTF8String.fromString("n" + i)}));
+    try (HoodieStorage storage = HoodieTestUtils.getStorage(tempDir.getAbsolutePath())) {
+      try (HoodieSparkVortexWriter writer = HoodieSparkVortexWriter.builder()
+          .file(path).sparkSchema(schema).instantTime("20251201120000000")
+          .taskContextSupplier(taskContextSupplier).storage(storage).populateMetaFields(false).build()) {
+        for (int i = 0; i < 3; i++) {
+          writer.writeRow(new GenericInternalRow(new Object[] {(long) i, UTF8String.fromString("n" + i)}));
+        }
       }
-    }
 
-    // Project only the "id" column (a subset of the file's columns) via getRecordIterator.
-    HoodieSchema projected = HoodieSchemaConversionUtils.convertStructTypeToHoodieSchema(
-        new StructType().add("id", DataTypes.LongType, false), "record", "", false);
-    try (HoodieSparkVortexReader reader = new HoodieSparkVortexReader(path);
-         ClosableIterator<HoodieRecord<InternalRow>> it = reader.getRecordIterator(projected)) {
-      int count = 0;
-      while (it.hasNext()) {
-        InternalRow row = it.next().getData();
-        assertEquals((long) count, row.getLong(0), "projected id at row " + count);
-        count++;
+      // Project only the non-leading "name" column so the assertion fails if the reader returns the
+      // full row instead of narrowing to the requested schema (projecting the leading "id" column
+      // would read back at index 0 either way and could not detect that regression).
+      HoodieSchema projected = HoodieSchemaConversionUtils.convertStructTypeToHoodieSchema(
+          new StructType().add("name", DataTypes.StringType, false), "record", "", false);
+      try (HoodieSparkVortexReader reader = new HoodieSparkVortexReader(path);
+           ClosableIterator<HoodieRecord<InternalRow>> it = reader.getRecordIterator(projected)) {
+        int count = 0;
+        while (it.hasNext()) {
+          InternalRow row = it.next().getData();
+          assertEquals("n" + count, row.getUTF8String(0).toString(), "projected name at row " + count);
+          count++;
+        }
+        assertEquals(3, count, "projected rows");
       }
-      assertEquals(3, count, "projected rows");
     }
-    storage.close();
   }
 }
