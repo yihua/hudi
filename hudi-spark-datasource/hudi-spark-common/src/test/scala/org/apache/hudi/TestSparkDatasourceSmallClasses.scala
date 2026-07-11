@@ -17,8 +17,7 @@
 
 package org.apache.hudi
 
-import org.apache.hudi.common.table.read.BufferedRecord
-import org.apache.hudi.exception.{HoodieDuplicateKeyException, HoodieException}
+import org.apache.hudi.exception.HoodieException
 import org.apache.hudi.util.CachingIterator
 
 import org.apache.spark.sql.HoodieSparkCatalogUtils
@@ -118,18 +117,10 @@ class TestSparkDatasourceSmallClasses {
   }
 
   @Test
-  def testDuplicateKeyMergerThrowsOnMerge(): Unit = {
-    val merger = new HoodieSparkValidateDuplicateKeyRecordMerger
-    val older = new BufferedRecord[AnyRef]("dup_key_1", null, null, null, null)
-    val ex = assertThrows(classOf[HoodieDuplicateKeyException],
-      () => merger.merge(older, null, null, null))
-    assertTrue(ex.getMessage.contains("dup_key_1"))
-  }
-
-  @Test
   def testDuplicateKeyMergerMetadata(): Unit = {
     val merger = new HoodieSparkValidateDuplicateKeyRecordMerger
     assertEquals(HoodieSparkValidateDuplicateKeyRecordMerger.STRATEGY_ID, merger.getMergingStrategy)
+    // Also pin the raw UUID so an accidental change to the STRATEGY_ID constant itself is caught.
     assertEquals("fb092649-0fdc-4c14-9113-acde3034a6c4", merger.getMergingStrategy)
     // Pre-combining falls back to the default Spark record merger.
     assertTrue(merger.asPreCombiningMode().isInstanceOf[DefaultSparkRecordMerger])

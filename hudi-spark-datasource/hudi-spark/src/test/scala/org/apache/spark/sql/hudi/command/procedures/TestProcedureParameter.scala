@@ -52,6 +52,16 @@ class TestProcedureParameter {
   }
 
   @Test
+  def testEqualsGuardsAgainstRegressions(): Unit = {
+    val a = ProcedureParameter.optional(1, "col", DataTypes.StringType, "def")
+    val b = ProcedureParameter.optional(1, "col", DataTypes.StringType, "def")
+    // Equal-valued params are equal; guards the self-recursive `equals` (StackOverflow) fixed in #19167.
+    assertEquals(a, b)
+    // A wrong-type argument returns false instead of throwing ClassCastException (also #19167).
+    assertFalse(a.equals("not a param"))
+  }
+
+  @Test
   def testToStringContainsAllFields(): Unit = {
     val p = ProcedureParameter.optional(1, "col", DataTypes.StringType, "def")
     val s = p.toString
