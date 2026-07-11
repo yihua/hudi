@@ -17,7 +17,12 @@ concurrency:
   cancel-in-progress: ${{ !contains(github.ref, 'master') && !contains(github.ref, 'branch-0.x') && !contains(github.ref, 'release-') }}
 
 env:
-  MVN_ARGS: -e -ntp -B -V -Dgpg.skip -Djacoco.skip -Pwarn-log -Dorg.slf4j.simpleLogger.log.org.apache.maven.plugins.shade=warn -Dorg.slf4j.simpleLogger.log.org.apache.maven.plugins.dependency=warn -Dmaven.wagon.httpconnectionManager.ttlSeconds=25 -Dmaven.wagon.http.retryHandler.count=5 -Dorg.eclipse.jetty.LEVEL=WARN
+  # The retry/timeout knobs below are maven-resolver (aether.*) properties. Maven 3.9 resolves
+  # artifacts through the native resolver HTTP transport, which ignores the older maven.wagon.* names.
+  # serviceUnavailable lists the HTTP codes retried instead of failing the build. 403 is deliberately
+  # absent: Maven Central answers 403 when its CDN has blocked the runner's egress IP, and retrying
+  # that is what escalates the block.
+  MVN_ARGS: -e -ntp -B -V -Dgpg.skip -Djacoco.skip -Pwarn-log -Dorg.slf4j.simpleLogger.log.org.apache.maven.plugins.shade=warn -Dorg.slf4j.simpleLogger.log.org.apache.maven.plugins.dependency=warn -Daether.connector.http.retryHandler.count=5 -Daether.connector.http.retryHandler.interval=3000 -Daether.connector.http.retryHandler.intervalMax=30000 -Daether.connector.http.retryHandler.serviceUnavailable=429,500,502,503,504 -Daether.connector.http.connectionMaxTtl=25 -Dorg.eclipse.jetty.LEVEL=WARN
   SPARK_COMMON_MODULES: hudi-spark-datasource/hudi-spark,hudi-spark-datasource/hudi-spark-common
   JAVA_UT_FILTER1: -Dtest=!TestCOWDataSource,!TestMORDataSource,!TestHoodieFileSystemViews
   JAVA_UT_FILTER2: -Dtest=TestCOWDataSource,TestMORDataSource,TestHoodieFileSystemViews
@@ -71,7 +76,10 @@ jobs:
           java-version: '11'
           distribution: 'temurin'
           architecture: x64
-          cache: maven
+          # No `cache: maven` on purpose. All jobs share one cache key and the first job to finish
+          # wins the write. This one only runs `mvn apache-rat:check`, finishes in well under a
+          # minute, and would seal a ~10 MB local repo that every build job then has to discard and
+          # re-download from Maven Central.
       - name: Check Binary Files
         run: ./scripts/release/validate_source_binary_files.sh
       - name: Check Copyright
