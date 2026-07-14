@@ -24,7 +24,6 @@ import org.apache.hudi.avro.model.HoodieFileStatus;
 import org.apache.hudi.avro.model.HoodiePath;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.fs.FSUtils;
-import org.apache.hudi.common.model.HoodieFileFormat;
 import org.apache.hudi.common.util.collection.ImmutablePair;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.exception.HoodieIOException;
@@ -51,10 +50,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -377,10 +374,6 @@ public class HadoopFSUtils {
     }
   }
 
-  public static long getFileSize(FileSystem fs, Path path) throws IOException {
-    return fs.getFileStatus(path).getLen();
-  }
-
   /**
    * Given a base partition and a partition path, return relative path of partition path to the base path.
    */
@@ -403,16 +396,6 @@ public class HadoopFSUtils {
     return FSUtils.getDeltaCommitTimeFromLogPath(new StoragePath(path.toUri()));
   }
 
-  /**
-   * Check if the file is a base file of a log file. Then get the fileId appropriately.
-   */
-  public static String getFileIdFromFilePath(Path filePath) {
-    if (isLogFile(filePath)) {
-      return getFileIdFromLogPath(filePath);
-    }
-    return FSUtils.getFileId(filePath.getName());
-  }
-
   public static boolean isBaseFile(Path path) {
     return FSUtils.isBaseFile(new StoragePath(path.toUri()));
   }
@@ -426,29 +409,6 @@ public class HadoopFSUtils {
    */
   public static boolean isDataFile(Path path) {
     return isBaseFile(path) || isLogFile(path);
-  }
-
-  /**
-   * Get the names of all the base and log files in the given partition path.
-   */
-  public static FileStatus[] getAllDataFilesInPartition(FileSystem fs, Path partitionPath) throws IOException {
-    final Set<String> validFileExtensions = Arrays.stream(HoodieFileFormat.values())
-        .map(HoodieFileFormat::getFileExtension).collect(Collectors.toCollection(HashSet::new));
-    final String logFileExtension = HoodieFileFormat.HOODIE_LOG.getFileExtension();
-
-    try {
-      return Arrays.stream(fs.listStatus(partitionPath, path -> {
-        String extension = FSUtils.getFileExtension(path.getName());
-        return validFileExtensions.contains(extension) || path.getName().contains(logFileExtension);
-      })).filter(FileStatus::isFile).toArray(FileStatus[]::new);
-    } catch (IOException e) {
-      // return empty FileStatus if partition does not exist already
-      if (!fs.exists(partitionPath)) {
-        return new FileStatus[0];
-      } else {
-        throw e;
-      }
-    }
   }
 
   /**
