@@ -107,7 +107,7 @@ public class HoodieNativeLogAppendHandle<T, I, K, O> extends HoodieAppendHandle<
           hoodieTable.getBaseFileFormat(),
           writeSchemaWithMetaFields,
           taskContextSupplier,
-          hoodieTable.getReaderContextFactoryForWrite().getContext().getRecordContext(),
+          hoodieTable.getRecordContextForWrite(),
           orderingFields,
           baseFileInstantTimeOfPositions);
     } catch (IOException e) {
