@@ -80,11 +80,18 @@ jobs:
           # wins the write. This one only runs `mvn apache-rat:check`, finishes in well under a
           # minute, and would seal a ~10 MB local repo that every build job then has to discard and
           # re-download from Maven Central.
+      # Both checks describe the source release, not the git checkout, so they run inside the
+      # directory create_source_directory.sh produces - the same way validate_staged_release.sh
+      # runs them inside an extracted source tarball. On the raw checkout they would see the
+      # images under rfc/, docker/images/ and hudi-notebooks/, which the source release excludes.
+      - name: Create source release directory
+        run: ./scripts/release/create_source_directory.sh hudi-tmp-repo
       - name: Check Binary Files
-        run: ./scripts/release/validate_source_binary_files.sh
+        run: |
+          cd hudi-tmp-repo
+          ./scripts/release/validate_source_binary_files.sh
       - name: Check Copyright
         run: |
-          ./scripts/release/create_source_directory.sh hudi-tmp-repo
           cd hudi-tmp-repo
           ./scripts/release/validate_source_copyright.sh
       - name: RAT check
