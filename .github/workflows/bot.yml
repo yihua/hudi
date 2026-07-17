@@ -84,15 +84,20 @@ jobs:
       # directory create_source_directory.sh produces - the same way validate_staged_release.sh
       # runs them inside an extracted source tarball. On the raw checkout they would see the
       # images under rfc/, docker/images/ and hudi-notebooks/, which the source release excludes.
+      #
+      # Stage the copy outside the workspace. `mvn apache-rat:check` in the RAT check step scans
+      # the filesystem from the repository root, so a copy of the tree left inside the workspace
+      # gets scanned too, and every root-anchored exclude in the root pom (such as
+      # `hudi-trino-plugin/**`) silently stops applying to it.
       - name: Create source release directory
-        run: ./scripts/release/create_source_directory.sh hudi-tmp-repo
+        run: ./scripts/release/create_source_directory.sh "${{ runner.temp }}/hudi-tmp-repo"
       - name: Check Binary Files
         run: |
-          cd hudi-tmp-repo
+          cd "${{ runner.temp }}/hudi-tmp-repo"
           ./scripts/release/validate_source_binary_files.sh
       - name: Check Copyright
         run: |
-          cd hudi-tmp-repo
+          cd "${{ runner.temp }}/hudi-tmp-repo"
           ./scripts/release/validate_source_copyright.sh
       - name: RAT check
         run: ./scripts/release/validate_source_rat.sh
