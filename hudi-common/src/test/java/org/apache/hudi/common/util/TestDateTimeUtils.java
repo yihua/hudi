@@ -26,8 +26,11 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -149,8 +152,10 @@ public class TestDateTimeUtils {
     // Uses the system default zone, so validate by re-parsing the formatted output rather
     // than hardcoding a zone-dependent string.
     long unixTimestamp = 1_612_542_030L;
-    String formatted = DateTimeUtils.formatUnixTimestamp(unixTimestamp, "yyyy-MM-dd HH:mm:ss");
-    assertEquals(19, formatted.length());
+    String pattern = "yyyy-MM-dd HH:mm:ss";
+    String formatted = DateTimeUtils.formatUnixTimestamp(unixTimestamp, pattern);
+    LocalDateTime parsed = LocalDateTime.parse(formatted, DateTimeFormatter.ofPattern(pattern));
+    assertEquals(unixTimestamp, parsed.atZone(ZoneId.systemDefault()).toEpochSecond());
     assertDoesNotThrow(() -> DateTimeUtils.formatUnixTimestamp(unixTimestamp, "yyyy"));
   }
 

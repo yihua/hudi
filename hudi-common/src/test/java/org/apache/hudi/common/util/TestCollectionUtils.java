@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static org.apache.hudi.common.util.CollectionUtils.append;
@@ -168,7 +169,7 @@ class TestCollectionUtils {
   void toStreamAndToListDrainIterator() {
     List<Integer> source = Arrays.asList(1, 2, 3);
     assertEquals(source, toList(source.iterator()));
-    assertEquals(source, toStream(source.iterator()).collect(java.util.stream.Collectors.toList()));
+    assertEquals(source, toStream(source.iterator()).collect(Collectors.toList()));
   }
 
   @Test
@@ -260,6 +261,7 @@ class TestCollectionUtils {
 
   @Test
   void emptyPropsReturnsSharedSingleton() {
+    // Emptiness also guards against illegal mutation of the shared singleton elsewhere.
     assertTrue(CollectionUtils.emptyProps().isEmpty());
     assertSame(CollectionUtils.emptyProps(), CollectionUtils.emptyProps());
   }
