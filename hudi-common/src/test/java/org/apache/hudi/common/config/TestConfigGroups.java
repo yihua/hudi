@@ -30,11 +30,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Tests {@link ConfigGroups}.
  */
-public class TestConfigGroups {
+class TestConfigGroups {
 
   @ParameterizedTest
   @EnumSource(ConfigGroups.Names.class)
-  public void testGetDescriptionReturnsNonPlaceholderForEveryName(ConfigGroups.Names name) {
+  void testGetDescriptionReturnsNonPlaceholderForEveryName(ConfigGroups.Names name) {
     String description = ConfigGroups.getDescription(name);
     assertNotNull(description);
     assertFalse(description.isEmpty(), "Description should not be empty for " + name);
@@ -43,7 +43,7 @@ public class TestConfigGroups {
   }
 
   @Test
-  public void testGetDescriptionSpecificValues() {
+  void testGetDescriptionSpecificValues() {
     assertEquals("Basic Hudi Table configuration parameters.",
         ConfigGroups.getDescription(ConfigGroups.Names.TABLE_CONFIG));
     assertEquals("Configurations specific to Amazon Web Services.",
@@ -53,13 +53,13 @@ public class TestConfigGroups {
   }
 
   @Test
-  public void testNamesCarryHumanReadableName() {
+  void testNamesCarryHumanReadableName() {
     assertEquals("Hudi Table Config", ConfigGroups.Names.TABLE_CONFIG.name);
     assertEquals("Metrics Configs", ConfigGroups.Names.METRICS.name);
   }
 
   @Test
-  public void testSubGroupNamesCarryNameAndDescription() {
+  void testSubGroupNamesCarryNameAndDescription() {
     assertEquals("Index Configs", ConfigGroups.SubGroupNames.INDEX.name);
     assertTrue(ConfigGroups.SubGroupNames.INDEX.getDescription().contains("indexing behavior"));
     assertEquals("None", ConfigGroups.SubGroupNames.NONE.name);
