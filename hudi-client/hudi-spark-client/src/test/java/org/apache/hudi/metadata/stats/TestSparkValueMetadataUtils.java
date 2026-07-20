@@ -38,6 +38,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.stream.Stream;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -49,6 +50,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * and the value conversion round-trips using only in-process objects.
  */
 class TestSparkValueMetadataUtils {
+
+  private static ValueMetadata metadataFor(DataType dataType) {
+    return SparkValueMetadataUtils.getValueMetadata(dataType, HoodieIndexVersion.V2);
+  }
 
   private static Stream<Arguments> dataTypeToValueType() {
     return Stream.of(
@@ -80,11 +85,8 @@ class TestSparkValueMetadataUtils {
     ValueMetadata metadata = SparkValueMetadataUtils.getValueMetadata(decimalType, HoodieIndexVersion.V2);
 
     assertEquals(ValueType.DECIMAL, metadata.getValueType());
-    assertTrue(metadata instanceof ValueMetadata.DecimalValueMetadata,
-        "decimal type must produce decimal-aware metadata");
-    ValueMetadata.DecimalValueMetadata decimalMetadata = (ValueMetadata.DecimalValueMetadata) metadata;
-    assertEquals(12, decimalMetadata.getPrecision(), "precision must be preserved");
-    assertEquals(4, decimalMetadata.getScale(), "scale must be preserved");
+    assertEquals("12,4", metadata.getValueTypeInfo().getAdditionalInfo(),
+        "precision and scale must be encoded in the value type info");
   }
 
   @Test
@@ -106,29 +108,29 @@ class TestSparkValueMetadataUtils {
 
   @Test
   void convertSparkToJavaReturnsNullForNullInput() {
-    ValueMetadata metadata = new ValueMetadata(ValueType.INT);
+    ValueMetadata metadata = metadataFor(DataTypes.IntegerType);
     assertNull(SparkValueMetadataUtils.convertSparkToJava(metadata, null));
   }
 
   @Test
   void convertSparkToJavaPassesThroughPrimitives() {
     assertEquals(Boolean.TRUE,
-        SparkValueMetadataUtils.convertSparkToJava(new ValueMetadata(ValueType.BOOLEAN), true));
+        SparkValueMetadataUtils.convertSparkToJava(metadataFor(DataTypes.BooleanType), true));
     assertEquals(42,
-        SparkValueMetadataUtils.convertSparkToJava(new ValueMetadata(ValueType.INT), 42));
+        SparkValueMetadataUtils.convertSparkToJava(metadataFor(DataTypes.IntegerType), 42));
     assertEquals(42L,
-        SparkValueMetadataUtils.convertSparkToJava(new ValueMetadata(ValueType.LONG), 42L));
+        SparkValueMetadataUtils.convertSparkToJava(metadataFor(DataTypes.LongType), 42L));
     assertEquals(1.5f,
-        SparkValueMetadataUtils.convertSparkToJava(new ValueMetadata(ValueType.FLOAT), 1.5f));
+        SparkValueMetadataUtils.convertSparkToJava(metadataFor(DataTypes.FloatType), 1.5f));
     assertEquals(2.5d,
-        SparkValueMetadataUtils.convertSparkToJava(new ValueMetadata(ValueType.DOUBLE), 2.5d));
+        SparkValueMetadataUtils.convertSparkToJava(metadataFor(DataTypes.DoubleType), 2.5d));
     assertEquals("hudi",
-        SparkValueMetadataUtils.convertSparkToJava(new ValueMetadata(ValueType.STRING), "hudi"));
+        SparkValueMetadataUtils.convertSparkToJava(metadataFor(DataTypes.StringType), "hudi"));
   }
 
   @Test
   void convertSparkToJavaHandlesDecimal() {
-    ValueMetadata metadata = SparkValueMetadataUtils.getValueMetadata(new DecimalType(10, 2), HoodieIndexVersion.V2);
+    ValueMetadata metadata = metadataFor(new DecimalType(10, 2));
     Decimal sparkDecimal = Decimal.apply(new BigDecimal("123.45"));
     Comparable<?> result = SparkValueMetadataUtils.convertSparkToJava(metadata, sparkDecimal);
     assertEquals(new BigDecimal("123.45"), result, "decimal must convert to a java BigDecimal of equal value");
@@ -136,20 +138,20 @@ class TestSparkValueMetadataUtils {
 
   @Test
   void convertSparkToJavaHandlesBytes() {
-    ValueMetadata metadata = new ValueMetadata(ValueType.BYTES);
+    ValueMetadata metadata = metadataFor(DataTypes.BinaryType);
     byte[] input = new byte[] {1, 2, 3, 4};
     Comparable<?> result = SparkValueMetadataUtils.convertSparkToJava(metadata, input);
     assertTrue(result instanceof ByteBuffer, "bytes must convert to a ByteBuffer");
     ByteBuffer buffer = (ByteBuffer) result;
     byte[] roundTripped = new byte[buffer.remaining()];
     buffer.get(roundTripped);
-    org.junit.jupiter.api.Assertions.assertArrayEquals(input, roundTripped,
+    assertArrayEquals(input, roundTripped,
         "byte content must survive the conversion");
   }
 
   @Test
   void convertSparkToJavaHandlesDateFromEpochDays() {
-    ValueMetadata metadata = new ValueMetadata(ValueType.DATE);
+    ValueMetadata metadata = metadataFor(DataTypes.DateType);
     // Spark stores dates internally as epoch-day integers.
     int epochDays = (int) LocalDate.of(2021, 3, 15).toEpochDay();
     Comparable<?> result = SparkValueMetadataUtils.convertSparkToJava(metadata, epochDays);
@@ -158,7 +160,7 @@ class TestSparkValueMetadataUtils {
 
   @Test
   void convertSparkToJavaHandlesTimestampMicros() {
-    ValueMetadata metadata = new ValueMetadata(ValueType.TIMESTAMP_MICROS);
+    ValueMetadata metadata = metadataFor(DataTypes.TimestampType);
     Instant expected = Instant.ofEpochSecond(1_600_000_000L);
     long micros = expected.getEpochSecond() * 1_000_000L;
     Comparable<?> result = SparkValueMetadataUtils.convertSparkToJava(metadata, micros);

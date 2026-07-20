@@ -29,6 +29,7 @@ import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.RowFactory;
 import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.Metadata;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.junit.jupiter.api.Assertions;
@@ -37,6 +38,9 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
+
+import static org.apache.spark.sql.functions.spark_partition_id;
 
 class TestRangeSampleSort extends HoodieClientTestBase {
 
@@ -64,13 +68,13 @@ class TestRangeSampleSort extends HoodieClientTestBase {
   }
 
   /**
-   * Builds a two-column integer frame with a single output partition so the
-   * space-curve ordering is fully deterministic and can be asserted row by row.
+   * Builds a two-column integer frame; call sites pass an explicit output partition
+   * count so the resulting ordering is deterministic and can be asserted row by row.
    */
   private Dataset<Row> buildTwoIntColumnFrame(List<Row> rows) {
     StructType schema = new StructType(new StructField[] {
-        new StructField("c1", DataTypes.IntegerType, true, org.apache.spark.sql.types.Metadata.empty()),
-        new StructField("c2", DataTypes.IntegerType, true, org.apache.spark.sql.types.Metadata.empty())
+        new StructField("c1", DataTypes.IntegerType, true, Metadata.empty()),
+        new StructField("c2", DataTypes.IntegerType, true, Metadata.empty())
     });
     return sparkSession.createDataFrame(rows, schema);
   }
@@ -83,16 +87,6 @@ class TestRangeSampleSort extends HoodieClientTestBase {
     byte[] b1 = BinaryUtil.intTo8Byte(c1 == null ? Integer.MAX_VALUE : c1);
     byte[] b2 = BinaryUtil.intTo8Byte(c2 == null ? Integer.MAX_VALUE : c2);
     return BinaryUtil.interleaving(new byte[][] {b1, b2}, 8);
-  }
-
-  private static int compareUnsigned(byte[] a, byte[] b) {
-    for (int i = 0; i < a.length && i < b.length; i++) {
-      int cmp = (a[i] & 0xFF) - (b[i] & 0xFF);
-      if (cmp != 0) {
-        return cmp;
-      }
-    }
-    return a.length - b.length;
   }
 
   @Test
@@ -119,7 +113,7 @@ class TestRangeSampleSort extends HoodieClientTestBase {
     for (int i = 1; i < result.size(); i++) {
       byte[] prev = expectedZOrdinal(result.get(i - 1).getInt(0), result.get(i - 1).getInt(1));
       byte[] curr = expectedZOrdinal(result.get(i).getInt(0), result.get(i).getInt(1));
-      Assertions.assertTrue(compareUnsigned(prev, curr) <= 0,
+      Assertions.assertTrue(BinaryUtil.compareTo(prev, 0, prev.length, curr, 0, curr.length) <= 0,
           "row " + i + " violates ascending Z-curve order");
     }
 
@@ -169,26 +163,52 @@ class TestRangeSampleSort extends HoodieClientTestBase {
   }
 
   @Test
-  void orderByMappingValuesSingleColumnIsLinearOrder() {
+  void orderByMappingValuesSingleColumnRangePartitionsRows() {
     List<Row> rows = Arrays.asList(
         RowFactory.create(3, 30),
         RowFactory.create(1, 10),
-        RowFactory.create(2, 20));
+        RowFactory.create(2, 20),
+        RowFactory.create(4, 40));
     Dataset<Row> df = buildTwoIntColumnFrame(rows);
 
-    // A single ordering column short-circuits space-curve mapping into a plain range repartition.
+    // A single ordering column short-circuits space-curve mapping into a plain range
+    // repartition. Spark's repartitionByRange does not sort rows within a partition,
+    // so only the cross-partition range contract can be asserted.
     Dataset<Row> ordered = SpaceCurveSortingHelper.orderDataFrameByMappingValues(
-        df, HoodieClusteringConfig.LayoutOptimizationStrategy.ZORDER, Arrays.asList("c1"), 1);
+        df, HoodieClusteringConfig.LayoutOptimizationStrategy.ZORDER, Arrays.asList("c1"), 2);
 
     Assertions.assertArrayEquals(new String[] {"c1", "c2"}, ordered.schema().fieldNames(),
         "single-column ordering must not add an Index column");
-    List<Row> result = ordered.collectAsList();
+
+    List<Row> result = ordered.withColumn("pid", spark_partition_id()).collectAsList();
+    Assertions.assertEquals(rows.size(), result.size(), "no rows should be dropped");
+
+    // Range partitioning must not overlap ranges across partitions: every c1 in a
+    // lower-numbered partition is <= every c1 in a higher-numbered partition.
+    for (Row left : result) {
+      for (Row right : result) {
+        if (left.getInt(2) < right.getInt(2)) {
+          Assertions.assertTrue(left.getInt(0) <= right.getInt(0),
+              "partition ranges must not overlap");
+        }
+      }
+    }
+
+    // With four distinct keys and two target partitions the deterministic range
+    // bounds split the rows across both partitions, so the check above is not vacuous.
+    Assertions.assertEquals(2,
+        result.stream().map(r -> r.getInt(2)).collect(Collectors.toSet()).size(),
+        "rows must be spread across both requested partitions");
+
+    // The row multiset must be preserved: each c1 appears once with its matching c2.
     List<Integer> c1Values = new ArrayList<>();
     for (Row r : result) {
+      Assertions.assertEquals(r.getInt(0) * 10, r.getInt(1), "row content must be unchanged");
       c1Values.add(r.getInt(0));
     }
-    Assertions.assertEquals(Arrays.asList(1, 2, 3), c1Values,
-        "single-column ordering must produce ascending values");
+    c1Values.sort(Integer::compareTo);
+    Assertions.assertEquals(Arrays.asList(1, 2, 3, 4), c1Values,
+        "range repartition must preserve all rows");
   }
 
   @Test
