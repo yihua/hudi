@@ -19,9 +19,9 @@
 package org.apache.hudi.client;
 
 import org.apache.hudi.common.config.HoodieTableServiceManagerConfig;
+import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
-import org.apache.hudi.common.table.HoodieTableType;
 import org.apache.hudi.common.testutils.HoodieTestUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.exception.HoodieRemoteException;
@@ -94,7 +94,7 @@ public class TestHoodieTableServiceManagerClient {
   /**
    * Parses a raw query string of the form {@code a=1&b=2} into a decoded map.
    */
-  private static Map<String, String> parseQuery(String rawQuery) {
+  private static Map<String, String> parseQuery(String rawQuery) throws IOException {
     Map<String, String> params = new HashMap<>();
     if (rawQuery == null || rawQuery.isEmpty()) {
       return params;

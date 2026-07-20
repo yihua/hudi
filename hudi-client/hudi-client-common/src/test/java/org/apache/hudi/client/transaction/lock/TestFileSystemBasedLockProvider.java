@@ -19,9 +19,12 @@
 package org.apache.hudi.client.transaction.lock;
 
 import org.apache.hudi.common.config.LockConfiguration;
+import org.apache.hudi.common.config.TypedProperties;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.testutils.HoodieTestUtils;
 import org.apache.hudi.common.util.HoodieStorageUtils;
 import org.apache.hudi.config.HoodieLockConfig;
+import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.storage.HoodieStorage;
 import org.apache.hudi.storage.StorageConfiguration;
 import org.apache.hudi.storage.StoragePath;
@@ -36,6 +39,7 @@ import java.util.concurrent.TimeUnit;
 import static org.apache.hudi.common.config.LockConfiguration.FILESYSTEM_LOCK_EXPIRE_PROP_KEY;
 import static org.apache.hudi.common.config.LockConfiguration.FILESYSTEM_LOCK_PATH_PROP_KEY;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -52,8 +56,6 @@ public class TestFileSystemBasedLockProvider {
     Properties props = new Properties();
     props.setProperty(FILESYSTEM_LOCK_PATH_PROP_KEY, lockPath);
     props.setProperty(FILESYSTEM_LOCK_EXPIRE_PROP_KEY, String.valueOf(expireMinutes));
-    // Small retry wait so the base LockProvider defaults do not slow the tests.
-    props.setProperty(HoodieLockConfig.LOCK_ACQUIRE_CLIENT_RETRY_WAIT_TIME_IN_MILLIS.key(), "50");
     return new LockConfiguration(props);
   }
 
@@ -172,18 +174,52 @@ public class TestFileSystemBasedLockProvider {
   @Test
   public void testGetLockConfigProducesUsableProperties() {
     String tablePath = tempDir.resolve("table").toString();
-    org.apache.hudi.common.config.TypedProperties props =
-        FileSystemBasedLockProvider.getLockConfig(tablePath);
+    TypedProperties props = FileSystemBasedLockProvider.getLockConfig(tablePath);
     // The generated config points the lock provider at the table's auxiliary folder.
     assertTrue(props.getString(HoodieLockConfig.FILESYSTEM_LOCK_PATH.key()).startsWith(tablePath));
-    assertTrue(props.getString(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME.key())
-        .equals(FileSystemBasedLockProvider.class.getName()));
+    assertEquals(FileSystemBasedLockProvider.class.getName(),
+        props.getString(HoodieLockConfig.LOCK_PROVIDER_CLASS_NAME.key()));
 
     StorageConfiguration<?> storageConf = HoodieTestUtils.getDefaultStorageConf();
     FileSystemBasedLockProvider provider =
         new FileSystemBasedLockProvider(new LockConfiguration(props), storageConf);
     try {
       assertTrue(provider.tryLock(1, TimeUnit.SECONDS));
+    } finally {
+      provider.unlock();
+      provider.close();
+    }
+  }
+
+  @Test
+  public void testLockPathDefaultsToMetafolderFromBasePath() {
+    StorageConfiguration<?> storageConf = HoodieTestUtils.getDefaultStorageConf();
+    Properties props = new Properties();
+    props.setProperty(HoodieWriteConfig.BASE_PATH.key(), lockDir("defaultpath"));
+    props.setProperty(FILESYSTEM_LOCK_EXPIRE_PROP_KEY, "0");
+    FileSystemBasedLockProvider provider =
+        new FileSystemBasedLockProvider(new LockConfiguration(props), storageConf);
+    try {
+      assertTrue(provider.tryLock(1, TimeUnit.SECONDS),
+          "lock acquisition must work without an explicit lock path");
+      // Without an explicit lock path the provider locks under the table metafolder.
+      assertTrue(provider.getLock().endsWith(
+          HoodieTableMetaClient.METAFOLDER_NAME + StoragePath.SEPARATOR + "lock"));
+    } finally {
+      provider.unlock();
+      provider.close();
+    }
+  }
+
+  @Test
+  public void testSameProviderSecondTryLockFails() {
+    StorageConfiguration<?> storageConf = HoodieTestUtils.getDefaultStorageConf();
+    FileSystemBasedLockProvider provider =
+        new FileSystemBasedLockProvider(lockConfiguration(lockDir("nonreentrant"), 0), storageConf);
+    try {
+      assertTrue(provider.tryLock(1, TimeUnit.SECONDS));
+      // The file lock is not reentrant: a second tryLock by the same provider fails.
+      assertFalse(provider.tryLock(1, TimeUnit.SECONDS));
     } finally {
       provider.unlock();
       provider.close();
