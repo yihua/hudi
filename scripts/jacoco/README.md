@@ -136,7 +136,7 @@ To read coverage for a single module locally, run its tests with the JaCoCo agen
 generated `target/site/jacoco*/index.html`, for example:
 
 ```bash
-mvn test -pl hudi-common -Punit-tests -Djacoco.skip=false
+mvn test -pl hudi-common -Punit-tests
 ```
 
 Instruction coverage is the headline metric; branch coverage (also in the report) shows whether

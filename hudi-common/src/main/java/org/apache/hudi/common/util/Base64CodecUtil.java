@@ -29,8 +29,6 @@ import static org.apache.hudi.common.util.StringUtils.getUTF8Bytes;
  */
 public final class Base64CodecUtil {
 
-  // DNM: temporary no-op comment to trigger CI so the updated Codecov config uploads a report. Revert before merge.
-
   /**
    * Decodes data from the input string into using the encoding scheme.
    *

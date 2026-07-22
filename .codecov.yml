@@ -43,7 +43,10 @@ coverage:
 
 # Generated code (Avro/Thrift/Protobuf/ANTLR) is produced at build time, has no
 # source in git, and is therefore already absent from the Codecov report; it needs
-# no entry here. The paths below are non-generated code that should not count.
+# no entry here. Likewise, modules whose CI jobs do not upload a JaCoCo report
+# (e.g. hudi-trino-plugin) never reach Codecov, so they are intentionally absent
+# from both the ignore list and component_management below. The paths below are
+# non-generated code that should not count.
 ignore:
   # Generated Avro model classes (kept for safety in case sources are ever committed).
   - "hudi-common/src/main/java/org/apache/hudi/avro/model/**"
@@ -60,8 +63,8 @@ ignore:
   - "hudi-platform-service/**"
   # Standalone main()-style tools and legacy JSON/payload helpers carried over from the
   # previous config; these are exercised by integration tests, not unit tests. Kept
-  # excluded for consistency (entries for since-deleted classes have been dropped).
-  - "hudi-common/src/main/java/org/apache/hudi/avro/MercifulJsonConverter.java"
+  # excluded for consistency (entries for since-deleted or now-tested classes have been
+  # dropped, e.g. MercifulJsonConverter, which now has TestMercifulJsonConverter).
   - "hudi-common/src/main/java/org/apache/hudi/common/HoodieJsonPayload.java"
   - "hudi-utilities/src/main/java/org/apache/hudi/utilities/HoodieCleaner.java"
   - "hudi-utilities/src/main/java/org/apache/hudi/utilities/HoodieCompactionAdminTool.java"
