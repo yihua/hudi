@@ -25,6 +25,7 @@ import org.apache.hudi.common.config.RecordMergeMode;
 import org.apache.hudi.common.model.EventTimeAvroPayload;
 import org.apache.hudi.common.model.OverwriteWithLatestAvroPayload;
 import org.apache.hudi.common.model.PartialUpdateAvroPayload;
+import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.HoodieTableVersion;
@@ -151,6 +152,8 @@ class TestStreamerUtil {
     // Test for partitioned table.
     conf.set(FlinkOptions.PARTITION_PATH_FIELD, "p0,p1");
     conf.set(FlinkOptions.WRITE_TABLE_VERSION, HoodieTableVersion.SIX.versionCode());
+    conf.setString(HoodieTableConfig.TABLE_STORAGE_LAYOUT.key(),
+        HoodieTableConfig.TableStorageLayout.DEFAULT.configValue());
     StreamerUtil.initTableIfNotExists(conf);
 
     // Validate the partition fields & preCombineField in hoodie.properties.
@@ -158,6 +161,38 @@ class TestStreamerUtil {
     assertArrayEquals(metaClient1.getTableConfig().getPartitionFields().get(), new String[] {"p0", "p1"});
     assertNotNull(metaClient1.getTableConfig().getKeyGeneratorClassName());
     assertEquals(HoodieTableVersion.SIX, metaClient1.getTableConfig().getTableVersion());
+    assertEquals(HoodieTableConfig.TableStorageLayout.DEFAULT.configValue(),
+        conf.getString(HoodieTableConfig.TABLE_STORAGE_LAYOUT.key(), null));
+  }
+
+  @Test
+  void testInitLsmTreeTable() throws IOException {
+    Configuration conf = TestConfigurations.getDefaultConf(tempFile.getAbsolutePath());
+    conf.set(FlinkOptions.WRITE_TABLE_VERSION, HoodieTableVersion.TEN.versionCode());
+    conf.setString(HoodieTableConfig.TABLE_STORAGE_LAYOUT.key(),
+        HoodieTableConfig.TableStorageLayout.LSM_TREE.configValue());
+
+    HoodieTableMetaClient metaClient = StreamerUtil.initTableIfNotExists(conf);
+
+    assertEquals(HoodieTableVersion.TEN, metaClient.getTableConfig().getTableVersion());
+    assertTrue(metaClient.getTableConfig().isLSMTreeStorageLayout());
+    assertFalse(metaClient.getTableConfig().contains(HoodieTableConfig.LOG_FILE_FORMAT));
+  }
+
+  @Test
+  void testInitInsertTableStorageLayout() throws IOException {
+    Configuration conf = TestConfigurations.getDefaultConf(tempFile.getAbsolutePath());
+    conf.set(FlinkOptions.OPERATION, "insert");
+
+    HoodieTableMetaClient metaClient = StreamerUtil.initTableIfNotExists(conf);
+
+    assertFalse(metaClient.getTableConfig().isLSMTreeStorageLayout());
+
+    FileIOUtils.deleteDirectory(tempFile);
+    conf.set(FlinkOptions.OPERATION, WriteOperationType.BULK_INSERT.value());
+    metaClient = StreamerUtil.initTableIfNotExists(conf);
+
+    assertFalse(metaClient.getTableConfig().isLSMTreeStorageLayout());
   }
 
   @Test
@@ -177,6 +212,7 @@ class TestStreamerUtil {
     assertEquals(metaClient1.getTableConfig().getOrderingFieldsStr().get(), "ts");
     assertEquals(metaClient1.getTableConfig().getKeyGeneratorClassName(), SimpleAvroKeyGenerator.class.getName());
     assertEquals(HoodieTableVersion.current(), metaClient1.getTableConfig().getTableVersion());
+    assertTrue(metaClient1.getTableConfig().isLSMTreeStorageLayout());
 
     // Test for non-partitioned table.
     conf.removeConfig(FlinkOptions.PARTITION_PATH_FIELD);

@@ -129,10 +129,8 @@ public class HoodieTableFactory implements DynamicTableSourceFactory, DynamicTab
               && !conf.contains(FlinkOptions.HIVE_STYLE_PARTITIONING)) {
             conf.set(FlinkOptions.HIVE_STYLE_PARTITIONING, tableConfig.getBoolean(HoodieTableConfig.HIVE_STYLE_PARTITIONING_ENABLE));
           }
-          if (tableConfig.contains(HoodieTableConfig.TABLE_STORAGE_LAYOUT)
-              && !conf.containsKey(HoodieTableConfig.TABLE_STORAGE_LAYOUT.key())) {
-            conf.setString(HoodieTableConfig.TABLE_STORAGE_LAYOUT.key(), tableConfig.getString(HoodieTableConfig.TABLE_STORAGE_LAYOUT));
-          }
+          conf.setString(HoodieTableConfig.TABLE_STORAGE_LAYOUT.key(),
+              tableConfig.getTableStorageLayout().configValue());
           if (tableConfig.contains(HoodieTableConfig.TYPE) && conf.contains(FlinkOptions.TABLE_TYPE)) {
             if (!tableConfig.getString(HoodieTableConfig.TYPE).equals(conf.get(FlinkOptions.TABLE_TYPE))) {
               log.error("Table type conflict : {} in {} and {} in table options. Update your config to match the table type in hoodie.properties.",
@@ -180,11 +178,24 @@ public class HoodieTableFactory implements DynamicTableSourceFactory, DynamicTab
     checkTableType(conf);
     checkBaseFileFormatForWrite(conf);
     checkIndexType(conf);
+    checkStorageLayout(conf);
 
     if (!OptionsResolver.isAppendMode(conf)) {
       checkRecordKey(conf, schema);
     }
     StreamerUtil.checkOrderingFields(conf, schema.getColumnNames());
+  }
+
+  /**
+   * Validate the table storage layout.
+   */
+  private void checkStorageLayout(
+      Configuration conf) {
+    HoodieTableConfig.TableStorageLayout storageLayout = OptionsResolver.getTableStorageLayout(conf);
+    ValidationUtils.checkArgument(
+        !(OptionsResolver.isInsertOperation(conf) || OptionsResolver.isBulkInsertOperation(conf))
+            || storageLayout != HoodieTableConfig.TableStorageLayout.LSM_TREE,
+        "The LSM tree storage layout does not support insert or bulk insert operations because they allow duplicate record keys.");
   }
 
   /**

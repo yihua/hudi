@@ -22,7 +22,6 @@ package org.apache.hudi.common.table.read.lsm;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.engine.HoodieReaderContext;
 import org.apache.hudi.common.model.HoodieBaseFile;
-import org.apache.hudi.common.model.HoodieFileFormat;
 import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.schema.HoodieSchema;
@@ -58,11 +57,11 @@ import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 
 /**
- * Record reader for RFC-103 LSM file groups backed by native parquet log files.
+ * Record reader for RFC-103 LSM file groups backed by native log files.
  *
  * <p>This reader is intentionally separate from {@code HoodieFileGroupReader}. Callers should use it
  * only when the file group follows pure LSM sorted-file semantics: the optional base file is treated
- * as the L1 sorted run and native parquet log files are treated as L0 sorted runs. Mixed legacy log
+ * as the L1 sorted run and native log files are treated as L0 sorted runs. Mixed legacy log
  * file groups should continue to use {@code HoodieFileGroupReader}.
  *
  * <p>The reader owns file-group level setup that mirrors {@code HoodieFileGroupReader}: schema
@@ -80,7 +79,7 @@ public final class HoodieLsmFileGroupReader<T> implements HoodieRecordReader<T> 
   private final ReaderParameters readerParameters;
   private final Option<UnaryOperator<T>> outputConverter;
   private final Option<BaseFileUpdateCallback<T>> fileGroupUpdateCallback;
-  private ClosableIterator<BufferedRecord<T>> lsmRecordIterator;
+  private ClosableIterator<BufferedRecord<T>> bufferedRecordIterator;
   @Getter
   private final HoodieReadStats readStats;
 
@@ -110,8 +109,6 @@ public final class HoodieLsmFileGroupReader<T> implements HoodieRecordReader<T> 
     ValidationUtils.checkArgument(requestedSchema != null, "Requested schema is required");
     ValidationUtils.checkArgument(props != null, "Props is required");
     ValidationUtils.checkArgument(partitionPath != null, "Partition path is required");
-    ValidationUtils.checkArgument(logFiles == null || hoodieTableMetaClient.getTableConfig().getLogFileFormat() == HoodieFileFormat.PARQUET,
-        "LSM file group reader expects parquet log files");
 
     if (internalSchemaOpt == null) {
       internalSchemaOpt = Option.empty();
@@ -182,17 +179,24 @@ public final class HoodieLsmFileGroupReader<T> implements HoodieRecordReader<T> 
    * Creates a buffered iterator in the requested output mode.
    *
    * <p>{@code includeBaseFile} controls whether the L1/base sorted run participates in the merge.
-   * Log-only consumers, such as compaction-style readers, pass {@code false} so only native parquet
+   * Log-only consumers, such as compaction-style readers, pass {@code false} so only native
    * log files are scanned.
    */
   private ClosableIterator<BufferedRecord<T>> getBufferedRecordIterator(IteratorMode iteratorMode,
                                                                         boolean includeBaseFile) throws IOException {
     this.readerContext.setIteratorMode(iteratorMode);
-    if (lsmRecordIterator != null) {
-      lsmRecordIterator.close();
+    if (bufferedRecordIterator != null) {
+      bufferedRecordIterator.close();
     }
-    this.lsmRecordIterator = new LsmFileGroupRecordIterator<>(
-        readerContext, storage, inputSplit, orderingFieldNames, metaClient, props, readerParameters, readStats, fileGroupUpdateCallback, includeBaseFile);
+    if (includeBaseFile && inputSplit.getBaseFileOption().isPresent() && inputSplit.hasNoRecordsToMerge()) {
+      this.bufferedRecordIterator = LsmFileIterators.createBaseFileIterator(
+          readerContext, storage, inputSplit.getBaseFileOption().get(),
+          inputSplit.getStart(), inputSplit.getLength(), orderingFieldNames, true);
+    } else {
+      this.bufferedRecordIterator = new LsmFileGroupRecordIterator<>(
+          readerContext, storage, inputSplit, orderingFieldNames, metaClient, props,
+          readerParameters, readStats, fileGroupUpdateCallback, includeBaseFile);
+    }
     return new HoodieLsmFileGroupReaderIterator<>(this);
   }
 
@@ -223,11 +227,11 @@ public final class HoodieLsmFileGroupReader<T> implements HoodieRecordReader<T> 
   }
 
   boolean hasNext() {
-    return lsmRecordIterator.hasNext();
+    return bufferedRecordIterator.hasNext();
   }
 
   BufferedRecord<T> next() {
-    BufferedRecord<T> nextVal = lsmRecordIterator.next();
+    BufferedRecord<T> nextVal = bufferedRecordIterator.next();
     if (outputConverter.isPresent()) {
       return nextVal.project(outputConverter.get());
     }
@@ -241,8 +245,8 @@ public final class HoodieLsmFileGroupReader<T> implements HoodieRecordReader<T> 
 
   @Override
   public void close() throws IOException {
-    if (lsmRecordIterator != null) {
-      lsmRecordIterator.close();
+    if (bufferedRecordIterator != null) {
+      bufferedRecordIterator.close();
     }
   }
 

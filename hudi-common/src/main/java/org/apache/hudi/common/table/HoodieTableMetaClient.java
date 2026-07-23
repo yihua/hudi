@@ -1005,6 +1005,7 @@ public class HoodieTableMetaClient implements Serializable {
     private String timelinePath;
     private String timelineHistoryPath;
     private String baseFileFormat;
+    private String tableStorageLayout;
     private String orderingFields;
     private String partitionFields;
     private Boolean cdcEnabled;
@@ -1123,6 +1124,11 @@ public class HoodieTableMetaClient implements Serializable {
 
     public TableBuilder setBaseFileFormat(String baseFileFormat) {
       this.baseFileFormat = baseFileFormat;
+      return this;
+    }
+
+    public TableBuilder setTableStorageLayout(String tableStorageLayout) {
+      this.tableStorageLayout = tableStorageLayout;
       return this;
     }
 
@@ -1277,6 +1283,8 @@ public class HoodieTableMetaClient implements Serializable {
           .setTableName(metaClient.getTableConfig().getTableName())
           .setTableVersion(metaClient.getTableConfig().getTableVersion())
           .setTableFormat(metaClient.getTableConfig().getTableFormat(metaClient.getTimelineLayoutVersion()).getName())
+          .setTableStorageLayout(metaClient.getTableConfig().getProps()
+              .getProperty(HoodieTableConfig.TABLE_STORAGE_LAYOUT.key()))
           .setTimelinePath(metaClient.getTableConfig().getTimelinePath())
           .setArchiveLogFolder(metaClient.getTableConfig().getTimelineHistoryPath())
           .setRecordMergeMode(metaClient.getTableConfig().getRecordMergeMode())
@@ -1343,6 +1351,9 @@ public class HoodieTableMetaClient implements Serializable {
       if (hoodieConfig.contains(HoodieTableConfig.BASE_FILE_FORMAT)) {
         setBaseFileFormat(
             hoodieConfig.getString(HoodieTableConfig.BASE_FILE_FORMAT));
+      }
+      if (hoodieConfig.contains(HoodieTableConfig.TABLE_STORAGE_LAYOUT)) {
+        setTableStorageLayout(hoodieConfig.getString(HoodieTableConfig.TABLE_STORAGE_LAYOUT));
       }
       if (hoodieConfig.contains(HoodieTableConfig.BOOTSTRAP_INDEX_CLASS_NAME)) {
         setBootstrapIndexClass(
@@ -1489,6 +1500,11 @@ public class HoodieTableMetaClient implements Serializable {
 
       if (null != baseFileFormat) {
         tableConfig.setValue(HoodieTableConfig.BASE_FILE_FORMAT, baseFileFormat.toUpperCase());
+      }
+
+      if (null != tableStorageLayout) {
+        tableConfig.setValue(HoodieTableConfig.TABLE_STORAGE_LAYOUT,
+            HoodieTableConfig.TableStorageLayout.fromConfigValue(tableStorageLayout).configValue());
       }
 
       if (null != bootstrapIndexClass) {
