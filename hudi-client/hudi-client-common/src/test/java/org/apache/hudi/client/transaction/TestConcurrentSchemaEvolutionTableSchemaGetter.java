@@ -528,6 +528,18 @@ public class TestConcurrentSchemaEvolutionTableSchemaGetter extends HoodieCommon
     assertTrue(schema2Option.isPresent());
     assertEquals(schema2.toString(), schema2Option.get().toString());
 
+    // A target instant without a completion time (e.g., an inflight instant at pre-commit time)
+    // does not bound the lookup; the latest table schema is returned.
+    String inflightTimestamp = padWithLeadingZeros(Integer.toString(startCommitTime), REQUEST_TIME_LENGTH);
+    Option<HoodieSchema> schemaAtInstantWithoutCompletionTime = resolver.getTableSchemaIfPresent(
+        false,
+        Option.of(metaClient.getInstantGenerator().createNewInstant(
+            HoodieInstant.State.INFLIGHT,
+            tableType.equals(HoodieTableType.COPY_ON_WRITE) ? COMMIT_ACTION : DELTA_COMMIT_ACTION,
+            inflightTimestamp)));
+    assertTrue(schemaAtInstantWithoutCompletionTime.isPresent());
+    assertEquals(schema2.toString(), schemaAtInstantWithoutCompletionTime.get().toString());
+
     // Now follow with more disqualified instants and try to get table schema with their request time, we should back track to instant 2.
     int endCommitTime = createExhaustiveDisqualifiedInstants(startCommitTime, tableType);
     metaClient.reloadActiveTimeline();

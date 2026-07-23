@@ -157,6 +157,18 @@ public class TestSimpleSchemaConflictResolutionStrategy {
   }
 
   @Test
+  void testNullTypeWriterSchemaCurrTxnInstantWithoutCompletionTime() throws Exception {
+    setupInstants(SCHEMA1, SCHEMA2, NULL_SCHEMA, true, false);
+    // At pre-commit time the curr txn owner instant is inflight and has no completion time;
+    // the resolution falls back to the latest table schema.
+    Option<HoodieInstant> currTxnOwnerInstant = Option.of(
+        metaClient.createNewInstant(HoodieInstant.State.INFLIGHT, COMMIT_ACTION, "0040"));
+    HoodieSchema result = strategy.resolveConcurrentSchemaEvolution(
+        table, config, lastCompletedTxnOwnerInstant, currTxnOwnerInstant).get();
+    assertEquals(HoodieSchema.parse(SCHEMA2), result);
+  }
+
+  @Test
   void testConflictSecondCommitDifferentSchema() throws Exception {
     setupInstants(null, SCHEMA1, SCHEMA2, true, false);
     assertThrows(HoodieSchemaEvolutionConflictException.class,

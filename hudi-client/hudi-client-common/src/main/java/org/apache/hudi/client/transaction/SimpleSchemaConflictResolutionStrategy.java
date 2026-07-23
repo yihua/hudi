@@ -69,7 +69,9 @@ public class SimpleSchemaConflictResolutionStrategy implements SchemaConflictRes
     // If a writer does not come with a meaningful schema, skip the schema resolution.
     ConcurrentSchemaEvolutionTableSchemaGetter schemaResolver = new ConcurrentSchemaEvolutionTableSchemaGetter(table.getMetaClient());
     if (writerSchemaOfTxn.isSchemaNull()) {
-      return getTableSchemaAtInstant(schemaResolver, currTxnOwnerInstant.get());
+      // The curr txn owner instant is not completed yet and has no completion time to bound
+      // the lookup, so resolve the latest table schema.
+      return getTableSchemaAtInstant(schemaResolver, Option.empty());
     }
 
     // Fast path: We can tell there is no schema conflict by just comparing the instants without involving table/writer schema comparison.
@@ -97,7 +99,7 @@ public class SimpleSchemaConflictResolutionStrategy implements SchemaConflictRes
       return Option.of(writerSchemaOfTxn);
     }
 
-    Option<HoodieSchema> tableSchemaAtTxnValidation = getTableSchemaAtInstant(schemaResolver, lastCompletedInstantAtTxnValidation);
+    Option<HoodieSchema> tableSchemaAtTxnValidation = getTableSchemaAtInstant(schemaResolver, Option.of(lastCompletedInstantAtTxnValidation));
     // If table schema is not defined, it's still case 1. There can be cases where there are commits but they didn't
     // write any data.
     if (!tableSchemaAtTxnValidation.isPresent()) {
@@ -121,7 +123,7 @@ public class SimpleSchemaConflictResolutionStrategy implements SchemaConflictRes
       throwConcurrentSchemaEvolutionException(
           Option.empty(), tableSchemaAtTxnValidation, writerSchemaOfTxn, lastCompletedTxnOwnerInstant, currTxnOwnerInstant);
     }
-    Option<HoodieSchema> tableSchemaAtTxnStart = getTableSchemaAtInstant(schemaResolver, lastCompletedInstantAtTxnStart);
+    Option<HoodieSchema> tableSchemaAtTxnStart = getTableSchemaAtInstant(schemaResolver, Option.of(lastCompletedInstantAtTxnStart));
     // If no table schema is defined, fall back to case 3.
     if (!tableSchemaAtTxnStart.isPresent()) {
       throwConcurrentSchemaEvolutionException(
@@ -163,9 +165,9 @@ public class SimpleSchemaConflictResolutionStrategy implements SchemaConflictRes
         .findFirst());
   }
 
-  private static Option<HoodieSchema> getTableSchemaAtInstant(ConcurrentSchemaEvolutionTableSchemaGetter schemaResolver, HoodieInstant instant) {
+  private static Option<HoodieSchema> getTableSchemaAtInstant(ConcurrentSchemaEvolutionTableSchemaGetter schemaResolver, Option<HoodieInstant> instant) {
     try {
-      return schemaResolver.getTableSchemaIfPresent(false, Option.of(instant));
+      return schemaResolver.getTableSchemaIfPresent(false, instant);
     } catch (Exception ex) {
       log.error("Cannot get table schema for instant {}", instant);
       throw new HoodieException("Unable to get table schema", ex);

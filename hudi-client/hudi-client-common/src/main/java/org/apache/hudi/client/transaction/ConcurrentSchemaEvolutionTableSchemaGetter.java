@@ -160,9 +160,11 @@ class ConcurrentSchemaEvolutionTableSchemaGetter {
     // the timeline finding a completed instant containing a valid schema.
     ConcurrentHashMap<HoodieInstant, HoodieSchema> tableSchemaAtInstant = new ConcurrentHashMap<>();
     Option<HoodieInstant> instantWithTableSchema = Option.fromJavaOptional(reversedTimelineStream
-        // If a completion time is specified, find the first eligible instant in the schema evolution timeline.
+        // If a completion time is specified, find the first eligible instant in the schema evolution timeline;
+        // a target instant without a completion time (not completed yet) does not bound the lookup.
         // Should switch to completion time based.
-        .filter(s -> instant.isEmpty() || compareTimestamps(s.getCompletionTime(), LESSER_THAN_OR_EQUALS, instant.get().getCompletionTime()))
+        .filter(s -> instant.isEmpty() || StringUtils.isNullOrEmpty(instant.get().getCompletionTime())
+            || compareTimestamps(s.getCompletionTime(), LESSER_THAN_OR_EQUALS, instant.get().getCompletionTime()))
         // Make sure the commit metadata has a valid schema inside. Same caching the result for expensive operation.
         .filter(s -> {
           try {
