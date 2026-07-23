@@ -130,7 +130,7 @@ public class TestMarkerDirState extends HoodieCommonTestHarness {
   }
 
   /**
-   * Storage whose created streams for {@code MARKERS<i>} files fail at close() time,
+   * Storage whose created streams for {@code MARKERS} index files fail at close() time,
    * simulating an object store that uploads the file content in close().
    */
   private static class CloseFailingHoodieStorage extends HoodieHadoopStorage {
