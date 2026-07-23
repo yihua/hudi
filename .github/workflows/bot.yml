@@ -1176,7 +1176,7 @@ jobs:
           - scalaProfile: 'scala-2.13'
             flinkProfile: 'flink1.20'
             sparkProfile: 'spark4.2'
-            sparkRuntime: 'spark4.2.0-preview4'
+            sparkRuntime: 'spark4.2.0'
 
     steps:
       - if: needs.changes.outputs.relevant == 'true'
@@ -1304,7 +1304,7 @@ jobs:
             flinkAvroVersion: '1.11.4'
             flinkParquetVersion: '1.13.1'
             sparkProfile: 'spark4.2'
-            sparkRuntime: 'spark4.2.0-preview4'
+            sparkRuntime: 'spark4.2.0'
     steps:
       - if: needs.changes.outputs.relevant == 'true'
         uses: actions/checkout@v5

@@ -20,10 +20,10 @@
 docker build \
  --build-arg HIVE_VERSION=3.1.3 \
  --build-arg FLINK_VERSION=1.20.1 \
- --build-arg SPARK_VERSION=4.2.0-preview4 \
+ --build-arg SPARK_VERSION=4.2.0 \
  --build-arg SPARK_HADOOP_VERSION=3 \
- --build-arg HADOOP_VERSION=3.4.3 \
+ --build-arg HADOOP_VERSION=3.5.0 \
  --build-arg SCALA_VERSION=2.13 \
  --build-arg DERBY_VERSION=10.16.1.1 \
- -t hudi-ci-bundle-validation-base:flink1200hive313spark420previewscala213 .
-docker image tag hudi-ci-bundle-validation-base:flink1200hive313spark420previewscala213 apachehudi/hudi-ci-bundle-validation-base:flink1200hive313spark420previewscala213
+ -t hudi-ci-bundle-validation-base:flink1200hive313spark420scala213 .
+docker image tag hudi-ci-bundle-validation-base:flink1200hive313spark420scala213 apachehudi/hudi-ci-bundle-validation-base:flink1200hive313spark420scala213
