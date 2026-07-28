@@ -33,6 +33,7 @@ import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.common.util.VisibleForTesting;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.exception.HoodieException;
+import org.apache.hudi.exception.HoodieIOException;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -99,7 +100,14 @@ class ConcurrentSchemaEvolutionTableSchemaGetter {
   }
 
   public Option<HoodieSchema> getTableSchemaIfPresent(boolean includeMetadataFields, Option<HoodieInstant> instant) {
-    return getTableSchemaFromTimelineWithCache(instant) // Get table schema from schema evolution timeline.
+    // Get table schema from schema evolution timeline.
+    Option<HoodieSchema> schemaFromTimeline = getTableSchemaFromTimelineWithCache(instant);
+    if (!schemaFromTimeline.isPresent()) {
+      log.warn("Cannot find a qualified instant to extract table schema, SimpleSchemaConflictResolutionStrategy "
+          + "might not be able to detect and prevent incompatible concurrent schema evolution from happening if this "
+          + "is a non-empty table. Table base path: {}.", metaClient.getBasePath());
+    }
+    return schemaFromTimeline
         .or(this::getTableCreateSchemaWithoutMetaField) // Fall back: read create schema from table config.
         .map(tableSchema -> includeMetadataFields ? HoodieSchemaUtils.addMetadataFields(tableSchema, false) : HoodieSchemaUtils.removeMetadataFields(tableSchema))
         .map(this::handlePartitionColumnsIfNeeded);
@@ -175,6 +183,8 @@ class ConcurrentSchemaEvolutionTableSchemaGetter {
         // does not bound the lookup.
         .filter(s -> instant.isEmpty() || StringUtils.isNullOrEmpty(getOrderingTime(instant.get()))
             || compareTimestamps(getOrderingTime(s), LESSER_THAN_OR_EQUALS, getOrderingTime(instant.get())))
+        // Ignore clustering table service instants as they do not carry the evolved table schema.
+        .filter(s -> !ClusteringUtils.isClusteringInstant(metaClient.getActiveTimeline(), s, metaClient.getInstantGenerator()))
         // Make sure the commit metadata has a valid schema inside. Same caching the result for expensive operation.
         .filter(s -> {
           try {
@@ -191,9 +201,10 @@ class ConcurrentSchemaEvolutionTableSchemaGetter {
             }
             return isValidSchemaStr;
           } catch (IOException e) {
-            log.warn("Failed to parse commit metadata for instant {} ", s, e);
+            // Failing to read the commit metadata fails the resolution; skipping the instant
+            // could resolve to a stale table schema for conflict detection.
+            throw new HoodieIOException("Failed to read commit metadata for instant " + s, e);
           }
-          return false;
         })
         .findFirst());
 
@@ -230,15 +241,14 @@ class ConcurrentSchemaEvolutionTableSchemaGetter {
     // We only care committed instant when it comes to table schema.
     Comparator<HoodieInstant> reversedComparator = instantComparator.orderingComparator().reversed();
 
-    // The timeline still contains DELTA_COMMIT_ACTION/COMMIT_ACTION which might not contain a valid schema
-    // field in their commit metadata.
+    // The timeline still contains clustering REPLACE_COMMIT_ACTION instants, which do not evolve
+    // the table schema, and DELTA_COMMIT_ACTION/COMMIT_ACTION instants which might not contain a
+    // valid schema field in their commit metadata.
     // Since the operations of filtering them out are expensive, we should do on-demand stream based
     // filtering when we actually need the table schema.
     Stream<HoodieInstant> reversedTimelineWithTableSchema = timelineStream
         // Only focuses on those who could potentially evolve the table schema.
         .filter(instant -> actions.contains(instant.getAction()))
-        // Further filtering out clustering operations as it does not evolve table schema.
-        .filter(instant -> !ClusteringUtils.isClusteringInstant(timeline, instant, metaClient.getInstantGenerator()))
         .filter(HoodieInstant::isCompleted)
         // We reverse the order as the operation against this timeline would be very efficient if
         // we always start from the tail.

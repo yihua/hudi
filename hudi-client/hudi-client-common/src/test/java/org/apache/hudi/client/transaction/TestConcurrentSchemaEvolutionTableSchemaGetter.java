@@ -43,6 +43,7 @@ import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
 import org.apache.hudi.common.testutils.HoodieTestTable;
 import org.apache.hudi.common.testutils.HoodieTestUtils;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.exception.HoodieIOException;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -79,6 +80,7 @@ import static org.apache.hudi.common.util.CommitUtils.buildMetadata;
 import static org.apache.hudi.config.HoodieWriteConfig.WRITE_TABLE_VERSION;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.times;
@@ -436,6 +438,53 @@ public class TestConcurrentSchemaEvolutionTableSchemaGetter extends HoodieCommon
         resolver.getTableSchemaIfPresent(false,
             Option.of(metaClient.getInstantGenerator().createNewInstant(
                 HoodieInstant.State.COMPLETED, COMMIT_ACTION, "005", "075"))).get().toString());
+  }
+
+  @Test
+  void testCorruptCommitMetadataFailsSchemaLookup() throws Exception {
+    metaClient = HoodieTestUtils.getMetaClientBuilder(HoodieTableType.COPY_ON_WRITE, new Properties(), "")
+        .initTable(getDefaultStorageConf(), basePath);
+    testTable = HoodieTestTable.of(metaClient);
+
+    testTable.addCommit("001", Option.of("002"), Option.of(buildMetadata(
+        Collections.emptyList(), Collections.emptyMap(), Option.empty(), WriteOperationType.UNKNOWN,
+        SCHEMA_WITHOUT_METADATA_STR, COMMIT_ACTION)));
+    testTable.addCommit("003", Option.of("004"), Option.of(buildMetadata(
+        Collections.emptyList(), Collections.emptyMap(), Option.empty(), WriteOperationType.UNKNOWN,
+        SCHEMA_WITHOUT_METADATA_STR2, COMMIT_ACTION)));
+    // Corrupt the newest completed commit file so that reading its metadata fails.
+    Path timelinePath = Paths.get(metaClient.getTimelinePath().makeQualified(new URI("file:///")).toUri());
+    Files.write(timelinePath.resolve("003_004.commit"), "corrupted".getBytes());
+    metaClient.reloadActiveTimeline();
+
+    ConcurrentSchemaEvolutionTableSchemaGetter resolver = new ConcurrentSchemaEvolutionTableSchemaGetter(metaClient);
+    assertThrows(HoodieIOException.class, () -> resolver.getTableSchemaIfPresent(false, Option.empty()));
+  }
+
+  @Test
+  void testClusteringInstantAnchorsTimelineButProvidesNoSchema() throws Exception {
+    metaClient = HoodieTestUtils.getMetaClientBuilder(HoodieTableType.COPY_ON_WRITE, new Properties(), "")
+        .initTable(getDefaultStorageConf(), basePath);
+    testTable = HoodieTestTable.of(metaClient);
+
+    testTable.addCommit("001", Option.of("002"), Option.of(buildMetadata(
+        Collections.emptyList(), Collections.emptyMap(), Option.empty(), WriteOperationType.UNKNOWN,
+        SCHEMA_WITHOUT_METADATA_STR, COMMIT_ACTION)));
+    // The latest completed instant is a clustering replace commit.
+    HoodieClusteringGroup group = new HoodieClusteringGroup();
+    HoodieClusteringPlan plan = new HoodieClusteringPlan(Collections.singletonList(group),
+        HoodieClusteringStrategy.newBuilder().build(), Collections.emptyMap(), 1, false, null);
+    HoodieRequestedReplaceMetadata requestedMetadata = new HoodieRequestedReplaceMetadata(WriteOperationType.CLUSTER.name(), plan, Collections.emptyMap(), 1);
+    testTable.addReplaceCommit("003", Option.of("004"), Option.of(requestedMetadata), Option.empty(),
+        (HoodieReplaceCommitMetadata) buildMetadata(Collections.emptyList(), Collections.emptyMap(), Option.empty(), WriteOperationType.UNKNOWN,
+            SCHEMA_WITHOUT_METADATA_STR2, CLUSTERING_ACTION));
+
+    ConcurrentSchemaEvolutionTableSchemaGetter resolver = new ConcurrentSchemaEvolutionTableSchemaGetter(metaClient);
+    // The clustering instant stays in the schema evolution timeline as an anchor.
+    assertEquals("003", resolver.computeSchemaEvolutionTimelineInReverseOrder().findFirst().get().requestedTime());
+    // The schema extraction skips it and reads the prior commit.
+    assertEquals(SCHEMA_WITHOUT_METADATA.toString(),
+        resolver.getTableSchemaIfPresent(false, Option.empty()).get().toString());
   }
 
   @Test
