@@ -72,7 +72,8 @@ public abstract class BaseSparkDeltaCommitActionExecutor<T>
   public Iterator<List<WriteStatus>> handleUpdate(String partitionPath, String fileId,
       Iterator<HoodieRecord<T>> recordItr) throws IOException {
     log.info("Merging updates for commit {} for file {}", instantTime, fileId);
-    if (!table.getIndex().canIndexLogFiles() && mergeOnReadUpsertPartitioner != null
+    if (!table.getIndex().canIndexLogFiles() && !config.shouldWriteUpdatesAsDeletesAndInserts()
+        && mergeOnReadUpsertPartitioner != null
         && mergeOnReadUpsertPartitioner.getSmallFileIds().contains(fileId)) {
       log.info("Small file corrections for updates for commit {} for file {}", instantTime, fileId);
       return super.handleUpdate(partitionPath, fileId, recordItr);
