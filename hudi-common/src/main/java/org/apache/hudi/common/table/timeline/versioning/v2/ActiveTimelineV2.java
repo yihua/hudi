@@ -404,6 +404,14 @@ public class ActiveTimelineV2 extends BaseTimelineV2 implements HoodieActiveTime
   }
 
   @Override
+  public HoodieInstant transitionCompactionInflightToComplete(
+      boolean shouldLock, HoodieInstant inflightInstant, HoodieCommitMetadata metadata, TableFormatCompletionAction tableFormatCompletionAction) {
+    HoodieInstant completedInstant = transitionCompactionInflightToComplete(shouldLock, inflightInstant, metadata);
+    tableFormatCompletionAction.execute(completedInstant);
+    return completedInstant;
+  }
+
+  @Override
   public HoodieInstant transitionLogCompactionInflightToComplete(
       boolean shouldLock, HoodieInstant inflightInstant, HoodieCommitMetadata metadata) {
     ValidationUtils.checkArgument(inflightInstant.getAction().equals(HoodieTimeline.LOG_COMPACTION_ACTION));
@@ -411,6 +419,14 @@ public class ActiveTimelineV2 extends BaseTimelineV2 implements HoodieActiveTime
     HoodieInstant commitInstant = instantGenerator.createNewInstant(HoodieInstant.State.COMPLETED, DELTA_COMMIT_ACTION, inflightInstant.requestedTime());
     transitionStateToComplete(shouldLock, inflightInstant, commitInstant, Option.of(metadata));
     return commitInstant;
+  }
+
+  @Override
+  public HoodieInstant transitionLogCompactionInflightToComplete(
+      boolean shouldLock, HoodieInstant inflightInstant, HoodieCommitMetadata metadata, TableFormatCompletionAction tableFormatCompletionAction) {
+    HoodieInstant completedInstant = transitionLogCompactionInflightToComplete(shouldLock, inflightInstant, metadata);
+    tableFormatCompletionAction.execute(completedInstant);
+    return completedInstant;
   }
 
   //-----------------------------------------------------------------
