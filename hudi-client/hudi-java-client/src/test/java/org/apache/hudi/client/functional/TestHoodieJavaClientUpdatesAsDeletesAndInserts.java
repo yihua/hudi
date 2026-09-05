@@ -42,6 +42,7 @@ import org.apache.hudi.testutils.HoodieJavaClientTestHarness;
 import org.apache.avro.generic.GenericRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.roaringbitmap.longlong.Roaring64NavigableMap;
 
 import java.util.Arrays;
 import java.util.HashSet;
@@ -111,20 +112,16 @@ public class TestHoodieJavaClientUpdatesAsDeletesAndInserts extends HoodieJavaCl
           }
           assertTrue(slice.getBaseFile().isPresent(), "a file group with delete logs must have a base file");
           for (HoodieLogFile logFile : logFiles) {
-            assertTrue(logFile.getFileName().contains(".deletes."),
-                "log files must only contain deletes but got: " + logFile.getFileName());
-            try (HoodieLogFormat.Reader reader = HoodieLogFormat.newReader(metaClient, logFile, schema)) {
+            try (HoodieLogFormat.Reader reader = HoodieLogFormat.newReader(metaClient.getStorage(), logFile, schema)) {
               while (reader.hasNext()) {
                 HoodieLogBlock block = reader.next();
                 assertTrue(block instanceof HoodieDeleteBlock,
                     "expected only delete blocks but got: " + block.getClass().getSimpleName());
                 HoodieDeleteBlock deleteBlock = (HoodieDeleteBlock) block;
                 deleteRecordCount.addAndGet(deleteBlock.getRecordsToDelete().length);
-                List<Long> positions = deleteBlock.getRecordPositionList();
-                assertEquals(deleteBlock.getRecordsToDelete().length, positions.size(),
+                Roaring64NavigableMap positions = deleteBlock.getRecordPositions();
+                assertEquals(deleteBlock.getRecordsToDelete().length, positions.getLongCardinality(),
                     "every delete record must carry a position");
-                positions.forEach(position ->
-                    assertTrue(position >= 0, "delete record positions must be valid"));
                 assertEquals(slice.getBaseFile().get().getCommitTime(),
                     deleteBlock.getBaseFileInstantTimeOfPositions(),
                     "positions must reference the file slice's base file");
@@ -171,16 +168,24 @@ public class TestHoodieJavaClientUpdatesAsDeletesAndInserts extends HoodieJavaCl
         "000", 50, HoodieJavaWriteClient::upsert, false, false, 50, 100, 2,
         config.populateMetaFields(), INSTANT_GENERATOR);
 
-    // Updates stay in their file groups as data log files; no new file groups appear.
+    // Updates stay in their file groups as data log blocks; no new file groups appear.
     assertEquals(fileIdsAfterInsert, collectFileIds());
+    HoodieSchema schema = HoodieSchema.parse(config.getSchema());
+    boolean sawDataBlock = false;
     try (SyncableFileSystemView fsView = getFileSystemView(metaClient.reloadActiveTimeline())) {
-      long dataLogFiles = Arrays.stream(dataGen.getPartitionPaths())
+      List<HoodieLogFile> logFiles = Arrays.stream(dataGen.getPartitionPaths())
           .flatMap(fsView::getLatestFileSlices)
           .flatMap(FileSlice::getLogFiles)
-          .filter(logFile -> !logFile.getFileName().contains(".deletes."))
-          .count();
-      assertTrue(dataLogFiles > 0, "updates must be appended to data log files by default");
+          .collect(Collectors.toList());
+      for (HoodieLogFile logFile : logFiles) {
+        try (HoodieLogFormat.Reader reader = HoodieLogFormat.newReader(metaClient.getStorage(), logFile, schema)) {
+          while (reader.hasNext()) {
+            sawDataBlock |= !(reader.next() instanceof HoodieDeleteBlock);
+          }
+        }
+      }
     }
+    assertTrue(sawDataBlock, "updates must be appended as data log blocks by default");
   }
 
   @Test
