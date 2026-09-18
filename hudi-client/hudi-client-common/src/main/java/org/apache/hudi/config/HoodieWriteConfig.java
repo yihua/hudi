@@ -4089,5 +4089,4 @@ public class HoodieWriteConfig extends HoodieConfig {
       }
     }
   }
-
 }
