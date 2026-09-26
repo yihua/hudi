@@ -87,7 +87,7 @@ class CDCFileGroupIterator(split: HoodieCDCFileGroupSplit,
   extends Iterator[InternalRow]
   with SparkAdapterSupport with AvroDeserializerSupport with Closeable {
 
-  @deprecated("Use the constructor that takes a FileGroupReaderTableState", "1.3.0")
+  @deprecated("Use the constructor that takes a FileGroupReaderTableState", "1.2.1")
   def this(split: HoodieCDCFileGroupSplit,
            metaClient: HoodieTableMetaClient,
            conf: StorageConfiguration[Configuration],
