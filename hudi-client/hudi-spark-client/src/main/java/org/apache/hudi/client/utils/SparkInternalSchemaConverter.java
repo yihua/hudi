@@ -18,6 +18,8 @@
 
 package org.apache.hudi.client.utils;
 
+import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.util.InternalSchemaHistory;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.internal.schema.InternalSchema;
 import org.apache.hudi.internal.schema.Type;
@@ -68,6 +70,7 @@ import org.apache.spark.sql.types.VarcharType;
 import java.sql.Date;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -82,6 +85,19 @@ public class SparkInternalSchemaConverter {
   public static final String HOODIE_QUERY_SCHEMA = "hoodie.schema.internal.querySchema";
   public static final String HOODIE_TABLE_PATH = "hoodie.tablePath";
   public static final String HOODIE_VALID_COMMITS_LIST = "hoodie.valid.commits.list";
+
+  /**
+   * Returns the configs a Spark base file reader needs to resolve each file's schema under schema-on-read:
+   * the table path and the table's schema history restricted to the valid commits.
+   *
+   * @param metaClient   meta client of the table
+   * @param validCommits comma-separated instant file names of the commits the reader may read
+   */
+  public static Map<String, String> getSchemaEvolutionReadConfigs(HoodieTableMetaClient metaClient, String validCommits) {
+    Map<String, String> configs = new HashMap<>(InternalSchemaHistory.load(metaClient, validCommits).toConfigs());
+    configs.put(HOODIE_TABLE_PATH, metaClient.getBasePath().toString());
+    return configs;
+  }
 
   public static Type buildTypeFromStructType(DataType sparkType, Boolean firstVisitRoot, AtomicInteger nextId) {
     if (sparkType instanceof StructType) {

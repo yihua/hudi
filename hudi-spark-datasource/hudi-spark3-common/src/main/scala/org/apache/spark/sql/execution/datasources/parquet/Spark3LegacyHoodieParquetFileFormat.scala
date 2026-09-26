@@ -18,17 +18,11 @@
 package org.apache.spark.sql.execution.datasources.parquet
 
 import org.apache.hudi.client.utils.SparkInternalSchemaConverter
-import org.apache.hudi.common.fs.FSUtils
-import org.apache.hudi.common.table.timeline.TimelineLayout
-import org.apache.hudi.common.table.timeline.versioning.TimelineLayoutVersion
-import org.apache.hudi.common.util.InternalSchemaCache
 import org.apache.hudi.common.util.StringUtils.isNullOrEmpty
 import org.apache.hudi.common.util.collection.Pair
-import org.apache.hudi.hadoop.fs.HadoopFSUtils
 import org.apache.hudi.internal.schema.InternalSchema
 import org.apache.hudi.internal.schema.action.InternalSchemaMerger
 import org.apache.hudi.internal.schema.utils.{InternalSchemaUtils, SerDeHelper}
-import org.apache.hudi.storage.HoodieStorageUtils
 
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
@@ -190,14 +184,7 @@ abstract class Spark3LegacyHoodieParquetFileFormat(shouldAppendPartitionValues: 
 
       val tablePath = sharedConf.get(SparkInternalSchemaConverter.HOODIE_TABLE_PATH)
       val fileSchema = if (shouldUseInternalSchema) {
-        val commitInstantTime = FSUtils.getCommitTime(filePath.getName).toLong;
-        val validCommits = sharedConf.get(SparkInternalSchemaConverter.HOODIE_VALID_COMMITS_LIST)
-        //TODO: HARDCODED TIMELINE OBJECT
-        val layout = TimelineLayout.fromVersion(TimelineLayoutVersion.CURR_LAYOUT_VERSION)
-        val storage = HoodieStorageUtils.getStorage(tablePath, HadoopFSUtils.getStorageConf(sharedConf))
-        InternalSchemaCache.getInternalSchemaByVersionId(
-          commitInstantTime, tablePath, storage, if (validCommits == null) "" else validCommits,
-          layout)
+        ParquetSchemaEvolutionUtils.getFileSchema(sharedConf, tablePath, filePath)
       } else {
         null
       }

@@ -31,7 +31,6 @@ import org.apache.hudi.exception.HoodieNotSupportedException
 import org.apache.hudi.internal.schema.InternalSchema
 import org.apache.hudi.io.IOUtils
 import org.apache.hudi.io.storage.HoodieSparkParquetReader.ENABLE_LOGICAL_TIMESTAMP_REPAIR
-import org.apache.hudi.storage.StorageConfiguration
 import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration
 
 import org.apache.hadoop.conf.Configuration
@@ -51,7 +50,7 @@ import org.apache.spark.sql.sources.Filter
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.SerializableConfiguration
 
-import scala.collection.JavaConverters.mapAsJavaMapConverter
+import scala.collection.JavaConverters.{mapAsJavaMapConverter, mapAsScalaMapConverter}
 
 trait HoodieFormatTrait {
 
@@ -251,7 +250,6 @@ class HoodieFileGroupReaderBasedFileFormat(tablePath: String,
       .flatMap(name => dataStructType.fields.find(_.name == name))
     val readRequiredSchema = StructType(requiredSchema.fields ++ filterOnlyFields)
     val augmentedStorageConf = new HadoopStorageConfiguration(hadoopConf).getInline
-    setSchemaEvolutionConfigs(augmentedStorageConf)
     augmentedStorageConf.set(ENABLE_LOGICAL_TIMESTAMP_REPAIR, hasTimestampMillisFieldInTableSchema.toString)
     // Nested partition columns (e.g. "nested_record.level") are never read from the data file: the
     // flattened dotted name is not a valid top-level field and the value is materialized from the
@@ -285,17 +283,18 @@ class HoodieFileGroupReaderBasedFileFormat(tablePath: String,
       baseFileReader
     }
 
-    val broadcastedStorageConf = spark.sparkContext.broadcast(new SerializableConfiguration(augmentedStorageConf.unwrap()))
+    // The relation's meta client carries the timeline the scan was planned against; build one only when the
+    // format is used without a relation. The field is null rather than None on a deserialized format.
+    val metaClient: HoodieTableMetaClient = Option(tableMetaClient).flatten.getOrElse(HoodieTableMetaClient
+      .builder().setConf(augmentedStorageConf).setBasePath(tablePath).build)
+    val broadcastedStorageConf = spark.sparkContext.broadcast(
+      new SerializableConfiguration(withSchemaEvolutionConfigs(augmentedStorageConf.unwrap(), metaClient)))
     val cdcProps: TypedProperties = HoodieFileIndex.getConfigProperties(spark, options, null)
     cdcProps.setProperty(HoodieTableConfig.HOODIE_TABLE_NAME_KEY, tableName)
 
     val engineContext = new HoodieSparkEngineContext(new JavaSparkContext(spark.sparkContext))
     val maxMemoryPerCompaction = IOUtils.getMaxMemoryPerCompaction(engineContext.getTaskContextSupplier, options.asJava)
 
-    // The relation's meta client carries the timeline the scan was planned against; build one only when the
-    // format is used without a relation. The field is null rather than None on a deserialized format.
-    val metaClient: HoodieTableMetaClient = Option(tableMetaClient).flatten.getOrElse(HoodieTableMetaClient
-      .builder().setConf(augmentedStorageConf).setBasePath(tablePath).build)
     val tableState = FileGroupReaderTableState.snapshotOf(metaClient, internalSchemaOpt.isPresent)
     val readerProps = TypedProperties.copy(metaClient.getTableConfig.getProps)
     options.foreach(kv => readerProps.setProperty(kv._1, kv._2))
@@ -339,10 +338,18 @@ class HoodieFileGroupReaderBasedFileFormat(tablePath: String,
     }
   }
 
-  private def setSchemaEvolutionConfigs(conf: StorageConfiguration[Configuration]): Unit = {
+  /**
+   * Returns a copy of the conf carrying what the base file readers need to resolve each file's schema
+   * under schema-on-read, or the conf itself when schema-on-read is off.
+   */
+  private def withSchemaEvolutionConfigs(conf: Configuration, metaClient: HoodieTableMetaClient): Configuration = {
     if (internalSchemaOpt.isPresent) {
-      conf.set(SparkInternalSchemaConverter.HOODIE_TABLE_PATH, tablePath)
-      conf.set(SparkInternalSchemaConverter.HOODIE_VALID_COMMITS_LIST, validCommits)
+      val readerConf = new Configuration(conf)
+      SparkInternalSchemaConverter.getSchemaEvolutionReadConfigs(metaClient, validCommits).asScala
+        .foreach { case (key, value) => readerConf.set(key, value) }
+      readerConf
+    } else {
+      conf
     }
   }
 

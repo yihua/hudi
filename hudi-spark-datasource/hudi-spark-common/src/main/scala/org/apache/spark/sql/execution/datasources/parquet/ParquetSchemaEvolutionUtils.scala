@@ -20,10 +20,8 @@ package org.apache.spark.sql.execution.datasources.parquet
 import org.apache.hudi.SparkAdapterSupport
 import org.apache.hudi.client.utils.SparkInternalSchemaConverter
 import org.apache.hudi.common.fs.FSUtils
-import org.apache.hudi.common.table.timeline.TimelineLayout
-import org.apache.hudi.common.table.timeline.versioning.TimelineLayoutVersion
 import org.apache.hudi.common.util
-import org.apache.hudi.common.util.InternalSchemaCache
+import org.apache.hudi.common.util.{InternalSchemaCache, InternalSchemaHistory}
 import org.apache.hudi.common.util.collection.Pair
 import org.apache.hudi.hadoop.fs.HadoopFSUtils
 import org.apache.hudi.internal.schema.InternalSchema
@@ -59,12 +57,7 @@ class ParquetSchemaEvolutionUtils(readConf: Configuration,
 
   private lazy val tablePath: String = readConf.get(SparkInternalSchemaConverter.HOODIE_TABLE_PATH)
   private lazy val fileSchema: InternalSchema = if (shouldUseInternalSchema) {
-    val commitInstantTime = FSUtils.getCommitTime(filePath.getName).toLong
-    //TODO: HARDCODED TIMELINE OBJECT
-    val validCommits = readConf.get(SparkInternalSchemaConverter.HOODIE_VALID_COMMITS_LIST)
-    val layout = TimelineLayout.fromVersion(TimelineLayoutVersion.CURR_LAYOUT_VERSION)
-    InternalSchemaCache.getInternalSchemaByVersionId(commitInstantTime, tablePath,
-      HoodieStorageUtils.getStorage(tablePath, HadoopFSUtils.getStorageConf(readConf)), if (validCommits == null) "" else validCommits, layout)
+    ParquetSchemaEvolutionUtils.getFileSchema(readConf, tablePath, filePath)
   } else {
     null
   }
@@ -200,6 +193,26 @@ class ParquetSchemaEvolutionUtils(readConf: Configuration,
 }
 
 object ParquetSchemaEvolutionUtils {
+
+  /**
+   * Returns the schema the base file was written with, resolved from the schema history in the conf
+   * (see [[SparkInternalSchemaConverter.getSchemaEvolutionReadConfigs]]) or, when the conf holds none,
+   * from the table's timeline.
+   */
+  def getFileSchema(conf: Configuration, tablePath: String, filePath: Path): InternalSchema = {
+    val versionId = FSUtils.getCommitTime(filePath.getName).toLong
+    val getConfig = new java.util.function.Function[String, String] {
+      override def apply(key: String): String = conf.get(key)
+    }
+    if (InternalSchemaHistory.isPresentIn(getConfig)) {
+      InternalSchemaHistory.resolve(getConfig, versionId)
+    } else {
+      val validCommits = conf.get(SparkInternalSchemaConverter.HOODIE_VALID_COMMITS_LIST)
+      InternalSchemaCache.getInternalSchemaByVersionId(versionId, tablePath,
+        HoodieStorageUtils.getStorage(tablePath, HadoopFSUtils.getStorageConf(conf)), if (validCommits == null) "" else validCommits)
+    }
+  }
+
   def pruneInternalSchema(internalSchemaOpt:  util.Option[InternalSchema], requiredSchema: StructType): util.Option[InternalSchema] = {
     if (internalSchemaOpt.isPresent && requiredSchema.nonEmpty) {
       util.Option.of(SparkInternalSchemaConverter.convertAndPruneStructTypeToInternalSchema(requiredSchema, internalSchemaOpt.get()))
