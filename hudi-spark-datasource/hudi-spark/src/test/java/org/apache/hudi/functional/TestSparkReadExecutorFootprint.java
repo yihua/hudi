@@ -39,6 +39,7 @@ import org.apache.hudi.testutils.TaskDeserializationRecorder;
 import com.github.benmanes.caffeine.cache.Cache;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.spark.SparkConf;
+import org.apache.spark.sql.DataFrameReader;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.RowFactory;
@@ -87,9 +88,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * several partitions so that a read runs several tasks; on MERGE_ON_READ the second commit
  * updates half of the keys so that every file group has log files to merge.
  *
- * <p>This is the subset of the guards that covers the fixes in this branch: snapshot reads with
- * and without the metadata table on read, schema-on-read snapshot reads, and the per-task
- * deserialization footprint of snapshot reads.
+ * <p>This is the subset of the guards that covers the fixes in this branch: snapshot,
+ * read-optimized and time travel reads with and without the metadata table on read, schema-on-read
+ * snapshot reads, and the per-task deserialization footprint of those reads.
  */
 @Slf4j
 @Tag("functional")
@@ -105,7 +106,7 @@ class TestSparkReadExecutorFootprint extends SparkClientFunctionalTestHarness {
    */
   private static final long MAX_TASK_BINARY_BYTES = 12 * 1024;
   private static final String TASK_BINARY_BUDGET_BASIS =
-      "the budget is about 1.5x the 7664 to 8081 bytes measured for these reads with the scan state broadcast";
+      "the budget is about 1.5x the task binary of these reads with the scan state broadcast";
 
   /**
    * Driver-side classes that a read task must not deserialize with its closure.
@@ -136,6 +137,10 @@ class TestSparkReadExecutorFootprint extends SparkClientFunctionalTestHarness {
     PLAIN, SCHEMA_ON_READ
   }
 
+  enum ReadQuery {
+    SNAPSHOT, READ_OPTIMIZED, TIME_TRAVEL
+  }
+
   @Override
   public SparkConf conf() {
     return conf(Collections.singletonMap("spark.plugins", SparkExecutorGuards.TASK_START_HOOK_PLUGIN));
@@ -161,12 +166,17 @@ class TestSparkReadExecutorFootprint extends SparkClientFunctionalTestHarness {
         Stream.of(COPY_ON_WRITE, MERGE_ON_READ).map(type -> Arguments.of(version, type)));
   }
 
-  static Stream<Arguments> snapshotReads() {
+  static Stream<Arguments> readQueries() {
     List<Arguments> args = new ArrayList<>();
     for (int version : new int[] {6, CURRENT_VERSION}) {
       for (HoodieTableType type : HoodieTableType.values()) {
-        for (String metadataOnRead : new String[] {"default", "false"}) {
-          args.add(Arguments.of(version, type, metadataOnRead));
+        for (ReadQuery query : ReadQuery.values()) {
+          if (query == ReadQuery.READ_OPTIMIZED && type == COPY_ON_WRITE) {
+            continue;
+          }
+          for (String metadataOnRead : new String[] {"default", "false"}) {
+            args.add(Arguments.of(version, type, query, metadataOnRead));
+          }
         }
       }
     }
@@ -175,22 +185,24 @@ class TestSparkReadExecutorFootprint extends SparkClientFunctionalTestHarness {
 
   static Stream<Arguments> readsForDeserialization() {
     return Stream.of(
-        Arguments.of(CURRENT_VERSION, COPY_ON_WRITE),
-        Arguments.of(CURRENT_VERSION, MERGE_ON_READ),
-        Arguments.of(6, MERGE_ON_READ));
+        Arguments.of(CURRENT_VERSION, COPY_ON_WRITE, ReadQuery.SNAPSHOT),
+        Arguments.of(CURRENT_VERSION, MERGE_ON_READ, ReadQuery.SNAPSHOT),
+        Arguments.of(6, MERGE_ON_READ, ReadQuery.SNAPSHOT),
+        Arguments.of(CURRENT_VERSION, MERGE_ON_READ, ReadQuery.READ_OPTIMIZED),
+        Arguments.of(CURRENT_VERSION, MERGE_ON_READ, ReadQuery.TIME_TRAVEL));
   }
 
-  @ParameterizedTest(name = "[{index}] version={0}, type={1}, metadata={2}")
-  @MethodSource("snapshotReads")
-  void testNoExecutorMetaFolderAccess(int tableVersion, HoodieTableType tableType, String metadataOnRead) {
+  @ParameterizedTest(name = "[{index}] version={0}, type={1}, query={2}, metadata={3}")
+  @MethodSource("readQueries")
+  void testNoExecutorMetaFolderAccess(int tableVersion, HoodieTableType tableType, ReadQuery query, String metadataOnRead) {
     TestTable table = getOrWriteTable(tableVersion, tableType, TableKind.PLAIN);
     Map<String, String> options = new HashMap<>();
     if (!"default".equals(metadataOnRead)) {
       options.put(HoodieMetadataConfig.ENABLE.key(), metadataOnRead);
     }
     List<Row> rows = SparkExecutorGuards.assertNoExecutorMetaFolderAccess(
-        table.name + " snapshot read with metadata " + metadataOnRead,
-        () -> read(table, options).collectAsList());
+        table.name + " " + query + " read with metadata " + metadataOnRead,
+        () -> read(table, query, options).collectAsList());
     assertFalse(rows.isEmpty(), "The read must return rows for the guard to be meaningful");
   }
 
@@ -214,7 +226,7 @@ class TestSparkReadExecutorFootprint extends SparkClientFunctionalTestHarness {
     try {
       rows = SparkExecutorGuards.assertNoExecutorMetaFolderAccess(
           table.name + " schema-on-read snapshot read",
-          () -> read(table, options).collectAsList());
+          () -> read(table, ReadQuery.SNAPSHOT, options).collectAsList());
     } finally {
       SparkExecutorGuards.setTaskStartHook(() -> { });
     }
@@ -227,11 +239,11 @@ class TestSparkReadExecutorFootprint extends SparkClientFunctionalTestHarness {
    * Tasks must not deserialize the meta client, timeline, Hadoop configuration, write config or the
    * file format with their closure, and the task binary must stay within budget.
    */
-  @ParameterizedTest(name = "[{index}] version={0}, type={1}")
+  @ParameterizedTest(name = "[{index}] version={0}, type={1}, query={2}")
   @MethodSource("readsForDeserialization")
-  void testTaskDeserializationFootprint(int tableVersion, HoodieTableType tableType) {
+  void testTaskDeserializationFootprint(int tableVersion, HoodieTableType tableType, ReadQuery query) {
     TestTable table = getOrWriteTable(tableVersion, tableType, TableKind.PLAIN);
-    Dataset<Row> df = read(table, new HashMap<>());
+    Dataset<Row> df = read(table, query, new HashMap<>());
     // Plan and list files on the driver first, so that the recorded window holds only the scan.
     df.queryExecution().executedPlan().execute();
     List<Row> rows = new ArrayList<>();
@@ -239,17 +251,29 @@ class TestSparkReadExecutorFootprint extends SparkClientFunctionalTestHarness {
         spark().sparkContext(), () -> rows.addAll(df.collectAsList()));
     assertFalse(rows.isEmpty(), "The read must return rows for the guard to be meaningful");
     SparkExecutorGuards.TaskBinary taskBinary = SparkExecutorGuards.inspectTaskBinary(df);
-    log.info("Snapshot read of {}: task binary {} bytes, largest task stream seen {} bytes, stages kept {}, ignored {}",
-        table.name, taskBinary.getBytes(), result.getMaxStreamBytes(), result.getKeptScopes(), result.getIgnoredScopes());
+    log.info("{} read of {}: task binary {} bytes, largest task stream seen {} bytes, stages kept {}, ignored {}",
+        query, table.name, taskBinary.getBytes(), result.getMaxStreamBytes(), result.getKeptScopes(), result.getIgnoredScopes());
     SparkExecutorGuards.assertTaskDeserializationFootprint(
-        table.name + " snapshot read (" + TASK_BINARY_BUDGET_BASIS + ")", result, taskBinary,
+        table.name + " " + query + " read (" + TASK_BINARY_BUDGET_BASIS + ")", result, taskBinary,
         CLASSES_NOT_DESERIALIZED_PER_TASK, MAX_TASK_BINARY_BYTES);
   }
 
-  private Dataset<Row> read(TestTable table, Map<String, String> options) {
-    return spark().read().format("hudi").options(options)
-        .option(DataSourceReadOptions.QUERY_TYPE().key(), DataSourceReadOptions.QUERY_TYPE_SNAPSHOT_OPT_VAL())
-        .load(table.basePath);
+  private Dataset<Row> read(TestTable table, ReadQuery query, Map<String, String> options) {
+    DataFrameReader reader = spark().read().format("hudi").options(options);
+    switch (query) {
+      case SNAPSHOT:
+        reader.option(DataSourceReadOptions.QUERY_TYPE().key(), DataSourceReadOptions.QUERY_TYPE_SNAPSHOT_OPT_VAL());
+        break;
+      case READ_OPTIMIZED:
+        reader.option(DataSourceReadOptions.QUERY_TYPE().key(), DataSourceReadOptions.QUERY_TYPE_READ_OPTIMIZED_OPT_VAL());
+        break;
+      case TIME_TRAVEL:
+        reader.option(DataSourceReadOptions.TIME_TRAVEL_AS_OF_INSTANT().key(), table.lastInstant.requestedTime());
+        break;
+      default:
+        throw new IllegalArgumentException("Unknown query " + query);
+    }
+    return reader.load(table.basePath);
   }
 
   private TestTable getOrWriteTable(int tableVersion, HoodieTableType tableType, TableKind kind) {
@@ -305,7 +329,7 @@ class TestSparkReadExecutorFootprint extends SparkClientFunctionalTestHarness {
       assertTrue(countLogFiles(tablesDir.resolve(name)) >= NUM_PARTITIONS,
           "Every file group of " + name + " should have log files to merge");
     }
-    return new TestTable(name, basePath);
+    return new TestTable(name, basePath, commits.get(1));
   }
 
   private void write(List<Row> rows, StructType schema, Map<String, String> options, String basePath) {
@@ -346,10 +370,12 @@ class TestSparkReadExecutorFootprint extends SparkClientFunctionalTestHarness {
   private static final class TestTable {
     private final String name;
     private final String basePath;
+    private final HoodieInstant lastInstant;
 
-    private TestTable(String name, String basePath) {
+    private TestTable(String name, String basePath, HoodieInstant lastInstant) {
       this.name = name;
       this.basePath = basePath;
+      this.lastInstant = lastInstant;
     }
   }
 }
