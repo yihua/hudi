@@ -44,6 +44,7 @@ import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.internal.schema.InternalSchema;
 import org.apache.hudi.storage.HoodieStorage;
+import org.apache.hudi.storage.HoodieStorageUtils;
 import org.apache.hudi.storage.StoragePath;
 import org.apache.hudi.storage.StoragePathInfo;
 
@@ -73,7 +74,7 @@ import java.util.stream.Stream;
 public final class HoodieFileGroupReader<T> implements Closeable {
 
   private final HoodieReaderContext<T> readerContext;
-  private final HoodieTableMetaClient metaClient;
+  private final FileGroupReaderTableState tableState;
   private final InputSplit inputSplit;
   private final Option<String[]> partitionPathFields;
   private final List<String> orderingFieldNames;
@@ -102,6 +103,8 @@ public final class HoodieFileGroupReader<T> implements Closeable {
       HoodieSchema requestedSchema,
       Option<InternalSchema> internalSchemaOpt,
       HoodieTableMetaClient hoodieTableMetaClient,
+      FileGroupReaderTableState tableState,
+      HoodieStorage storage,
       TypedProperties props,
       Option<HoodieBaseFile> baseFileOption,
       Stream<HoodieLogFile> logFiles,
@@ -118,7 +121,7 @@ public final class HoodieFileGroupReader<T> implements Closeable {
 
     // Validations
     ValidationUtils.checkArgument(readerContext != null, "Reader context is required");
-    ValidationUtils.checkArgument(hoodieTableMetaClient != null, "Hoodie table meta client is required");
+    ValidationUtils.checkArgument(tableState != null || hoodieTableMetaClient != null, "Table state or meta client is required");
     ValidationUtils.checkArgument(latestCommitTime != null, "Latest commit time is required");
     ValidationUtils.checkArgument(dataSchema != null, "Data schema is required");
     ValidationUtils.checkArgument(requestedSchema != null, "Requested schema is required");
@@ -154,11 +157,17 @@ public final class HoodieFileGroupReader<T> implements Closeable {
       fileGroupUpdateCallback = Option.empty();
     }
 
-    // Derive tablePath
-    String tablePath = hoodieTableMetaClient.getBasePath().toString();
+    if (tableState == null) {
+      tableState = FileGroupReaderTableState.fromMetaClient(hoodieTableMetaClient);
+    }
+    String tablePath = tableState.getBasePath().toString();
 
-    // Set the storage with the readerContext's storage configuration
-    HoodieStorage storage = hoodieTableMetaClient.getStorage().newInstance(new StoragePath(tablePath), readerContext.getStorageConfiguration());
+    // Read with the readerContext's storage configuration unless the caller supplies the storage
+    if (storage == null) {
+      storage = hoodieTableMetaClient != null
+          ? hoodieTableMetaClient.getStorage().newInstance(new StoragePath(tablePath), readerContext.getStorageConfiguration())
+          : HoodieStorageUtils.getStorage(new StoragePath(tablePath), readerContext.getStorageConfiguration());
+    }
 
     // Handle recordBufferLoader default
     if (recordBufferLoader == null) {
@@ -189,7 +198,7 @@ public final class HoodieFileGroupReader<T> implements Closeable {
     this.readerContext = readerContext;
     this.recordBufferLoader = recordBufferLoader;
     this.fileGroupUpdateCallback = fileGroupUpdateCallback;
-    this.metaClient = hoodieTableMetaClient;
+    this.tableState = tableState;
     this.storage = storage;
 
     readerContext.setHasLogFiles(this.inputSplit.hasLogFiles());
@@ -197,7 +206,7 @@ public final class HoodieFileGroupReader<T> implements Closeable {
     if (readerContext.getHasLogFiles() && inputSplit.getStart() != 0) {
       throw new IllegalArgumentException("Filegroup reader is doing log file merge but not reading from the start of the base file");
     }
-    HoodieTableConfig tableConfig = hoodieTableMetaClient.getTableConfig();
+    HoodieTableConfig tableConfig = tableState.getTableConfig();
     props = ConfigUtils.getMergeProps(props, tableConfig);
     this.props = props;
     this.partitionPathFields = tableConfig.getPartitionFields();
@@ -208,10 +217,10 @@ public final class HoodieFileGroupReader<T> implements Closeable {
     readerContext.setShouldMergeUseRecordPosition(readerParameters.shouldUseRecordPosition() && !isSkipMerge && readerContext.getHasLogFiles() && inputSplit.isParquetBaseFile());
     readerContext.setHasBootstrapBaseFile(inputSplit.getBaseFileOption().flatMap(HoodieBaseFile::getBootstrapBaseFile).isPresent());
     readerContext.setSchemaHandler(readerContext.getRecordContext().supportsParquetRowIndex()
-        ? new ParquetRowIndexBasedSchemaHandler<>(readerContext, dataSchema, requestedSchema, internalSchemaOpt, props, metaClient)
-        : new FileGroupReaderSchemaHandler<>(readerContext, dataSchema, requestedSchema, internalSchemaOpt, props, metaClient));
+        ? new ParquetRowIndexBasedSchemaHandler<>(readerContext, dataSchema, requestedSchema, internalSchemaOpt, props, tableState)
+        : new FileGroupReaderSchemaHandler<>(readerContext, dataSchema, requestedSchema, internalSchemaOpt, props, tableState));
     this.outputConverter = readerContext.getSchemaHandler().getOutputConverter();
-    this.orderingFieldNames = HoodieRecordUtils.getOrderingFieldNames(readerContext.getMergeMode(), hoodieTableMetaClient);
+    this.orderingFieldNames = HoodieRecordUtils.getOrderingFieldNames(readerContext.getMergeMode(), tableConfig);
     this.readStats = new HoodieReadStats();
   }
 
@@ -225,7 +234,7 @@ public final class HoodieFileGroupReader<T> implements Closeable {
     } else {
       this.baseFileIterator = iter;
       Pair<HoodieFileGroupRecordBuffer<T>, List<String>> initializationResult = recordBufferLoader.getRecordBuffer(
-          readerContext, storage, inputSplit, orderingFieldNames, metaClient, props, readerParameters, readStats, fileGroupUpdateCallback);
+          readerContext, storage, inputSplit, orderingFieldNames, tableState, props, readerParameters, readStats, fileGroupUpdateCallback);
       recordBuffer = initializationResult.getLeft();
       validBlockInstants = initializationResult.getRight();
       recordBuffer.setBaseFileIterator(baseFileIterator);

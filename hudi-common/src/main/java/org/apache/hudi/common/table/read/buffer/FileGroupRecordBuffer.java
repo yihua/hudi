@@ -25,7 +25,6 @@ import org.apache.hudi.common.engine.HoodieReaderContext;
 import org.apache.hudi.common.model.HoodieRecordMerger;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.schema.HoodieSchemaCache;
-import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.PartialUpdateMode;
 import org.apache.hudi.common.table.log.KeySpec;
 import org.apache.hudi.common.table.log.block.HoodieDataBlock;
@@ -39,7 +38,6 @@ import org.apache.hudi.common.table.read.UpdateProcessor;
 import org.apache.hudi.common.util.ConfigUtils;
 import org.apache.hudi.common.util.DefaultSizeEstimator;
 import org.apache.hudi.io.util.FileIOUtils;
-import org.apache.hudi.common.util.InternalSchemaCache;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.common.util.collection.CloseableMappingIterator;
@@ -90,13 +88,11 @@ abstract class FileGroupRecordBuffer<T> implements HoodieFileGroupRecordBuffer<T
   protected BufferedRecord<T> nextRecord;
   protected boolean enablePartialMerging = false;
   protected InternalSchema internalSchema;
-  protected HoodieTableMetaClient hoodieTableMetaClient;
   protected BufferedRecordMerger<T> bufferedRecordMerger;
   @Getter
   protected long totalLogRecords = 0;
 
   protected FileGroupRecordBuffer(HoodieReaderContext<T> readerContext,
-                                  HoodieTableMetaClient hoodieTableMetaClient,
                                   RecordMergeMode recordMergeMode,
                                   Option<PartialUpdateMode> partialUpdateModeOpt,
                                   TypedProperties props,
@@ -113,7 +109,6 @@ abstract class FileGroupRecordBuffer<T> implements HoodieFileGroupRecordBuffer<T
     // Ensure that ordering field is populated for mergers and legacy payloads
     this.props = ConfigUtils.supplementOrderingFields(props, orderingFieldNames);
     this.internalSchema = readerContext.getSchemaHandler().getInternalSchema();
-    this.hoodieTableMetaClient = hoodieTableMetaClient;
     String spillableMapBasePath = props.getString(SPILLABLE_MAP_BASE_PATH.key(), FileIOUtils.getDefaultSpillableMapBasePath());
     try {
       // Store merged records for all versions for this log file, set the in-memory footprint to maxInMemoryMapSize
@@ -215,7 +210,7 @@ abstract class FileGroupRecordBuffer<T> implements HoodieFileGroupRecordBuffer<T
     }
 
     long currentInstantTime = Long.parseLong(dataBlock.getLogBlockHeader().get(INSTANT_TIME));
-    InternalSchema fileSchema = InternalSchemaCache.searchSchemaAndCache(currentInstantTime, hoodieTableMetaClient);
+    InternalSchema fileSchema = readerContext.getSchemaHandler().getInternalSchemaForVersion(currentInstantTime);
     Pair<InternalSchema, Map<String, String>> mergedInternalSchema = new InternalSchemaMerger(fileSchema, internalSchema,
         true, false, false).mergeSchemaGetRenamed();
     HoodieSchema mergedAvroSchema = HoodieSchema.fromAvroSchema(InternalSchemaConverter.convert(mergedInternalSchema.getLeft(), readerSchema.getFullName()).getAvroSchema());

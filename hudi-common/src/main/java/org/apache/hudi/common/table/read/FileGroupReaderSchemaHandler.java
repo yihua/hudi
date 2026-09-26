@@ -32,7 +32,6 @@ import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.HoodieTableVersion;
 import org.apache.hudi.common.table.read.buffer.PositionBasedFileGroupRecordBuffer;
-import org.apache.hudi.common.util.InternalSchemaCache;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.VisibleForTesting;
 import org.apache.hudi.common.util.collection.Pair;
@@ -103,7 +102,7 @@ public class FileGroupReaderSchemaHandler<T> {
   protected final TypedProperties properties;
   @Getter
   private final DeleteContext deleteContext;
-  private final HoodieTableMetaClient metaClient;
+  private final FileGroupReaderTableState tableState;
 
   public FileGroupReaderSchemaHandler(HoodieReaderContext<T> readerContext,
                                       HoodieSchema tableSchema,
@@ -111,17 +110,26 @@ public class FileGroupReaderSchemaHandler<T> {
                                       Option<InternalSchema> internalSchemaOpt,
                                       TypedProperties properties,
                                       HoodieTableMetaClient metaClient) {
+    this(readerContext, tableSchema, requestedSchema, internalSchemaOpt, properties, FileGroupReaderTableState.fromMetaClient(metaClient));
+  }
+
+  public FileGroupReaderSchemaHandler(HoodieReaderContext<T> readerContext,
+                                      HoodieSchema tableSchema,
+                                      HoodieSchema requestedSchema,
+                                      Option<InternalSchema> internalSchemaOpt,
+                                      TypedProperties properties,
+                                      FileGroupReaderTableState tableState) {
     this.properties = properties;
     this.readerContext = readerContext;
     this.tableSchema = tableSchema;
     this.requestedSchema = HoodieSchemaCache.intern(requestedSchema);
-    this.hoodieTableConfig = metaClient.getTableConfig();
+    this.hoodieTableConfig = tableState.getTableConfig();
     this.deleteContext = new DeleteContext(properties, tableSchema);
     this.requiredSchema = HoodieSchemaCache.intern(prepareRequiredSchema(this.deleteContext));
     this.schemaForUpdates = requiredSchema;
     this.internalSchema = pruneInternalSchema(requiredSchema, internalSchemaOpt);
     this.internalSchemaOpt = getInternalSchemaOpt(internalSchemaOpt);
-    this.metaClient = metaClient;
+    this.tableState = tableState;
   }
 
   public Option<UnaryOperator<T>> getOutputConverter() {
@@ -136,11 +144,19 @@ public class FileGroupReaderSchemaHandler<T> {
       return Pair.of(requiredSchema, Collections.emptyMap());
     }
     long commitInstantTime = Long.parseLong(FSUtils.getCommitTime(path.getName()));
-    InternalSchema fileSchema = InternalSchemaCache.searchSchemaAndCache(commitInstantTime, metaClient);
+    InternalSchema fileSchema = tableState.getInternalSchema(commitInstantTime);
     Pair<InternalSchema, Map<String, String>> mergedInternalSchema = new InternalSchemaMerger(fileSchema, internalSchema,
         true, false, false).mergeSchemaGetRenamed();
     HoodieSchema mergedAvroSchema = HoodieSchemaCache.intern(InternalSchemaConverter.convert(mergedInternalSchema.getLeft(), requiredSchema.getFullName()));
     return Pair.of(mergedAvroSchema, mergedInternalSchema.getRight());
+  }
+
+  /**
+   * The schema of the given schema version, i.e. the newest schema at or before the version, resolved from the
+   * table state.
+   */
+  public InternalSchema getInternalSchemaForVersion(long versionId) {
+    return tableState.getInternalSchema(versionId);
   }
 
   private InternalSchema pruneInternalSchema(HoodieSchema requiredSchema, Option<InternalSchema> internalSchemaOption) {

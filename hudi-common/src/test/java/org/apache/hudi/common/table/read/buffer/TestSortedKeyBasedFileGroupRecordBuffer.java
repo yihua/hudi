@@ -33,6 +33,7 @@ import org.apache.hudi.common.table.PartialUpdateMode;
 import org.apache.hudi.common.table.log.block.HoodieDataBlock;
 import org.apache.hudi.common.table.log.block.HoodieDeleteBlock;
 import org.apache.hudi.common.table.read.FileGroupReaderSchemaHandler;
+import org.apache.hudi.common.table.read.FileGroupReaderTableState;
 import org.apache.hudi.common.table.read.HoodieReadStats;
 import org.apache.hudi.common.table.read.InputSplit;
 import org.apache.hudi.common.table.read.ReaderParameters;
@@ -144,7 +145,7 @@ class TestSortedKeyBasedFileGroupRecordBuffer extends BaseTestFileGroupRecordBuf
     ReaderParameters readerParameters = mock(ReaderParameters.class);
     when(readerParameters.isSortOutputs()).thenReturn(true);
     SortedKeyBasedFileGroupRecordBuffer fileGroupRecordBuffer  = (SortedKeyBasedFileGroupRecordBuffer<IndexedRecord>) recordBufferLoader
-        .getRecordBuffer(readerContext, mockMetaClient.getStorage(), inputSplit, Collections.singletonList("ts"), mockMetaClient, properties,
+        .getRecordBuffer(readerContext, mockMetaClient.getStorage(), inputSplit, Collections.singletonList("ts"), FileGroupReaderTableState.fromMetaClient(mockMetaClient), properties,
             readerParameters, readStats, Option.empty()).getKey();
     when(tableConfig.getPayloadClass()).thenReturn(DefaultHoodieRecordPayload.class.getName());
 
@@ -242,7 +243,7 @@ class TestSortedKeyBasedFileGroupRecordBuffer extends BaseTestFileGroupRecordBuf
     when(mockReaderContext.getPayloadClasses(any())).thenReturn(Option.empty());
     UpdateProcessor<TestRecord> updateProcessor = UpdateProcessor.create(readStats, mockReaderContext, false, Option.empty(), props);
     return new SortedKeyBasedFileGroupRecordBuffer<>(
-        mockReaderContext, mockMetaClient, recordMergeMode, partialUpdateModeOpt, props, Collections.emptyList(), updateProcessor);
+        mockReaderContext, recordMergeMode, partialUpdateModeOpt, props, Collections.emptyList(), updateProcessor);
   }
 
   private static <T> List<T> getActualRecordsForSortedKeyBased(SortedKeyBasedFileGroupRecordBuffer<T> fileGroupRecordBuffer) throws IOException {
