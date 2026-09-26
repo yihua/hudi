@@ -102,11 +102,15 @@ class TestSparkReadExecutorFootprint extends SparkClientFunctionalTestHarness {
   private static final int NUM_PARTITIONS = 4;
 
   /**
-   * Budget for the task binary, the Java-serialized closure every task deserializes.
+   * Budget for the task binary, the Java-serialized closure every task deserializes. With the scan
+   * state broadcast, the only Hudi object in it is the reader function holding broadcast handles; the
+   * columnar reads (COPY_ON_WRITE snapshot, read-optimized) are larger because they also carry
+   * Spark's whole-stage codegen source.
    */
-  private static final long MAX_TASK_BINARY_BYTES = 12 * 1024;
+  private static final long MAX_TASK_BINARY_BYTES = 24 * 1024;
   private static final String TASK_BINARY_BUDGET_BASIS =
-      "the budget is about 1.5x the task binary of these reads with the scan state broadcast";
+      "the budget is about 1.4x the 17544 bytes measured for the columnar reads (11040 bytes for the row-based"
+          + " MERGE_ON_READ reads) on Spark 3.5 with the scan state broadcast";
 
   /**
    * Driver-side classes that a read task must not deserialize with its closure.
