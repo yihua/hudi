@@ -77,16 +77,17 @@ public final class InternalSchemaHistory implements Serializable {
   private static final String VERSIONS_KEY = CONFIG_PREFIX + "versions";
   private static final String VERSION_KEY_PREFIX = CONFIG_PREFIX + "version.";
   // comma-separated "<commit time>=<version id>" for commits whose schema is a history version,
-  // and "<commit time>" for commits whose schema is kept under COMMIT_KEY_PREFIX
+  // and "<commit time>@<schema index>" for commits whose schema is kept under COMMIT_SCHEMA_KEY_PREFIX
   private static final String COMMITS_KEY = CONFIG_PREFIX + "commits";
-  private static final String COMMIT_KEY_PREFIX = CONFIG_PREFIX + "commit.";
+  // commit schemas that are not history versions, one entry per distinct schema
+  private static final String COMMIT_SCHEMA_KEY_PREFIX = CONFIG_PREFIX + "commit.schema.";
 
   private static final int MAX_COMMIT_READ_PARALLELISM = 16;
 
   // Completed commit files never change, so what each one says about its schema is kept across queries.
   private static final Cache<String, CommitSchema> COMMIT_SCHEMA_CACHE = Caffeine.newBuilder()
       .maximumWeight(16L * 1024 * 1024)
-      .weigher((String commitFile, CommitSchema commitSchema) -> commitSchema.weight)
+      .weigher((String commitFile, CommitSchema commitSchema) -> commitFile.length() + Math.max(1, commitSchema.weight))
       .build();
 
   private final Map<String, String> configs;
@@ -117,6 +118,8 @@ public final class InternalSchemaHistory implements Serializable {
     history.forEach((versionId, schema) -> configs.put(VERSION_KEY_PREFIX + versionId, SerDeHelper.toJson(schema)));
 
     List<String> commitEntries = new ArrayList<>();
+    // Commits before the schema history often share one schema, so each distinct schema is shipped once.
+    Map<String, Integer> commitSchemaIndexes = new HashMap<>();
     List<String> resolvableCommitFiles = commitFileNames.stream()
         .filter(commitFileName -> parseVersionId(fileNameParser.extractTimestamp(commitFileName)).isPresent())
         .collect(Collectors.toList());
@@ -132,16 +135,28 @@ public final class InternalSchemaHistory implements Serializable {
         if (latestSchema != null && latestSchema.equals(history.get(latestSchema.schemaId()))) {
           commitEntries.add(commitTime + "=" + latestSchema.schemaId());
         } else {
-          commitEntries.add(commitTime);
-          configs.put(COMMIT_KEY_PREFIX + commitTime, latestSchema == null ? "" : SerDeHelper.toJson(latestSchema));
+          commitEntries.add(commitTime + "@" + commitSchemaIndex(latestSchema == null ? "" : SerDeHelper.toJson(latestSchema),
+              commitSchemaIndexes, configs));
         }
       } else if (commitSchema.avroSchema != null && !history.isEmpty() && history.floorKey(parseVersionId(commitTime).get()) == null) {
-        commitEntries.add(commitTime);
-        configs.put(COMMIT_KEY_PREFIX + commitTime, SerDeHelper.toJson(commitSchema.avroSchema));
+        commitEntries.add(commitTime + "@" + commitSchemaIndex(SerDeHelper.toJson(commitSchema.avroSchema), commitSchemaIndexes, configs));
       }
     }
     configs.put(COMMITS_KEY, String.join(",", commitEntries));
     return new InternalSchemaHistory(configs);
+  }
+
+  /**
+   * Returns the index of the config entry holding the given schema JSON, adding the entry for a schema not seen yet.
+   */
+  private static int commitSchemaIndex(String schemaJson, Map<String, Integer> commitSchemaIndexes, Map<String, String> configs) {
+    Integer index = commitSchemaIndexes.get(schemaJson);
+    if (index == null) {
+      index = commitSchemaIndexes.size();
+      commitSchemaIndexes.put(schemaJson, index);
+      configs.put(COMMIT_SCHEMA_KEY_PREFIX + index, schemaJson);
+    }
+    return index;
   }
 
   /**
@@ -177,12 +192,13 @@ public final class InternalSchemaHistory implements Serializable {
   public static InternalSchema resolve(Function<String, String> getConfig, long versionId) {
     String commitTime = String.valueOf(versionId);
     for (String entry : splitList(getConfig.apply(COMMITS_KEY))) {
-      int separator = entry.indexOf('=');
-      String entryCommitTime = separator < 0 ? entry : entry.substring(0, separator);
-      if (entryCommitTime.equals(commitTime)) {
-        return separator < 0
-            ? SerDeHelper.fromJson(getConfig.apply(COMMIT_KEY_PREFIX + commitTime)).orElse(null)
-            : parseSchema(getConfig.apply(VERSION_KEY_PREFIX + entry.substring(separator + 1)));
+      int versionSeparator = entry.indexOf('=');
+      int schemaSeparator = entry.indexOf('@');
+      int separator = versionSeparator >= 0 ? versionSeparator : schemaSeparator;
+      if (separator > 0 && entry.substring(0, separator).equals(commitTime)) {
+        return versionSeparator >= 0
+            ? parseSchema(getConfig.apply(VERSION_KEY_PREFIX + entry.substring(separator + 1)))
+            : SerDeHelper.fromJson(getConfig.apply(COMMIT_SCHEMA_KEY_PREFIX + entry.substring(separator + 1))).orElse(null);
       }
     }
     Long floorVersionId = null;
@@ -252,8 +268,12 @@ public final class InternalSchemaHistory implements Serializable {
       for (int i = 0; i < toRead.size(); i++) {
         if (commitSchemas.get(i).isPresent()) {
           StoragePath commitFile = toRead.get(i);
-          COMMIT_SCHEMA_CACHE.put(commitFile.toString(), commitSchemas.get(i).get());
-          result.put(commitFile.getName(), commitSchemas.get(i).get());
+          CommitSchema commitSchema = commitSchemas.get(i).get();
+          // A commit file that did not parse is read again by the next query, as the timeline lookup does.
+          if (commitSchema != CommitSchema.UNPARSABLE) {
+            COMMIT_SCHEMA_CACHE.put(commitFile.toString(), commitSchema);
+          }
+          result.put(commitFile.getName(), commitSchema);
         }
       }
     } catch (CompletionException e) {
@@ -279,7 +299,7 @@ public final class InternalSchemaHistory implements Serializable {
       metadata = InternalSchemaCache.deserializeCommitMetadata(content, commitFile, metaClient.getTimelineLayout());
     } catch (Exception e) {
       log.warn("Cannot parse commit file {}, resolving its files from the schema history", commitFile, e);
-      return Option.of(new CommitSchema(false, null, null, 0));
+      return Option.of(CommitSchema.UNPARSABLE);
     }
     return Option.of(CommitSchema.of(metadata));
   }
@@ -289,6 +309,9 @@ public final class InternalSchemaHistory implements Serializable {
    * schema converted from its Avro schema.
    */
   private static final class CommitSchema {
+    // A commit file that could not be parsed; resolved like a commit without a schema and never cached.
+    private static final CommitSchema UNPARSABLE = new CommitSchema(false, null, null, 0);
+
     private final boolean hasLatestSchema;
     private final InternalSchema latestSchema;
     private final InternalSchema avroSchema;

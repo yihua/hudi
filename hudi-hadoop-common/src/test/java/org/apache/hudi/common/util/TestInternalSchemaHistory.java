@@ -194,6 +194,32 @@ class TestInternalSchemaHistory extends HoodieCommonTestHarness {
     }
   }
 
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void testCommitsBeforeTheHistoryShipTheirSharedSchemaOnce(boolean preTableVersion8) throws Exception {
+    initMetaClient(preTableVersion8);
+    String avroSchema = InternalSchemaConverter.convert(SCHEMA_BEFORE_EVOLUTION, "record").toString();
+    HoodieTestTable testTable = HoodieTestTable.of(metaClient);
+    testTable.addCommit("100", Option.of(commitMetadata(avroSchema, null)));
+    testTable.addCommit("150", Option.of(commitMetadata(avroSchema, null)));
+    FileBasedInternalSchemaStorageManager schemaManager = new FileBasedInternalSchemaStorageManager(metaClient);
+    schemaManager.persistHistorySchemaStr("200", SerDeHelper.inheritSchemas(RENAMED_SCHEMA, ""));
+    testTable.addCommit("200", Option.of(commitMetadata(avroSchema, RENAMED_SCHEMA)));
+    metaClient.reloadActiveTimeline();
+    InstantFileNameGenerator fileNameGenerator = metaClient.getInstantFileNameGenerator();
+    String validCommits = metaClient.getCommitsAndCompactionTimeline().filterCompletedInstants().getInstantsAsStream()
+        .map(fileNameGenerator::getFileName).collect(Collectors.joining(","));
+
+    InternalSchemaHistory history = InternalSchemaHistory.load(metaClient, validCommits);
+
+    long commitSchemaEntries = history.toConfigs().keySet().stream()
+        .filter(key -> key.startsWith("hoodie.internal.schema.history.commit.schema.")).count();
+    assertEquals(1, commitSchemaEntries, "configs: " + history.toConfigs().keySet());
+    for (long versionId : Arrays.asList(100L, 150L, 200L)) {
+      assertEquals(timelineLookup(versionId, validCommits), history.getSchemaByVersionId(versionId), "version " + versionId);
+    }
+  }
+
   /**
    * Commit 100 predates schema evolution; 200 renames a column and starts the schema history, 300 keeps the
    * schema and 400 adds a column; 500 is inflight. Returns the completed commits as instant file names.
