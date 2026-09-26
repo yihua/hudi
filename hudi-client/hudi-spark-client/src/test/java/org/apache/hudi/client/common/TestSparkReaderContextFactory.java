@@ -30,11 +30,15 @@ import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.InstantFileNameGenerator;
 import org.apache.hudi.common.table.timeline.versioning.v2.InstantFileNameGeneratorV2;
+import org.apache.hudi.common.table.timeline.versioning.v2.InstantFileNameParserV2;
 import org.apache.hudi.common.table.timeline.versioning.v2.InstantGeneratorV2;
+import org.apache.hudi.common.util.InternalSchemaHistory;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.hadoop.fs.inline.InLineFileSystem;
 import org.apache.hudi.internal.schema.InternalSchema;
 import org.apache.hudi.internal.schema.Types;
+import org.apache.hudi.internal.schema.io.FileBasedInternalSchemaStorageManager;
+import org.apache.hudi.internal.schema.utils.SerDeHelper;
 import org.apache.hudi.storage.StoragePath;
 import org.apache.hudi.testutils.HoodieClientTestBase;
 
@@ -47,6 +51,8 @@ import org.apache.spark.sql.internal.SQLConf;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -63,13 +69,18 @@ import static org.mockito.Mockito.when;
 
 class TestSparkReaderContextFactory extends HoodieClientTestBase {
   @Test
-  void testGetSchemaEvolutionConfigurations() {
+  void testGetSchemaEvolutionConfigurations() throws Exception {
     TableSchemaResolver schemaResolver = mock(TableSchemaResolver.class);
     HoodieTimeline timeline = mock(HoodieTimeline.class);
     InstantFileNameGenerator fileNameGenerator = new InstantFileNameGeneratorV2();
-    String basePath = "any_table_path";
+    // The table the harness created on storage; the schema history is loaded from it.
+    HoodieTableMetaClient tableMetaClient = metaClient;
     metaClient = mock(HoodieTableMetaClient.class, RETURNS_DEEP_STUBS);
-    when(metaClient.getBasePath()).thenReturn(new StoragePath(basePath));
+    when(metaClient.getBasePath()).thenReturn(tableMetaClient.getBasePath());
+    when(metaClient.getMetaPath()).thenReturn(tableMetaClient.getMetaPath());
+    when(metaClient.getTimelinePath()).thenReturn(tableMetaClient.getTimelinePath());
+    when(metaClient.getStorage()).thenReturn(tableMetaClient.getStorage());
+    when(metaClient.getInstantFileNameParser()).thenReturn(new InstantFileNameParserV2());
     when(metaClient.getCommitsAndCompactionTimeline().filterCompletedInstants()).thenReturn(timeline);
     when(metaClient.getTimelineLayout().getInstantFileNameGenerator()).thenReturn(fileNameGenerator);
     when(metaClient.getTableConfig()).thenReturn(new HoodieTableConfig());
@@ -85,6 +96,12 @@ class TestSparkReaderContextFactory extends HoodieClientTestBase {
         instantGen.createNewInstant(
             HoodieInstant.State.COMPLETED, ActionType.compaction.name(), "0003", "0007"));
     InternalSchema internalSchema = new InternalSchema(record);
+    // Schema history written by the commit "0002", one of the valid commits.
+    StoragePath schemaHistoryFile = new StoragePath(new StoragePath(tableMetaClient.getMetaPath(),
+        FileBasedInternalSchemaStorageManager.SCHEMA_NAME), "0002." + HoodieTimeline.SCHEMA_COMMIT_ACTION);
+    try (OutputStream out = tableMetaClient.getStorage().create(schemaHistoryFile)) {
+      out.write(SerDeHelper.inheritSchemas(new InternalSchema(2L, record), "").getBytes(StandardCharsets.UTF_8));
+    }
     when(schemaResolver.getTableInternalSchemaFromCommitMetadata()).thenReturn(Option.of(internalSchema));
     when(timeline.getInstants()).thenReturn(instants);
     SparkAdapter sparkAdapter = mock(SparkAdapter.class);
@@ -119,11 +136,13 @@ class TestSparkReaderContextFactory extends HoodieClientTestBase {
         HoodieReaderConfig.BLOB_INLINE_READ_MODE_CONTENT,
         createdConfig.get(HoodieReaderConfig.BLOB_INLINE_READ_MODE.key()));
 
+    // The schema history of the valid commits is shipped in the conf instead of the valid commits list.
+    assertTrue(InternalSchemaHistory.isPresentIn(createdConfig::get));
+    InternalSchema fileSchema = InternalSchemaHistory.resolve(createdConfig::get, 3L);
+    assertEquals(2L, fileSchema.schemaId());
+    assertEquals(Collections.singletonList("col1"), fileSchema.getAllColsFullName());
     assertEquals(
-        "0001_0005.deltacommit,0002_0006.deltacommit,0003_0007.commit",
-        createdConfig.get(SparkInternalSchemaConverter.HOODIE_VALID_COMMITS_LIST));
-    assertEquals(
-        basePath,
+        tableMetaClient.getBasePath().toString(),
         createdConfig.get(SparkInternalSchemaConverter.HOODIE_TABLE_PATH));
   }
 }
