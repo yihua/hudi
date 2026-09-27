@@ -135,7 +135,13 @@ class ParquetSchemaEvolutionUtils(readConf: Configuration,
    */
   def getHadoopAttemptConf(footerFileMetaData: FileMetaData, requireVectorizedRead: Boolean): Configuration = {
     val hadoopAttemptConf = readConf
-    typeChangeInfos = if (shouldUseInternalSchema) {
+    typeChangeInfos = if (shouldUseInternalSchema && requiredSchema.isEmpty) {
+      // Empty projections (count(*), select 1) read no column data, so the requested schema stays
+      // empty. querySchemaOption is the UNPRUNED table schema in that case (see pruneInternalSchema);
+      // requesting it would decode every column, and the vectorized reader would fail on a nested
+      // type change in a column the query never reads.
+      new java.util.HashMap[Integer, Pair[DataType, DataType]]()
+    } else if (shouldUseInternalSchema) {
       val mergedInternalSchema = new InternalSchemaMerger(fileSchema, querySchemaOption.get(), true, true).mergeSchema()
       val mergedSchema = SparkInternalSchemaConverter.constructSparkSchemaFromInternalSchema(mergedInternalSchema)
 
