@@ -128,9 +128,12 @@ class ParquetSchemaEvolutionUtils(readConf: Configuration,
   /**
    * Sets the file's requested read schema on the read configuration and returns it for the task
    * attempt context. The configuration belongs to this read only (see [[SparkParquetReaderBase.read]]),
-   * so it is updated in place.
+   * so it is updated in place. Also records the file's type changes.
+   *
+   * @param requireVectorizedRead true when the caller can only read the file vectorized (it returns
+   *                              batches), so a nested type change fails here
    */
-  def getHadoopAttemptConf(footerFileMetaData: FileMetaData, enableVectorizedReader: Boolean): Configuration = {
+  def getHadoopAttemptConf(footerFileMetaData: FileMetaData, requireVectorizedRead: Boolean): Configuration = {
     val hadoopAttemptConf = readConf
     typeChangeInfos = if (shouldUseInternalSchema) {
       val mergedInternalSchema = new InternalSchemaMerger(fileSchema, querySchemaOption.get(), true, true).mergeSchema()
@@ -148,8 +151,7 @@ class ParquetSchemaEvolutionUtils(readConf: Configuration,
       implicitTypeChangeInfo
     }
 
-    if (enableVectorizedReader && shouldUseInternalSchema &&
-      !typeChangeInfos.values().forall(_.getLeft.isInstanceOf[AtomicType])) {
+    if (requireVectorizedRead && !canReadVectorized) {
       throw new IllegalArgumentException(
         "Nested types with type changes(implicit or explicit) cannot be read in vectorized mode. " +
           "To workaround this issue, set spark.sql.parquet.enableVectorizedReader=false.")
@@ -157,6 +159,20 @@ class ParquetSchemaEvolutionUtils(readConf: Configuration,
 
     hadoopAttemptConf
   }
+
+  /**
+   * Whether the vectorized reader can decode this file: a nested type change (implicit or
+   * explicit) needs the row-based reader. Valid after [[getHadoopAttemptConf]].
+   */
+  private def canReadVectorized: Boolean =
+    !shouldUseInternalSchema || typeChangeInfos.values().forall(_.getLeft.isInstanceOf[AtomicType])
+
+  /**
+   * Whether this file needs a type conversion (implicit or schema-on-read). A reader that returns
+   * rows reads such a file row-based, where Cast converts the values; the vectorized reader's own
+   * conversions cover fewer types. Valid after [[getHadoopAttemptConf]].
+   */
+  def hasTypeChange: Boolean = !typeChangeInfos.isEmpty
 
   def generateUnsafeProjection(fullSchema: Seq[AttributeReference], timeZoneId: Option[String]): UnsafeProjection = {
     SparkSchemaTransformUtils.generateUnsafeProjection(fullSchema, timeZoneId, typeChangeInfos, requiredSchema, partitionSchema, schemaUtils)
