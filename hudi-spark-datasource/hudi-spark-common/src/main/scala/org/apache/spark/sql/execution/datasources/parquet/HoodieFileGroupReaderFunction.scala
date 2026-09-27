@@ -39,7 +39,7 @@ import org.apache.spark.SparkEnv
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.HoodieCatalystExpressionUtils.generateUnsafeProjection
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{JoinedRow, UnsafeProjection}
+import org.apache.spark.sql.catalyst.expressions.UnsafeProjection
 import org.apache.spark.sql.execution.datasources.{PartitionedFile, SparkColumnarFileReader}
 import org.apache.spark.sql.sources.Filter
 import org.apache.spark.sql.types.StructType
@@ -266,17 +266,17 @@ private[parquet] object HoodieFileGroupReaderFunction {
         //some partition fields read from file, some were not
         getFixedPartitionValues(partitionValues, partitionSchema, fixedPartitionIndexes)
       }
-      val unsafeProjection = generateUnsafeProjection(StructType(inputSchema.fields ++ partitionSchema.fields), to)
-      val joinedRow = new JoinedRow()
-      makeCloseableFileGroupMappingRecordIterator(iter, d => unsafeProjection(joinedRow(d, fixedPartitionValues)))
+      val toOutput = FileGroupOutputProjection.create(inputSchema, partitionSchema, fixedPartitionValues, to,
+        generateUnsafeProjection(StructType(inputSchema.fields ++ partitionSchema.fields), to))
+      makeCloseableFileGroupMappingRecordIterator(iter, toOutput)
     }
   }
 
   private def projectSchema(iter: ClosableIterator[InternalRow],
                             from: StructType,
                             to: StructType): Iterator[InternalRow] = {
-    val unsafeProjection = generateUnsafeProjection(from, to)
-    makeCloseableFileGroupMappingRecordIterator(iter, d => unsafeProjection(d))
+    val toOutput = FileGroupOutputProjection.create(from, new StructType(), InternalRow.empty, to, generateUnsafeProjection(from, to))
+    makeCloseableFileGroupMappingRecordIterator(iter, toOutput)
   }
 
   private def makeCloseableFileGroupMappingRecordIterator(closeableFileGroupRecordIterator: ClosableIterator[InternalRow],
