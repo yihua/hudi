@@ -291,7 +291,7 @@ class Spark41ParquetReader(enableVectorizedReader: Boolean,
       readerWithRowIndexes.initialize(split, hadoopAttemptContext)
 
       // Leased for this iterator: files that need the same projection reuse one generation
-      val unsafeProjection = schemaEvolutionUtils.leaseRowProjection(timeZoneId)
+      val unsafeProjection = schemaEvolutionUtils.leaseRowProjection(timeZoneId, iter)
       val projected = if (partitionSchema.length == 0) {
         // There is no partition columns
         iter.map(unsafeProjection(_))

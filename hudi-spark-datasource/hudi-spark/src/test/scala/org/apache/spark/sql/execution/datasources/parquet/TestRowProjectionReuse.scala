@@ -33,8 +33,8 @@ import org.apache.spark.TaskContext
 import org.apache.spark.sql.{Row, SaveMode, SparkSession}
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
 import org.apache.spark.sql.execution.FileSourceScanExec
-import org.apache.spark.sql.execution.datasources.{FileFormat, FilePartition, PartitionedFile, SparkColumnarFileReader}
-import org.apache.spark.sql.execution.datasources.parquet.TestRowProjectionReuse.{distinctObjects, drain, onNewThread, Read}
+import org.apache.spark.sql.execution.datasources.{FileFormat, FilePartition, PartitionedFile, SparkColumnarFileReader, UnsafeProjectionPool}
+import org.apache.spark.sql.execution.datasources.parquet.TestRowProjectionReuse.{distinctObjects, drain, generationsOf, onNewThread, Read}
 import org.apache.spark.sql.sources.{Filter, GreaterThanOrEqual, IsNotNull}
 import org.apache.spark.sql.types.{ArrayType, DataType, DoubleType, IntegerType, LongType, MapType, StringType, StructType}
 import org.apache.spark.unsafe.types.UTF8String
@@ -121,6 +121,90 @@ class TestRowProjectionReuse extends HoodieSparkClientTestBase with SparkAdapter
       assertEquals(10, read.rows.size)
       read.rows.foreach(row => assertEquals(Seq(s"p$i", i), row.toSeq.takeRight(2)))
     }
+  }
+
+  /**
+   * Rows of a scan are not copied: a reader returns the same UnsafeRow object for every row of a file, valid until the
+   * next call on that iterator. Iterators of the same projection key that are open at the same time therefore must not
+   * share a projection, and a projection may only move to another iterator once its own has no more rows.
+   */
+  @Test
+  def testUncopiedRowsOfOpenIteratorsKeepTheirValues(): Unit = {
+    val files = writeFiles(Seq.fill(3)(LongType), rowsPerFile = 5)
+    val requiredSchema = new StructType().add("id", IntegerType).add("v", LongType).add("s", nestedType)
+    val reader = rowBasedReader()
+    val storageConf = HadoopFSUtils.getStorageConf(spark.sessionState.newHadoopConf())
+    def open(i: Int): Iterator[InternalRow] =
+      reader.read(partitionedFile(files(i), i), requiredSchema, partitionSchema, HOption.empty(), Seq.empty, storageConf)
+
+    onNewThread {
+      val a = open(0)
+      val b = open(1)
+      // Both files need the same projection, and both iterators are open: each has its own.
+      val rowA = a.next()
+      val rowB = b.next()
+      assertTrue(rowA ne rowB, "Open iterators of the same key share a projection")
+      assertEquals(0, rowA.getInt(0))
+      assertEquals(1000, rowB.getInt(0))
+      // Advancing one iterator rewrites its own row object only.
+      assertEquals(1001, b.next().getInt(0))
+      assertEquals(1001, rowB.getInt(0))
+      assertEquals(0, rowA.getInt(0), "An uncopied row of one file was overwritten by the rows of another")
+
+      // Drain a, keeping its last row without copying it, and a copy of it.
+      var lastA = rowA
+      while (a.hasNext) {
+        lastA = a.next()
+      }
+      val lastACopy = lastA.copy()
+      assertEquals(4, lastACopy.getInt(0))
+
+      // Only now, a being exhausted, does its projection move to the next file of that key...
+      val c = open(2)
+      val rowC = c.next()
+      assertTrue(rowC eq lastA, "The next iterator of the key takes the projection of the exhausted one")
+      assertEquals(2000, rowC.getInt(0))
+      // ...which writes into the row object that a returned last. That is the row contract of a scan (a row is valid
+      // until the next call on its iterator), and why the projection is not handed on before a says it has no rows.
+      assertEquals(2000, lastA.getInt(0))
+      assertEquals(4, lastACopy.getInt(0))
+      // b, still open, keeps its own projection and row.
+      assertEquals(1001, rowB.getInt(0))
+      assertEquals(1002, b.next().getInt(0))
+      assertEquals(2000, rowC.getInt(0))
+    }
+  }
+
+  /**
+   * The projection of a type-changed file carries the SQL configs in its key. Two queries differ in their task local
+   * properties (spark.sql.execution.id, the job description), which are not SQL configs, so the second query reuses
+   * the projection of the first.
+   */
+  @Test
+  def testTypeChangedFilesReuseTheirProjectionAcrossQueries(): Unit = {
+    val files = writeFiles(Seq(IntegerType), rowsPerFile = 5)
+    val requiredSchema = new StructType().add("id", IntegerType).add("v", LongType).add("s", nestedType)
+    val outputSchema = StructType(requiredSchema.fields ++ partitionSchema.fields)
+    val reader = rowBasedReader()
+    val storageConf = HadoopFSUtils.getStorageConf(spark.sessionState.newHadoopConf())
+    val keyClasses = Seq(classOf[RowProjectionKey])
+
+    val (reads, generated) = onNewThread {
+      val start = generationsOf(keyClasses).head
+      val reads = Seq("1", "2").map { executionId =>
+        val taskContext = TaskContext.empty()
+        taskContext.getLocalProperties.setProperty("spark.sql.execution.id", executionId)
+        taskContext.getLocalProperties.setProperty("spark.job.description", s"query $executionId")
+        TaskContext.setTaskContext(taskContext)
+        drain(reader.read(partitionedFile(files.head, 0), requiredSchema, partitionSchema, HOption.empty(), Seq.empty, storageConf),
+          outputSchema)
+      }
+      (reads, generationsOf(keyClasses).head - start)
+    }
+    assertEquals(1L, generated, "The second query reuses the projection of the type-changed file")
+    assertEquals(1, distinctObjects(reads.flatMap(_.rowObjects)))
+    assertEquals(reads.head.rows, reads(1).rows)
+    assertEquals(0L, reads.head.rows.head.getLong(1))
   }
 
   @Test
@@ -248,23 +332,39 @@ class TestRowProjectionReuse extends HoodieSparkClientTestBase with SparkAdapter
       assertTrue(files.size >= 4, s"Expected base files of both types, got ${files.size} files")
 
       // Read inside a task, as an executor does: the read function takes its reader from a broadcast.
-      val (fresh, reused, projections) = spark.sparkContext.parallelize(Seq(0), 1).mapPartitions { _ =>
+      val keyClasses = Seq(classOf[RowProjectionKey], classOf[ByNameProjectionKey])
+      val (fresh, reused, projections, roundGenerations) = spark.sparkContext.parallelize(Seq(0), 1).mapPartitions { _ =>
         val taskContext = TaskContext.get()
         val fresh = files.map(file => onNewThread(drain(readFunction(file), outputSchema).rows, taskContext))
-        val reused = onNewThread((files ++ files).map(file => drain(readFunction(file), outputSchema)), taskContext)
-        Iterator((fresh, reused.map(_.rows), distinctObjects(reused.flatMap(_.rowObjects))))
+        // Two rounds on one thread, as two scans of the table in later tasks on one executor thread would be.
+        val (reused, roundGenerations) = onNewThread({
+          val start = generationsOf(keyClasses)
+          val first = files.map(file => drain(readFunction(file), outputSchema))
+          val afterFirst = generationsOf(keyClasses)
+          val second = files.map(file => drain(readFunction(file), outputSchema))
+          val afterSecond = generationsOf(keyClasses)
+          (first ++ second, (afterFirst.zip(start).map(p => p._1 - p._2), afterSecond.zip(afterFirst).map(p => p._1 - p._2)))
+        }, taskContext)
+        Iterator((fresh, reused.map(_.rows), distinctObjects(reused.flatMap(_.rowObjects)), roundGenerations))
       }.collect().head
 
       files.indices.foreach { i =>
         assertEquals(fresh(i), reused(i))
         assertEquals(fresh(i), reused(files.size + i))
       }
+      val (firstRound, secondRound) = roundGenerations
+      // The base files are read row-based in both table types (MOR file slices with log files through the file group
+      // reader), and the second scan generates nothing: every projection it needs was kept from the first.
+      assertTrue(firstRound.head > 0, s"The parquet reader generated no row projection: $firstRound")
+      assertTrue(firstRound.head <= files.size, s"More row projections than files: $firstRound")
+      assertEquals(Seq(0L, 0L), secondRound, s"The second scan generated projections (first scan: $firstRound)")
       assertEquals(40, fresh.map(_.size).sum)
-      // The rows of a file slice with log files come from FileGroupOutputProjection, which returns the file group
-      // reader's own rows or joins the partition values with a row joiner per slice, so on MOR the row objects of those
-      // slices are per read. The two rounds over the same files still return fewer objects than reads.
-      val reads = if (tableType == HoodieTableType.MERGE_ON_READ) 2 * files.size else files.size
-      assertTrue(projections < reads, s"Expected fewer row objects than $reads, got $projections")
+      // On MOR the rows of a file slice with log files come from FileGroupOutputProjection, which returns the file
+      // group reader's own rows or joins the partition values with a row joiner per slice, so their row objects are
+      // per read and do not identify projections; the generation counts above show the reuse there.
+      if (tableType == HoodieTableType.COPY_ON_WRITE) {
+        assertTrue(projections < files.size, s"Expected fewer projections than the ${files.size} files, got $projections")
+      }
       // The updated values come through, and int base files are read as long.
       val vById = fresh.flatten.map(row => row.getAs[String](outputSchema.fieldIndex("id")) -> row.getAs[Long](outputSchema.fieldIndex("v"))).toMap
       assertEquals(4 * 7L + 3, vById("id4"))
@@ -277,6 +377,9 @@ class TestRowProjectionReuse extends HoodieSparkClientTestBase with SparkAdapter
 }
 
 object TestRowProjectionReuse {
+
+  /** The projections generated so far for each of `keyClasses`, on all threads. */
+  def generationsOf(keyClasses: Seq[Class[_]]): Seq[Long] = keyClasses.map(UnsafeProjectionPool.generations)
 
   /** The rows of one read, as Scala rows, and the row objects it returned. */
   case class Read(rows: Seq[Row], rowObjects: Seq[InternalRow])

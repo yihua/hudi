@@ -268,7 +268,7 @@ private[parquet] object HoodieFileGroupReaderFunction {
         getFixedPartitionValues(partitionValues, partitionSchema, fixedPartitionIndexes)
       }
       val projection = leaseByNameProjection(StructType(inputSchema.fields ++ partitionSchema.fields), to)
-      val toOutput = FileGroupOutputProjection.create(inputSchema, partitionSchema, fixedPartitionValues, to, projection.projection)
+      val toOutput = FileGroupOutputProjection.create(inputSchema, partitionSchema, fixedPartitionValues, to, projection.asProjection)
       makeCloseableFileGroupMappingRecordIterator(iter, toOutput, projection)
     }
   }
@@ -277,7 +277,7 @@ private[parquet] object HoodieFileGroupReaderFunction {
                             from: StructType,
                             to: StructType): Iterator[InternalRow] = {
     val projection = leaseByNameProjection(from, to)
-    val toOutput = FileGroupOutputProjection.create(from, new StructType(), InternalRow.empty, to, projection.projection)
+    val toOutput = FileGroupOutputProjection.create(from, new StructType(), InternalRow.empty, to, projection.asProjection)
     makeCloseableFileGroupMappingRecordIterator(iter, toOutput, projection)
   }
 

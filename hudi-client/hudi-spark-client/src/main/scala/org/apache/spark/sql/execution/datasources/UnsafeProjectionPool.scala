@@ -24,7 +24,10 @@ import org.apache.spark.sql.catalyst.expressions.{UnsafeProjection, UnsafeRow}
 import org.apache.spark.sql.internal.SQLConf
 
 import java.io.Closeable
+import java.lang.ref.SoftReference
 import java.util
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Reuses the [[UnsafeProjection]]s that readers generate per file across the files a thread reads.
@@ -47,79 +50,139 @@ import java.util
  *
  * A key must hold everything the generated projection depends on, with value equality. Expressions other than column
  * references, such as casts and map builders, read the SQL conf when they are built, so the keys of such projections
- * include [[sqlConf]].
+ * include [[sqlConf]]. The key is built, and the projection generated, on the thread that projects the first row.
+ *
+ * The pool keeps a projection's buffer, which grows to twice the largest row it wrote and never shrinks. A projection
+ * that wrote a row larger than [[MAX_RETAINED_ROW_BYTES]] is dropped instead of kept, and idle projections are held
+ * through soft references, so that the garbage collector can clear them under memory pressure.
  */
 object UnsafeProjectionPool {
 
   /** The most idle projections a thread keeps, one per key. The least recently returned one goes first. */
   val MAX_IDLE_PER_THREAD = 16
 
-  private val idle: ThreadLocal[util.LinkedHashMap[AnyRef, UnsafeProjection]] =
-    new ThreadLocal[util.LinkedHashMap[AnyRef, UnsafeProjection]] {
-      override def initialValue(): util.LinkedHashMap[AnyRef, UnsafeProjection] =
-        new util.LinkedHashMap[AnyRef, UnsafeProjection](MAX_IDLE_PER_THREAD, 0.75f, true) {
-          override def removeEldestEntry(eldest: util.Map.Entry[AnyRef, UnsafeProjection]): Boolean =
+  /** A projection that wrote a larger row is not kept idle: its buffer is at least twice that size. */
+  val MAX_RETAINED_ROW_BYTES: Int = 1024 * 1024
+
+  private val idle: ThreadLocal[util.LinkedHashMap[AnyRef, SoftReference[UnsafeProjection]]] =
+    new ThreadLocal[util.LinkedHashMap[AnyRef, SoftReference[UnsafeProjection]]] {
+      override def initialValue(): util.LinkedHashMap[AnyRef, SoftReference[UnsafeProjection]] =
+        new util.LinkedHashMap[AnyRef, SoftReference[UnsafeProjection]](MAX_IDLE_PER_THREAD, 0.75f, true) {
+          override def removeEldestEntry(eldest: util.Map.Entry[AnyRef, SoftReference[UnsafeProjection]]): Boolean =
             size() > MAX_IDLE_PER_THREAD
         }
     }
 
-  /**
-   * Leases the projection of `key` for one iterator. It is taken from the calling thread's pool, or generated with
-   * `generate`, the first time a row is projected, so an iterator that returns no rows needs none.
-   */
-  def lease(key: AnyRef, generate: => UnsafeProjection): Lease = new Lease(key, () => generate)
+  /** Generations per key class, for tests. */
+  private val generationCounts = new ConcurrentHashMap[Class[_], AtomicLong]()
+
+  /** When false, every lease generates its projection and none is kept, as before the pool. For tests. */
+  @volatile private[sql] var poolingEnabled: Boolean = true
 
   /**
-   * The SQL conf the calling task runs with (the session's on the driver), for keys of projections whose expressions
-   * read it when they are built.
+   * Leases the projection of `key` for one iterator. The key is built, and the projection taken from the calling
+   * thread's pool or generated with `generate`, when the first row is projected, so an iterator that returns no rows
+   * needs neither.
+   *
+   * @param closeOnFailure closed when `generate` fails, such as the reader whose rows the projection was for, since
+   *                       the failure surfaces while the caller reads rows rather than while it opens the reader
    */
-  def sqlConf: Map[String, String] = SQLConf.get.getAllConfs
+  def lease(key: => AnyRef, generate: => UnsafeProjection, closeOnFailure: Closeable = null): Lease =
+    new Lease(() => key, () => generate, closeOnFailure)
+
+  /**
+   * The SQL configs the calling task runs with (the session's on the driver), for keys of projections whose
+   * expressions read them when they are built. Only registered SQL configs are kept: a task also sees the local
+   * properties of its job, such as spark.sql.execution.id, which change with every query and would keep the key from
+   * ever matching again.
+   */
+  def sqlConf: Map[String, String] =
+    SQLConf.get.getAllConfs.filter { case (key, _) => SQLConf.containsConfigKey(key) }
 
   /** The number of idle projections the calling thread holds. */
-  private[sql] def idleCount: Int = idle.get().size()
+  private[sql] def idleCount: Int = {
+    val iterator = idle.get().values().iterator()
+    var count = 0
+    while (iterator.hasNext) {
+      if (iterator.next().get() != null) {
+        count += 1
+      }
+    }
+    count
+  }
 
   /** Drops the idle projections of the calling thread. */
   private[sql] def clear(): Unit = idle.get().clear()
 
-  private def acquire(key: AnyRef, generate: () => UnsafeProjection): UnsafeProjection = {
+  /** The number of projections generated so far for keys of class `keyClass`, on all threads. */
+  private[sql] def generations(keyClass: Class[_]): Long = {
+    val count = generationCounts.get(keyClass)
+    if (count == null) 0L else count.get()
+  }
+
+  private def take(key: AnyRef): UnsafeProjection = {
     val pooled = idle.get().remove(key)
-    if (pooled != null) pooled else generate()
+    if (pooled == null) null else pooled.get()
   }
 
   private def giveBack(key: AnyRef, projection: UnsafeProjection): Unit = {
     val pool = idle.get()
-    if (!pool.containsKey(key)) {
-      pool.put(key, projection)
+    val existing = pool.get(key)
+    if (existing == null || existing.get() == null) {
+      pool.put(key, new SoftReference(projection))
     }
+  }
+
+  private def countGeneration(key: AnyRef): Unit = {
+    var count = generationCounts.get(key.getClass)
+    if (count == null) {
+      generationCounts.putIfAbsent(key.getClass, new AtomicLong())
+      count = generationCounts.get(key.getClass)
+    }
+    count.incrementAndGet()
   }
 
   /**
    * The projection of one iterator. Not thread-safe, like the projection itself: an iterator is read by one thread
    * at a time.
    */
-  final class Lease private[UnsafeProjectionPool](key: AnyRef, generate: () => UnsafeProjection) {
+  final class Lease private[UnsafeProjectionPool](keyOf: () => AnyRef,
+                                                  generate: () => UnsafeProjection,
+                                                  closeOnFailure: Closeable) {
+    private var key: AnyRef = _
     private var leased: UnsafeProjection = _
+    private var largestRow = 0
     private var released = false
 
     /** Projects `row` into the projection's buffer, overwriting the row it returned last. */
-    def apply(row: InternalRow): UnsafeRow = projection(row)
-
-    def projection: UnsafeProjection = {
+    def apply(row: InternalRow): UnsafeRow = {
       if (leased == null) {
-        leased = acquire(key, generate)
+        leased = acquire()
       }
-      leased
+      val projected = leased(row)
+      val size = projected.getSizeInBytes
+      if (size > largestRow) {
+        largestRow = size
+      }
+      projected
+    }
+
+    /** This lease as an UnsafeProjection, for callers that take one. It leases nothing until it projects a row. */
+    def asProjection: UnsafeProjection = new UnsafeProjection {
+      override def apply(row: InternalRow): UnsafeRow = Lease.this.apply(row)
     }
 
     /**
-     * Returns the projection to the calling thread's pool, once no row it wrote is used any more. Later calls do
-     * nothing.
+     * Returns the projection to the calling thread's pool, once no row it wrote is used any more, unless it wrote a
+     * row larger than [[MAX_RETAINED_ROW_BYTES]]. Later calls do nothing.
      */
     def release(): Unit = {
       if (!released) {
         released = true
         if (leased != null) {
-          giveBack(key, leased)
+          if (poolingEnabled && largestRow <= MAX_RETAINED_ROW_BYTES) {
+            giveBack(key, leased)
+          }
           leased = null
         }
       }
@@ -148,6 +211,32 @@ object UnsafeProjectionPool {
         release()
       }
       hasNext
+    }
+
+    private def acquire(): UnsafeProjection = {
+      if (key == null) {
+        key = keyOf()
+      }
+      val pooled = if (poolingEnabled) take(key) else null
+      if (pooled != null) {
+        pooled
+      } else {
+        val generated = try {
+          generate()
+        } catch {
+          case failure: Throwable =>
+            if (closeOnFailure != null) {
+              try {
+                closeOnFailure.close()
+              } catch {
+                case closeFailure: Throwable => failure.addSuppressed(closeFailure)
+              }
+            }
+            throw failure
+        }
+        countGeneration(key)
+        generated
+      }
     }
   }
 }

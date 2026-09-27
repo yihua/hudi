@@ -19,13 +19,16 @@
 
 package org.apache.spark.sql.execution.datasources
 
+import org.apache.spark.TaskContext
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{UnsafeProjection, UnsafeRow}
 import org.apache.spark.sql.types.{IntegerType, LongType, StringType, StructType}
 import org.apache.spark.unsafe.types.UTF8String
 import org.junit.jupiter.api.{AfterEach, BeforeEach, Test}
-import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertNotSame, assertSame, assertTrue}
+import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertNotSame, assertSame, assertThrows, assertTrue}
+import org.junit.jupiter.api.function.Executable
 
+import java.io.Closeable
 import java.util.Collections
 import java.util.concurrent.{ConcurrentHashMap, CountDownLatch, Executors, TimeUnit}
 import java.util.concurrent.atomic.AtomicInteger
@@ -225,5 +228,102 @@ class TestUnsafeProjectionPool {
     assertEquals(threads, distinct.size(), "No two threads share a projection")
   }
 
+  @Test
+  def testProjectionThatWroteALargeRowIsNotKept(): Unit = {
+    // A small row: the projection is kept.
+    drain(project("key", rows(0, 3)))
+    assertEquals(1, UnsafeProjectionPool.idleCount)
+    UnsafeProjectionPool.clear()
+
+    // A row just above the bound: its buffer is at least twice that, so the projection is dropped.
+    val large = InternalRow(1, UTF8String.fromString("x" * (UnsafeProjectionPool.MAX_RETAINED_ROW_BYTES + 1)), 1L)
+    val lease = UnsafeProjectionPool.lease("key", generate())
+    val projected = lease.releaseWhenExhausted((rows(0, 2) ++ Iterator(large) ++ rows(5, 7)).map(lease(_)))
+    drain(projected)
+    assertEquals(0, UnsafeProjectionPool.idleCount, "A projection that wrote a large row is not kept")
+    drain(project("key", rows(0, 1)))
+    assertEquals(3, generations.get())
+  }
+
+  @Test
+  def testKeyIsBuiltWhenTheFirstRowIsProjected(): Unit = {
+    val keysBuilt = new AtomicInteger()
+    def key(): AnyRef = {
+      keysBuilt.incrementAndGet()
+      "key"
+    }
+    val empty = UnsafeProjectionPool.lease(key(), generate())
+    assertFalse(empty.releaseWhenExhausted(Iterator.empty).hasNext)
+    assertEquals(0, keysBuilt.get(), "No key and no projection for an iterator without rows")
+
+    val lease = UnsafeProjectionPool.lease(key(), generate())
+    assertEquals(0, keysBuilt.get())
+    val iter = lease.releaseWhenExhausted(rows(0, 3).map(lease(_)))
+    assertRow(0, iter.next())
+    assertRow(1, iter.next())
+    assertEquals(1, keysBuilt.get(), "The key is built once, for the first row")
+    drain(iter)
+    assertEquals(1, keysBuilt.get())
+    assertEquals(1, UnsafeProjectionPool.idleCount)
+  }
+
+  @Test
+  def testGenerationFailureClosesTheReader(): Unit = {
+    val closed = new AtomicInteger()
+    val reader = new Closeable {
+      override def close(): Unit = closed.incrementAndGet()
+    }
+    val lease = UnsafeProjectionPool.lease("failing-key", throw new IllegalStateException("codegen failed"), reader)
+    val iter = lease.releaseWhenExhausted(rows(0, 3).map(lease(_)))
+    val failure = assertThrows(classOf[IllegalStateException], new Executable {
+      override def execute(): Unit = iter.next()
+    })
+    assertEquals("codegen failed", failure.getMessage)
+    assertEquals(1, closed.get(), "The reader is closed when its projection cannot be generated")
+    assertEquals(0, UnsafeProjectionPool.idleCount)
+  }
+
+  @Test
+  def testSqlConfKeepsOnlySqlConfigs(): Unit = {
+    def confOfTask(executionId: String): Map[String, String] = {
+      val taskContext = TaskContext.empty()
+      taskContext.getLocalProperties.setProperty("spark.sql.execution.id", executionId)
+      taskContext.getLocalProperties.setProperty("spark.job.description", s"query $executionId")
+      taskContext.getLocalProperties.setProperty("spark.sql.ansi.enabled", "true")
+      taskContext.getLocalProperties.setProperty("spark.sql.session.timeZone", "Asia/Tokyo")
+      TaskContext.setTaskContext(taskContext)
+      try UnsafeProjectionPool.sqlConf finally TaskContext.unset()
+    }
+    val first = confOfTask("1")
+    assertEquals(Some("true"), first.get("spark.sql.ansi.enabled"))
+    assertEquals(Some("Asia/Tokyo"), first.get("spark.sql.session.timeZone"))
+    assertFalse(first.contains("spark.sql.execution.id"), s"Task local properties are not SQL configs: $first")
+    assertFalse(first.contains("spark.job.description"))
+    // Two queries with the same SQL configs get the same key.
+    assertEquals(first, confOfTask("2"))
+  }
+
+  @Test
+  def testGenerationsAreCountedPerKeyClass(): Unit = {
+    val before = UnsafeProjectionPool.generations(classOf[CountedKey])
+    (0 until 3).foreach(_ => drain(project(CountedKey(1), rows(0, 2))))
+    drain(project(CountedKey(2), rows(0, 2)))
+    assertEquals(before + 2, UnsafeProjectionPool.generations(classOf[CountedKey]))
+  }
+
+  @Test
+  def testDisabledPoolGeneratesForEveryIterator(): Unit = {
+    UnsafeProjectionPool.poolingEnabled = false
+    try {
+      (0 until 3).foreach(_ => drain(project("key", rows(0, 2))))
+      assertEquals(3, generations.get())
+      assertEquals(0, UnsafeProjectionPool.idleCount)
+    } finally {
+      UnsafeProjectionPool.poolingEnabled = true
+    }
+  }
+
   private def drain(iter: Iterator[_]): Unit = while (iter.hasNext) iter.next()
 }
+
+case class CountedKey(id: Int)

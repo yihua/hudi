@@ -39,6 +39,7 @@ import org.apache.spark.sql.execution.datasources.parquet.ParquetSchemaEvolution
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types.{AtomicType, DataType, StructType}
 
+import java.io.Closeable
 import java.time.ZoneId
 
 import scala.collection.JavaConverters._
@@ -186,16 +187,19 @@ class ParquetSchemaEvolutionUtils(readConf: Configuration,
    * Leases the projection of this file's rows, as the row-based reader returns them followed by the partition values,
    * onto the requested schema followed by the partition schema, casting the columns whose type changed. Files that
    * need the same projection share one generation, see [[UnsafeProjectionPool]]. Valid after [[getHadoopAttemptConf]].
+   *
+   * @param rows the reader of the file, closed if the projection cannot be generated
    */
-  def leaseRowProjection(timeZoneId: Option[String]): UnsafeProjectionPool.Lease = {
+  def leaseRowProjection(timeZoneId: Option[String], rows: Closeable): UnsafeProjectionPool.Lease =
+    UnsafeProjectionPool.lease(rowProjectionKey(timeZoneId), generateUnsafeProjection(timeZoneId), rows)
+
+  private def rowProjectionKey(timeZoneId: Option[String]): RowProjectionKey = {
     val typeChanges = typeChangeInfos.asScala.map { case (ordinal, change) =>
       (ordinal.intValue(), (change.getLeft, change.getRight))
     }.toMap
     // Without type changes the projection only copies columns. Casts read the SQL conf when they are built.
     val sqlConf = if (typeChanges.isEmpty) Map.empty[String, String] else UnsafeProjectionPool.sqlConf
-    UnsafeProjectionPool.lease(
-      RowProjectionKey(requiredSchema, partitionSchema, typeChanges, timeZoneId, sqlConf),
-      generateUnsafeProjection(timeZoneId))
+    RowProjectionKey(requiredSchema, partitionSchema, typeChanges, timeZoneId, sqlConf)
   }
 
   private def generateUnsafeProjection(timeZoneId: Option[String]): UnsafeProjection = {
