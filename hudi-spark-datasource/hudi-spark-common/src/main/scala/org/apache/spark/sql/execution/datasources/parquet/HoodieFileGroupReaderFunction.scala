@@ -40,7 +40,7 @@ import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.HoodieCatalystExpressionUtils.generateUnsafeProjection
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.UnsafeProjection
-import org.apache.spark.sql.execution.datasources.{PartitionedFile, SparkColumnarFileReader}
+import org.apache.spark.sql.execution.datasources.{PartitionedFile, SparkColumnarFileReader, UnsafeProjectionPool}
 import org.apache.spark.sql.sources.Filter
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnarBatchUtils}
@@ -51,6 +51,7 @@ import java.nio.ByteBuffer
 
 import scala.collection.JavaConverters.mapAsJavaMapConverter
 import scala.reflect.ClassTag
+import scala.util.hashing.MurmurHash3
 
 /**
  * Read-only state of one scan of [[HoodieFileGroupReaderBasedFileFormat]], built on the driver and shared by every
@@ -266,24 +267,37 @@ private[parquet] object HoodieFileGroupReaderFunction {
         //some partition fields read from file, some were not
         getFixedPartitionValues(partitionValues, partitionSchema, fixedPartitionIndexes)
       }
-      val toOutput = FileGroupOutputProjection.create(inputSchema, partitionSchema, fixedPartitionValues, to,
-        generateUnsafeProjection(StructType(inputSchema.fields ++ partitionSchema.fields), to))
-      makeCloseableFileGroupMappingRecordIterator(iter, toOutput)
+      val projection = leaseByNameProjection(StructType(inputSchema.fields ++ partitionSchema.fields), to)
+      val toOutput = FileGroupOutputProjection.create(inputSchema, partitionSchema, fixedPartitionValues, to, projection.projection)
+      makeCloseableFileGroupMappingRecordIterator(iter, toOutput, projection)
     }
   }
 
   private def projectSchema(iter: ClosableIterator[InternalRow],
                             from: StructType,
                             to: StructType): Iterator[InternalRow] = {
-    val toOutput = FileGroupOutputProjection.create(from, new StructType(), InternalRow.empty, to, generateUnsafeProjection(from, to))
-    makeCloseableFileGroupMappingRecordIterator(iter, toOutput)
+    val projection = leaseByNameProjection(from, to)
+    val toOutput = FileGroupOutputProjection.create(from, new StructType(), InternalRow.empty, to, projection.projection)
+    makeCloseableFileGroupMappingRecordIterator(iter, toOutput, projection)
   }
 
+  /**
+   * Leases the projection of [[generateUnsafeProjection]] from `from` to `to` for one iterator, so that files that
+   * need the same projection reuse one generation.
+   */
+  private def leaseByNameProjection(from: StructType, to: StructType): UnsafeProjectionPool.Lease =
+    UnsafeProjectionPool.lease(ByNameProjectionKey(from, to), generateUnsafeProjection(from, to))
+
+  /**
+   * Maps the rows of a file group reader with `mappingFunction`, which projects them with `projection`. The
+   * projection is released once the reader has no more rows.
+   */
   private def makeCloseableFileGroupMappingRecordIterator(closeableFileGroupRecordIterator: ClosableIterator[InternalRow],
-                                                          mappingFunction: Function[InternalRow, InternalRow]): Iterator[InternalRow] = {
+                                                          mappingFunction: Function[InternalRow, InternalRow],
+                                                          projection: UnsafeProjectionPool.Lease): Iterator[InternalRow] = {
     CloseableIteratorListener.addListener(closeableFileGroupRecordIterator)
     new Iterator[InternalRow] with Closeable {
-      override def hasNext: Boolean = closeableFileGroupRecordIterator.hasNext
+      override def hasNext: Boolean = projection.checkHasNext(closeableFileGroupRecordIterator.hasNext)
 
       override def next(): InternalRow = mappingFunction(closeableFileGroupRecordIterator.next())
 
@@ -307,12 +321,12 @@ private[parquet] object HoodieFileGroupReaderFunction {
   }
 
   private def projectIter(iter: Iterator[Any], from: StructType, to: StructType): Iterator[InternalRow] = {
-    val unsafeProjection = generateUnsafeProjection(from, to)
+    val unsafeProjection = leaseByNameProjection(from, to)
     val batchProjection = ColumnarBatchUtils.generateProjection(from, to)
-    iter.map {
+    unsafeProjection.releaseWhenExhausted(iter.map {
       case ir: InternalRow => unsafeProjection(ir)
       case cb: ColumnarBatch => batchProjection(cb)
-    }.asInstanceOf[Iterator[InternalRow]]
+    }).asInstanceOf[Iterator[InternalRow]]
   }
 
   /**
@@ -330,4 +344,9 @@ private[parquet] object HoodieFileGroupReaderFunction {
   private def getFixedPartitionValues(allPartitionValues: InternalRow, partitionSchema: StructType, fixedPartitionIndexes: Set[Int]): InternalRow = {
     InternalRow.fromSeq(allPartitionValues.toSeq(partitionSchema).zipWithIndex.filter(p => fixedPartitionIndexes.contains(p._2)).map(p => p._1))
   }
+}
+
+/** Key of the by-name projection [[org.apache.spark.sql.HoodieCatalystExpressionUtils.generateUnsafeProjection]] generates. */
+private case class ByNameProjectionKey(from: StructType, to: StructType) {
+  override val hashCode: Int = MurmurHash3.productHash(this)
 }

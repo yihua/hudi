@@ -33,15 +33,17 @@ import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 import org.apache.parquet.hadoop.metadata.FileMetaData
 import org.apache.spark.sql.HoodieSchemaUtils
-import org.apache.spark.sql.catalyst.expressions.{AttributeReference, UnsafeProjection}
-import org.apache.spark.sql.execution.datasources.SparkSchemaTransformUtils
+import org.apache.spark.sql.catalyst.expressions.UnsafeProjection
+import org.apache.spark.sql.execution.datasources.{SparkSchemaTransformUtils, UnsafeProjectionPool}
 import org.apache.spark.sql.execution.datasources.parquet.ParquetSchemaEvolutionUtils.pruneInternalSchema
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types.{AtomicType, DataType, StructType}
 
 import java.time.ZoneId
 
+import scala.collection.JavaConverters._
 import scala.collection.convert.ImplicitConversions.`collection AsScalaIterable`
+import scala.util.hashing.MurmurHash3
 
 class ParquetSchemaEvolutionUtils(readConf: Configuration,
                                   filePath: Path,
@@ -180,7 +182,24 @@ class ParquetSchemaEvolutionUtils(readConf: Configuration,
    */
   def hasTypeChange: Boolean = !typeChangeInfos.isEmpty
 
-  def generateUnsafeProjection(fullSchema: Seq[AttributeReference], timeZoneId: Option[String]): UnsafeProjection = {
+  /**
+   * Leases the projection of this file's rows, as the row-based reader returns them followed by the partition values,
+   * onto the requested schema followed by the partition schema, casting the columns whose type changed. Files that
+   * need the same projection share one generation, see [[UnsafeProjectionPool]]. Valid after [[getHadoopAttemptConf]].
+   */
+  def leaseRowProjection(timeZoneId: Option[String]): UnsafeProjectionPool.Lease = {
+    val typeChanges = typeChangeInfos.asScala.map { case (ordinal, change) =>
+      (ordinal.intValue(), (change.getLeft, change.getRight))
+    }.toMap
+    // Without type changes the projection only copies columns. Casts read the SQL conf when they are built.
+    val sqlConf = if (typeChanges.isEmpty) Map.empty[String, String] else UnsafeProjectionPool.sqlConf
+    UnsafeProjectionPool.lease(
+      RowProjectionKey(requiredSchema, partitionSchema, typeChanges, timeZoneId, sqlConf),
+      generateUnsafeProjection(timeZoneId))
+  }
+
+  private def generateUnsafeProjection(timeZoneId: Option[String]): UnsafeProjection = {
+    val fullSchema = schemaUtils.toAttributes(requiredSchema) ++ schemaUtils.toAttributes(partitionSchema)
     SparkSchemaTransformUtils.generateUnsafeProjection(fullSchema, timeZoneId, typeChangeInfos, requiredSchema, partitionSchema, schemaUtils)
   }
 
@@ -212,6 +231,18 @@ class ParquetSchemaEvolutionUtils(readConf: Configuration,
         capacity)
     }
   }
+}
+
+/**
+ * The inputs [[ParquetSchemaEvolutionUtils.leaseRowProjection]] generates a projection from. The hash is computed
+ * once, since the schemas of a wide table are large and the key is looked up for every file.
+ */
+private case class RowProjectionKey(requiredSchema: StructType,
+                                    partitionSchema: StructType,
+                                    typeChanges: Map[Int, (DataType, DataType)],
+                                    timeZoneId: Option[String],
+                                    sqlConf: Map[String, String]) {
+  override val hashCode: Int = MurmurHash3.productHash(this)
 }
 
 object ParquetSchemaEvolutionUtils {
