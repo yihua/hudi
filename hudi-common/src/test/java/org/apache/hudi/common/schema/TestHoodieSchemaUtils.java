@@ -2485,4 +2485,47 @@ public class TestHoodieSchemaUtils {
         () -> HoodieSchemaUtils.createDeleteLogSchema(tableSchema, Collections.singletonList("not_a_field")));
     assertEquals("Ordering field not_a_field not found in table schema", exception.getMessage());
   }
+
+  private static HoodieSchemaField nullableLongField(String name) {
+    return HoodieSchemaField.of(name, HoodieSchema.createNullable(HoodieSchemaType.LONG), null, HoodieSchema.NULL_VALUE);
+  }
+
+  @Test
+  void testAppendRowLineageFields() {
+    HoodieSchema schema = HoodieSchema.createRecord("rec", "ns", "doc", Arrays.asList(
+        HoodieSchemaField.of("key", HoodieSchema.create(HoodieSchemaType.STRING)),
+        nullableLongField("ts")));
+    assertSame(schema, HoodieSchemaUtils.appendRowLineageFields(schema, Collections.emptyList()));
+
+    HoodieSchemaField rowIdField = nullableLongField("row_id");
+    rowIdField.addProp("prop", "value");
+    List<HoodieSchemaField> rowLineageFields = Arrays.asList(rowIdField, nullableLongField("seq"));
+    HoodieSchema withRowLineage = HoodieSchemaUtils.appendRowLineageFields(schema, rowLineageFields);
+    assertEquals(Arrays.asList("key", "ts", "row_id", "seq"),
+        withRowLineage.getFields().stream().map(HoodieSchemaField::name).collect(Collectors.toList()));
+    assertEquals(schema.getFullName(), withRowLineage.getFullName());
+    assertEquals(rowIdField, withRowLineage.getFields().get(2));
+    assertEquals("value", withRowLineage.getFields().get(2).getProp("prop"));
+    assertEquals(HoodieSchema.NULL_VALUE, withRowLineage.getFields().get(3).defaultVal().get());
+    // The fields of the table format are copied, so they can be appended to any number of schemas
+    assertEquals(withRowLineage, HoodieSchemaUtils.appendRowLineageFields(schema, rowLineageFields));
+  }
+
+  @Test
+  void testAppendInvalidRowLineageFields() {
+    HoodieSchema schema = HoodieSchema.createRecord("rec", "ns", "doc", Arrays.asList(
+        HoodieSchemaField.of("key", HoodieSchema.create(HoodieSchemaType.STRING)),
+        nullableLongField("ts")));
+    HoodieSchemaField rowIdField = nullableLongField("row_id");
+    Stream.of(
+        Collections.singletonList(rowIdField),
+        Arrays.asList(rowIdField, nullableLongField("seq"), nullableLongField("other")),
+        Arrays.asList(rowIdField, nullableLongField("row_id")),
+        Arrays.asList(rowIdField, nullableLongField("ts")),
+        Arrays.asList(rowIdField, HoodieSchemaField.of("seq", HoodieSchema.create(HoodieSchemaType.LONG))),
+        Arrays.asList(rowIdField, HoodieSchemaField.of("seq", HoodieSchema.createNullable(HoodieSchemaType.LONG))),
+        Arrays.asList(rowIdField, HoodieSchemaField.of("seq", HoodieSchema.createNullable(HoodieSchemaType.INT), null, HoodieSchema.NULL_VALUE)))
+        .forEach(rowLineageFields -> assertThrows(IllegalArgumentException.class,
+            () -> HoodieSchemaUtils.appendRowLineageFields(schema, rowLineageFields), rowLineageFields::toString));
+  }
 }
