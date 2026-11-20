@@ -47,6 +47,7 @@ import org.apache.hudi.common.testutils.HoodieTestUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.config.HoodieCompactionConfig;
+import org.apache.hudi.config.HoodieIndexConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.core.io.storage.HoodieFileReader;
 import org.apache.hudi.core.io.storage.HoodieIOFactory;
@@ -76,6 +77,7 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -328,6 +330,74 @@ public class TestHoodieJavaClientUpdatesAsDeletesAndInserts extends HoodieJavaCl
     assertTableVersion(tableVersion);
   }
 
+  /**
+   * With a global index, an update within a partition, an update that moves a key to another partition
+   * and a delete each tombstone the row of the key's current copy by position, so every key keeps a
+   * single live copy across partitions.
+   */
+  @ParameterizedTest
+  @EnumSource(value = HoodieTableVersion.class, names = {"EIGHT", "NINE", "TEN"})
+  void testGlobalIndexUpdatesWithinAndAcrossPartitions(HoodieTableVersion tableVersion) throws Exception {
+    initTable(tableVersion);
+    HoodieWriteConfig config = getConfigBuilder(HoodieTestDataGenerator.TRIP_EXAMPLE_SCHEMA, HoodieIndex.IndexType.GLOBAL_SIMPLE)
+        .withProperties(keyGenProps())
+        .withIndexConfig(HoodieIndexConfig.newBuilder().withIndexType(HoodieIndex.IndexType.GLOBAL_SIMPLE)
+            .withGlobalSimpleIndexUpdatePartitionPath(true).build())
+        .withWriteUpdatesAsDeletesAndInserts(true)
+        .withWriteTableVersion(tableVersion.versionCode())
+        .withAutoUpgradeVersion(false)
+        .build();
+    HoodieJavaWriteClient client = getHoodieWriteClient(config);
+
+    String insertTime = WriteClientTestUtils.createNewInstantTime();
+    List<HoodieRecord> inserts = dataGen.generateInserts(insertTime, 100);
+    assertDeletesAndInserts(0, 100, writeAndCommit(client, insertTime, () -> client.insert(inserts, insertTime)));
+
+    String updateTime = WriteClientTestUtils.createNewInstantTime();
+    List<HoodieRecord> updates = dataGen.generateUniqueUpdates(updateTime, 30);
+    assertDeletesAndInserts(30, 30, writeAndCommit(client, updateTime, () -> client.upsert(updates, updateTime)));
+
+    // Some moved keys were updated above, so their old partition also holds a tombstoned copy
+    String newPartition = HoodieTestDataGenerator.DEFAULT_FIRST_PARTITION_PATH;
+    String moveTime = WriteClientTestUtils.createNewInstantTime();
+    List<HoodieRecord> moves = dataGen.generateUpdatesForDifferentPartition(moveTime,
+        inserts.stream().filter(r -> !r.getPartitionPath().equals(newPartition)).limit(20).collect(Collectors.toList()),
+        0L, newPartition);
+    assertDeletesAndInserts(20, 20, writeAndCommit(client, moveTime, () -> client.upsert(moves, moveTime)));
+
+    String deleteTime = WriteClientTestUtils.createNewInstantTime();
+    List<HoodieKey> deletedKeys = moves.stream().limit(10).map(HoodieRecord::getKey).collect(Collectors.toList());
+    assertDeletesAndInserts(10, 0, writeAndCommit(client, deleteTime, () -> client.delete(deletedKeys, deleteTime)));
+
+    assertEquals(60, assertOnlyPositionalDeletes(config, tableVersion),
+        "every update, move and delete must produce exactly one positional delete");
+    // Collecting the records by key fails on a key with copies in two partitions
+    Map<String, GenericRecord> recordMap = GenericRecordValidationTestUtils.getRecordsMap(config, storageConf, dataGen);
+    assertEquals(90, recordMap.size());
+    deletedKeys.forEach(key -> assertFalse(recordMap.containsKey(key.getRecordKey()), "deleted key is still live: " + key));
+    moves.stream().skip(10).forEach(record -> {
+      GenericRecord live = recordMap.get(record.getRecordKey());
+      assertEquals(newPartition, live.get(HoodieRecord.PARTITION_PATH_METADATA_FIELD).toString());
+      assertEquals(moveTime, live.get(HoodieRecord.COMMIT_TIME_METADATA_FIELD).toString());
+    });
+    assertTableVersion(tableVersion);
+  }
+
+  private static List<WriteStatus> writeAndCommit(HoodieJavaWriteClient client, String instantTime,
+                                                  Supplier<List<WriteStatus>> write) {
+    WriteClientTestUtils.startCommitWithTime(client, instantTime);
+    List<WriteStatus> statuses = write.get();
+    client.commit(instantTime, statuses);
+    return statuses;
+  }
+
+  private static void assertDeletesAndInserts(long expectedDeletes, long expectedInserts, List<WriteStatus> statuses) {
+    assertEquals(expectedDeletes, statuses.stream().mapToLong(status -> status.getStat().getNumDeletes()).sum());
+    assertEquals(expectedInserts, statuses.stream().mapToLong(status -> status.getStat().getNumInserts()).sum());
+    assertEquals(0, statuses.stream().mapToLong(status -> status.getStat().getNumUpdateWrites()).sum(),
+        "no update record must be written in this mode");
+  }
+
   @Test
   public void testLogCompactionRejectedInDeleteInsertMode() throws Exception {
     HoodieWriteConfig config = buildConfig(true);
@@ -437,24 +507,20 @@ public class TestHoodieJavaClientUpdatesAsDeletesAndInserts extends HoodieJavaCl
   }
 
   private static Stream<Arguments> indexWithoutPositionsAndOperation() {
-    return Stream.of(HoodieIndex.IndexType.INMEMORY, HoodieIndex.IndexType.GLOBAL_SIMPLE)
+    return Stream.of(HoodieIndex.IndexType.INMEMORY)
         .flatMap(indexType -> Stream.of(WriteOperationType.UPSERT, WriteOperationType.INSERT, WriteOperationType.DELETE)
             .map(operation -> Arguments.of(indexType, operation)));
   }
 
   /**
-   * Global indexes tag merge-on-read records through a lookup that drops the base file position, and
-   * the in-memory index writes inserts to log files.
+   * The in-memory index tags records without positions and writes inserts to log files.
    */
   @ParameterizedTest
   @MethodSource("indexWithoutPositionsAndOperation")
   void testIndexWithoutPositionsRejectedInDeleteInsertMode(HoodieIndex.IndexType indexType,
                                                            WriteOperationType operation) throws Exception {
-    Properties keyGenProps = new Properties();
-    keyGenProps.setProperty(KeyGeneratorOptions.RECORDKEY_FIELD_NAME.key(), "_row_key");
-    keyGenProps.setProperty(KeyGeneratorOptions.PARTITIONPATH_FIELD_NAME.key(), "partition_path");
     HoodieWriteConfig config = getConfigBuilder(HoodieTestDataGenerator.TRIP_EXAMPLE_SCHEMA, indexType)
-        .withProperties(keyGenProps)
+        .withProperties(keyGenProps())
         .withWriteUpdatesAsDeletesAndInserts(true)
         .build();
     assertWriteRejected(config, operation, "produces record positions");
@@ -571,6 +637,13 @@ public class TestHoodieJavaClientUpdatesAsDeletesAndInserts extends HoodieJavaCl
       }
     }
     return locations;
+  }
+
+  private static Properties keyGenProps() {
+    Properties properties = new Properties();
+    properties.setProperty(KeyGeneratorOptions.RECORDKEY_FIELD_NAME.key(), "_row_key");
+    properties.setProperty(KeyGeneratorOptions.PARTITIONPATH_FIELD_NAME.key(), "partition_path");
+    return properties;
   }
 
   private static boolean exceptionChainContains(Throwable throwable, String text) {

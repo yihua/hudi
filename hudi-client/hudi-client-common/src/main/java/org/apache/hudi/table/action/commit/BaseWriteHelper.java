@@ -97,11 +97,13 @@ public abstract class BaseWriteHelper<T, I, K, O, R> extends ParallelismHelper<I
   /**
    * Index types that tag a record with its row position in the base file and write merge-on-read
    * inserts to base files, which the update-as-delete-insert write mode needs to keep log files to
-   * positional deletes. The global variants are excluded because they tag through a global location
-   * that drops the position.
+   * positional deletes. The global variants and the record index tag through a global location, which
+   * takes the position from the base file of the located file group.
    */
   private static final EnumSet<HoodieIndex.IndexType> POSITION_PRODUCING_INDEX_TYPES = EnumSet.of(
-      HoodieIndex.IndexType.BLOOM, HoodieIndex.IndexType.SIMPLE);
+      HoodieIndex.IndexType.BLOOM, HoodieIndex.IndexType.SIMPLE,
+      HoodieIndex.IndexType.GLOBAL_BLOOM, HoodieIndex.IndexType.GLOBAL_SIMPLE,
+      HoodieIndex.IndexType.RECORD_INDEX, HoodieIndex.IndexType.GLOBAL_RECORD_LEVEL_INDEX);
 
   protected abstract I tag(
       I dedupedRecords, HoodieEngineContext context, HoodieTable<T, I, K, O> table);
