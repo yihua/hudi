@@ -22,7 +22,7 @@ import org.apache.hudi.AutoRecordKeyGenerationUtils.shouldAutoGenerateRecordKeys
 import org.apache.hudi.DataSourceWriteOptions._
 import org.apache.hudi.HoodieConversionUtils.toProperties
 import org.apache.hudi.common.config.{DFSPropertiesConfiguration, HoodieCommonConfig}
-import org.apache.hudi.common.model.WriteOperationType
+import org.apache.hudi.common.model.{HoodieTableType, WriteOperationType}
 import org.apache.hudi.common.table.HoodieTableConfig
 import org.apache.hudi.common.table.HoodieTableConfig.DATABASE_NAME
 import org.apache.hudi.common.util.{ConfigUtils, HoodieTableConfigUtils, ReflectionUtils, StringUtils}
@@ -571,6 +571,17 @@ object ProvidesHoodieConfig {
       DFSPropertiesConfiguration.getGlobalProps.getString(HoodieCommonConfig.SCHEMA_EVOLUTION_ENABLE.key(),
         HoodieCommonConfig.SCHEMA_EVOLUTION_ENABLE.defaultValue.toString)
     ).toBoolean
+
+  /**
+   * Whether Spark SQL UPDATE and DELETE write prepped records located through their meta fields. A merge-on-read
+   * table writing updates as deletes and inserts needs the row position of each located record in its base file,
+   * which only the index lookup of a non-prepped write provides.
+   */
+  def isSparkSqlOptimizedWrite(sqlConf: SQLConf, catalogTable: HoodieCatalogTable): Boolean =
+    sqlConf.getConfString(SPARK_SQL_OPTIMIZED_WRITES.key(), SPARK_SQL_OPTIMIZED_WRITES.defaultValue()) == "true" &&
+      !(catalogTable.tableType == HoodieTableType.MERGE_ON_READ && java.lang.Boolean.parseBoolean(
+        combineOptions(catalogTable, catalogTable.tableConfig, sqlConf, defaultOpts = Map.empty)
+          .getOrElse(HoodieWriteConfig.WRITE_UPDATES_AS_DELETES_AND_INSERTS.key, "false")))
 
   private def filterNullValues(opts: Map[String, String]): Map[String, String] =
     opts.filter { case (_, v) => v != null }
