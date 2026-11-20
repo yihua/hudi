@@ -33,7 +33,7 @@ import org.apache.spark.sql.execution.command.DataWritingCommand
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.hudi.HoodieSqlCommonUtils.isMetaField
 import org.apache.spark.sql.hudi.ProvidesHoodieConfig
-import org.apache.spark.sql.hudi.ProvidesHoodieConfig.isSparkSqlOptimizedWrite
+import org.apache.spark.sql.hudi.ProvidesHoodieConfig.{isSparkSqlOptimizedWrite, validateUpdatesAsDeletesAndInserts}
 import org.apache.spark.sql.hudi.command.HoodieCommandMetrics.updateCommitMetrics
 import org.apache.spark.sql.hudi.command.HoodieLeafRunnableCommand.stripMetaFieldAttributes
 
@@ -75,6 +75,7 @@ object DeleteHoodieTableCommand extends SparkAdapterSupport with ProvidesHoodieC
   }
 
   def inputPlan(sparkSession: SparkSession, dft: DeleteFromTable, catalogTable: HoodieCatalogTable): (LogicalPlan, Map[String, String]) = {
+    validateUpdatesAsDeletesAndInserts(sparkSession.sessionState.conf, catalogTable)
     val condition = sparkAdapter.extractDeleteCondition(dft)
 
     val config = if (isSparkSqlOptimizedWrite(sparkSession.sessionState.conf, catalogTable)) {

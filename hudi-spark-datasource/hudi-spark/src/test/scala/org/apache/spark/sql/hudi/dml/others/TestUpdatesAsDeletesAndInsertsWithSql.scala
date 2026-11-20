@@ -23,10 +23,12 @@ import org.apache.hudi.common.model.HoodieRecord.HoodieRecordType
 import org.apache.hudi.common.table.TableSchemaResolver
 import org.apache.hudi.common.table.log.HoodieLogFormat
 import org.apache.hudi.common.table.log.block.HoodieDeleteBlock
+import org.apache.hudi.common.testutils.HoodieTestUtils
 import org.apache.hudi.common.util.ConfigUtils.DEFAULT_HUDI_CONFIG_FOR_READER
 import org.apache.hudi.config.HoodieWriteConfig
 import org.apache.hudi.core.io.storage.HoodieIOFactory
 import org.apache.hudi.storage.StoragePath
+import org.apache.hudi.table.action.commit.BaseWriteHelper
 
 import org.apache.spark.sql.hudi.common.HoodieSparkSqlTestBase
 import org.apache.spark.sql.hudi.common.HoodieSparkSqlTestBase.getMetaClientAndFileSystemView
@@ -113,6 +115,49 @@ class TestUpdatesAsDeletesAndInsertsWithSql extends HoodieSparkSqlTestBase {
           assertEquals(Seq("1", "1", "1", "3", "4"), positionalDeletes(tablePath))
         }
       }
+    }
+  }
+
+  test("Test UPDATE, DELETE and MERGE INTO refused on a table without a primary key writing updates as deletes and inserts") {
+    withTempDir { tmp =>
+      val tableName = generateTableName
+      val tablePath = s"${tmp.getCanonicalPath}/$tableName"
+      spark.sql(
+        s"""
+           |create table $tableName (
+           |  id int,
+           |  name string,
+           |  price double,
+           |  dt string
+           |) using hudi
+           | partitioned by (dt)
+           | location '$tablePath'
+           | tblproperties (
+           |  type = 'mor',
+           |  'hoodie.record.merge.mode' = 'COMMIT_TIME_ORDERING'
+           | )
+         """.stripMargin)
+      withSQLConf(HoodieWriteConfig.WRITE_UPDATES_AS_DELETES_AND_INSERTS.key() -> "true") {
+        // An insert locates no existing row, so the write mode lets it through
+        spark.sql(s"insert into $tableName values (1, 'a1', 10.0, 'p1'), (2, 'a2', 20.0, 'p1')")
+        val instants = HoodieTestUtils.createMetaClient(HoodieTestUtils.getDefaultStorageConf, tablePath)
+          .getActiveTimeline.getInstants.asScala.toList
+        Seq(
+          s"update $tableName set price = 11.0 where id = 1",
+          s"delete from $tableName where id = 2",
+          s"""merge into $tableName t
+             |using (select 1 as id, 'a1m' as name, 12.0 as price, 'p1' as dt) s
+             |on t.id = s.id
+             |when matched then update set *""".stripMargin
+        ).foreach { statement =>
+          checkExceptionContain(statement)(BaseWriteHelper.keylessTableNotSupported().getMessage)
+        }
+        // Each statement is refused before it starts a commit
+        assertEquals(instants, HoodieTestUtils.createMetaClient(HoodieTestUtils.getDefaultStorageConf, tablePath)
+          .getActiveTimeline.getInstants.asScala.toList)
+      }
+      checkAnswer(s"select id, name, price, dt from $tableName order by id")(
+        Seq(1, "a1", 10.0, "p1"), Seq(2, "a2", 20.0, "p1"))
     }
   }
 

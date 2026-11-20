@@ -56,6 +56,7 @@ import org.apache.hudi.index.HoodieIndex;
 import org.apache.hudi.keygen.constant.KeyGeneratorOptions;
 import org.apache.hudi.storage.StoragePath;
 import org.apache.hudi.table.action.HoodieWriteMetadata;
+import org.apache.hudi.table.action.commit.BaseWriteHelper;
 import org.apache.hudi.testutils.GenericRecordValidationTestUtils;
 import org.apache.hudi.testutils.HoodieJavaClientTestHarness;
 
@@ -64,6 +65,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -84,6 +86,7 @@ import java.util.stream.Stream;
 
 import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_GENERATOR;
 import static org.apache.hudi.common.testutils.HoodieTestUtils.TIMELINE_FACTORY;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -120,6 +123,7 @@ public class TestHoodieJavaClientUpdatesAsDeletesAndInserts extends HoodieJavaCl
 
   private HoodieWriteConfig.Builder configBuilder(boolean updatesAsDeletesAndInserts, int maxDeltaCommitsBeforeCompaction) {
     return getConfigBuilder(HoodieTestDataGenerator.TRIP_EXAMPLE_SCHEMA, HoodieIndex.IndexType.SIMPLE)
+        .withProperties(keyGenProps())
         .withCompactionConfig(HoodieCompactionConfig.newBuilder()
             .withMaxNumDeltaCommitsBeforeCompaction(maxDeltaCommitsBeforeCompaction).build())
         .withWriteUpdatesAsDeletesAndInserts(updatesAsDeletesAndInserts);
@@ -625,6 +629,38 @@ public class TestHoodieJavaClientUpdatesAsDeletesAndInserts extends HoodieJavaCl
         .withWriteUpdatesAsDeletesAndInserts(true)
         .build();
     assertWriteRejected(config, WriteOperationType.UPSERT, HoodieWriteConfig.WRITE_PARTIAL_UPDATE_SCHEMA.key());
+  }
+
+  /**
+   * An update or delete of a table without a primary key whose writer generates the record keys cannot locate
+   * the current version of a row by its key.
+   */
+  @ParameterizedTest
+  @EnumSource(value = WriteOperationType.class, names = {"UPSERT", "DELETE"})
+  void testKeylessTableRejectedInDeleteInsertMode(WriteOperationType operation) throws Exception {
+    HoodieWriteConfig config = getConfigBuilder(HoodieTestDataGenerator.TRIP_EXAMPLE_SCHEMA, HoodieIndex.IndexType.SIMPLE)
+        .withWriteUpdatesAsDeletesAndInserts(true)
+        .build();
+    assertWriteRejected(config, operation, "requires a table with a primary key");
+  }
+
+  /**
+   * A record key declared by the table or by the writer lets updates and deletes through, and an insert locates
+   * no existing row, so it needs none.
+   */
+  @ParameterizedTest
+  @CsvSource({"true,false,UPSERT", "false,true,DELETE", "false,false,INSERT"})
+  void testRecordKeyInDeleteInsertMode(boolean keyDeclaredByTable, boolean keyDeclaredByWriter,
+                                       WriteOperationType operation) throws Exception {
+    if (keyDeclaredByTable) {
+      Properties properties = new Properties();
+      properties.setProperty(HoodieTableConfig.RECORDKEY_FIELDS.key(), "_row_key");
+      metaClient = HoodieTestUtils.init(storageConf, basePath, getTableType(), properties);
+    }
+    HoodieWriteConfig.Builder builder = getConfigBuilder(HoodieTestDataGenerator.TRIP_EXAMPLE_SCHEMA, HoodieIndex.IndexType.SIMPLE)
+        .withWriteUpdatesAsDeletesAndInserts(true);
+    HoodieWriteConfig config = (keyDeclaredByWriter ? builder.withProperties(keyGenProps()) : builder).build();
+    assertDoesNotThrow(() -> BaseWriteHelper.validateUpdatesAsDeletesAndInserts(config, metaClient, operation));
   }
 
   /**

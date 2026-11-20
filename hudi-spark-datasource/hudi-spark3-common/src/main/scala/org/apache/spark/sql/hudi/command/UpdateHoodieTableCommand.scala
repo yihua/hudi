@@ -35,7 +35,7 @@ import org.apache.spark.sql.execution.command.DataWritingCommand
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.hudi.HoodieSqlCommonUtils._
 import org.apache.spark.sql.hudi.ProvidesHoodieConfig
-import org.apache.spark.sql.hudi.ProvidesHoodieConfig.isSparkSqlOptimizedWrite
+import org.apache.spark.sql.hudi.ProvidesHoodieConfig.{isSparkSqlOptimizedWrite, validateUpdatesAsDeletesAndInserts}
 import org.apache.spark.sql.hudi.command.HoodieCommandMetrics.updateCommitMetrics
 import org.apache.spark.sql.hudi.command.exception.HoodieAnalysisException
 
@@ -122,6 +122,7 @@ object UpdateHoodieTableCommand extends SparkAdapterSupport with Logging {
   def inputPlan(sparkSession: SparkSession, ut: UpdateTable): LogicalPlan = {
     val hoodieCatalogTable = catalogTable(sparkSession, ut)
     val tableId = hoodieCatalogTable.table.qualifiedName
+    validateUpdatesAsDeletesAndInserts(sparkSession.sessionState.conf, hoodieCatalogTable)
 
     logInfo(s"Executing 'UPDATE' command for $tableId")
 

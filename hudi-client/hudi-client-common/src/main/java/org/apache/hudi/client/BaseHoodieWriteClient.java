@@ -602,7 +602,7 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
     if ((writeOperationType == WriteOperationType.UPSERT || writeOperationType == WriteOperationType.INSERT
         || writeOperationType == WriteOperationType.DELETE) && config.shouldWriteUpdatesAsDeletesAndInserts()
         && metaClient.getTableType() == HoodieTableType.MERGE_ON_READ) {
-      BaseWriteHelper.validateUpdatesAsDeletesAndInserts(config, metaClient);
+      BaseWriteHelper.validateUpdatesAsDeletesAndInserts(config, metaClient, writeOperationType);
     }
     setOperationType(writeOperationType);
     operationTypesByInstant.put(instantTime, writeOperationType);

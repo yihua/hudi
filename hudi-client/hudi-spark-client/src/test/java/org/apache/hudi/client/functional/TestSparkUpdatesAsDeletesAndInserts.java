@@ -86,6 +86,7 @@ public class TestSparkUpdatesAsDeletesAndInserts extends SparkClientFunctionalTe
     tableProperties.setProperty(HoodieTableConfig.VERSION.key(), String.valueOf(tableVersion.versionCode()));
     HoodieTableMetaClient metaClient = getHoodieMetaClient(HoodieTableType.MERGE_ON_READ, tableProperties);
     HoodieWriteConfig config = getConfigBuilder(true, HoodieIndex.IndexType.SIMPLE)
+        .withProperties(keyGenProps())
         .withWriteUpdatesAsDeletesAndInserts(true)
         .withWriteTableVersion(tableVersion.versionCode())
         .withAutoUpgradeVersion(false)
