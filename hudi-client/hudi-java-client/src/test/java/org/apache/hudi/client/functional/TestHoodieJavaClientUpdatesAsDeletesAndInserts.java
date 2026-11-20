@@ -617,6 +617,16 @@ public class TestHoodieJavaClientUpdatesAsDeletesAndInserts extends HoodieJavaCl
     assertWriteRejected(config, WriteOperationType.UPSERT, HoodieWriteConfig.WRITE_RECORD_POSITIONS.key());
   }
 
+  @Test
+  void testPartialUpdatesRejectedInDeleteInsertMode() throws Exception {
+    HoodieWriteConfig config = getConfigBuilder(HoodieTestDataGenerator.TRIP_EXAMPLE_SCHEMA,
+        HoodieIndex.IndexType.SIMPLE)
+        .withProps(Collections.singletonMap(HoodieWriteConfig.WRITE_PARTIAL_UPDATE_SCHEMA.key(), HoodieTestDataGenerator.TRIP_EXAMPLE_SCHEMA))
+        .withWriteUpdatesAsDeletesAndInserts(true)
+        .build();
+    assertWriteRejected(config, WriteOperationType.UPSERT, HoodieWriteConfig.WRITE_PARTIAL_UPDATE_SCHEMA.key());
+  }
+
   /**
    * A version 6 writer does not write record positions, whether the table is at version 6 or at a
    * higher version it may still write to.

@@ -967,7 +967,7 @@ public class HoodieWriteConfig extends HoodieConfig {
           + "version 8 or higher, " + WRITE_RECORD_POSITIONS.key() + ", the BLOOM, SIMPLE, GLOBAL_BLOOM, "
           + "GLOBAL_SIMPLE or RECORD_INDEX index (other index types write inserts to log files or do not locate "
           + "records by base file position, and a custom index class is not supported), and commit-time ordering "
-          + "merge semantics. Prepped upserts, inserts and deletes are not "
+          + "merge semantics. Prepped upserts, inserts and deletes and partial updates are not "
           + "supported on merge-on-read tables. Compaction is not scheduled while an earlier delta commit is pending.");
 
   public static final ConfigProperty<String> WRITE_PARTIAL_UPDATE_SCHEMA = ConfigProperty

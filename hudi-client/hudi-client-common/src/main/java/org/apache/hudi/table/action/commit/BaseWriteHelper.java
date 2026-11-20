@@ -160,6 +160,12 @@ public abstract class BaseWriteHelper<T, I, K, O, R> extends ParallelismHelper<I
           HoodieWriteConfig.WRITE_UPDATES_AS_DELETES_AND_INSERTS.key()
               + " requires " + HoodieWriteConfig.WRITE_RECORD_POSITIONS.key() + " to be enabled");
     }
+    if (config.shouldWritePartialUpdates()) {
+      // The new version of an updated record is inserted into a base file, so it has to carry every column
+      throw new HoodieNotSupportedException(
+          HoodieWriteConfig.WRITE_UPDATES_AS_DELETES_AND_INSERTS.key() + " does not support partial updates but "
+              + HoodieWriteConfig.WRITE_PARTIAL_UPDATE_SCHEMA.key() + " is set");
+    }
   }
 
   /**
