@@ -64,7 +64,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Functional tests for the row lineage columns of an external table format, see
- * {@link org.apache.hudi.common.HoodieTableFormat#getRowLineageColumns()}, across clustering of a copy-on-write
+ * {@link org.apache.hudi.common.HoodieTableFormat#getFormatMetaColumns()}, across clustering of a copy-on-write
  * table, which needs the Spark version adapter of the Spark datasource modules.
  */
 @Tag("functional")
@@ -160,8 +160,8 @@ class TestSparkClusteringRowLineageForTestFormat extends TestSparkCopyOnWriteRow
   }
 
   private static String refusalMessage(Class<?> strategyClass) {
-    return "Table format test-format declares row lineage columns, but " + strategyClass.getSimpleName()
-        + " does not keep the row lineage of the records it rewrites";
+    return "Table format test-format declares format meta columns, but " + strategyClass.getSimpleName()
+        + " does not carry them over to the base files it rewrites";
   }
 
   private static boolean exceptionChainContains(Throwable throwable, String text) {

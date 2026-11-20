@@ -151,16 +151,17 @@ public abstract class BaseSparkInternalRecordContext extends RecordContext<Inter
   }
 
   @Override
-  public InternalRow setLongIfNull(InternalRow row, int pos, long value) {
-    if (row.isNullAt(pos)) {
-      row.setLong(pos, value);
+  public InternalRow setValue(InternalRow row, int pos, Object value) {
+    // An UnsafeRow is updated in place through the setters of fixed-width types only
+    if (value == null) {
+      row.setNullAt(pos);
+    } else if (value instanceof Long) {
+      row.setLong(pos, (Long) value);
+    } else if (value instanceof Integer) {
+      row.setInt(pos, (Integer) value);
+    } else {
+      row.update(pos, value instanceof Comparable ? convertValueToEngineType((Comparable) value) : value);
     }
-    return row;
-  }
-
-  @Override
-  public InternalRow setNullAt(InternalRow row, int pos) {
-    row.setNullAt(pos);
     return row;
   }
 

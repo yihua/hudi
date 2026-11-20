@@ -101,9 +101,9 @@ public class StreamingFileGroupRecordBufferLoader<T> implements FileGroupRecordB
       return HoodieSchema.parse(schemaStr);
     } else {
       HoodieSchema recordSchema = HoodieSchemaUtils.removeMetadataFields(readerContext.getSchemaHandler().getRequestedSchema());
-      // The incoming records do not have the row lineage columns that are read from the base file either
-      return readerParameters.getRowLineageColumns().isEmpty()
-          ? recordSchema : HoodieSchemaUtils.removeFields(recordSchema, readerParameters.getRowLineageColumns());
+      // The incoming records do not have the format meta columns that are read from the base file either
+      return readerParameters.getFormatMetaColumns().isEmpty()
+          ? recordSchema : HoodieSchemaUtils.removeFields(recordSchema, readerParameters.getFormatMetaColumns());
     }
   }
 }

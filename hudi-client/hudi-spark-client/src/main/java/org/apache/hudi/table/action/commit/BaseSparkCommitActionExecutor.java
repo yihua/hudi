@@ -112,8 +112,8 @@ public abstract class BaseSparkCommitActionExecutor<T> extends
                                        Option<Map<String, String>> extraMetadata) {
     super(context, config, table, instantTime, operationType, extraMetadata);
     keyGeneratorOpt = HoodieSparkKeyGeneratorFactory.createBaseKeyGenerator(config);
-    // The concat handle of an insert into a small file needs the reader context to keep the row lineage of the records it carries over
-    readerContextFactory = WriteOperationType.isChangingRecords(operationType) || !table.getMetaClient().getTableFormat().getRowLineageColumns().isEmpty()
+    // The concat handle of an insert into a small file needs the reader context to carry over the format meta columns of its records
+    readerContextFactory = WriteOperationType.isChangingRecords(operationType) || !table.getMetaClient().getTableFormat().getFormatMetaColumns().isEmpty()
         ? table.getReaderContextFactoryForWrite() : null;
   }
 

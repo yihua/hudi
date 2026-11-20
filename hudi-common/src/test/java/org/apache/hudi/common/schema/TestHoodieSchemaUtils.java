@@ -18,8 +18,12 @@
 
 package org.apache.hudi.common.schema;
 
+import org.apache.hudi.common.BaseFileColumnResolver;
+import org.apache.hudi.common.FormatMetaColumn;
+import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.schema.internal.HoodieSchemaException;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.Pair;
@@ -2490,42 +2494,61 @@ public class TestHoodieSchemaUtils {
     return HoodieSchemaField.of(name, HoodieSchema.createNullable(HoodieSchemaType.LONG), null, HoodieSchema.NULL_VALUE);
   }
 
-  @Test
-  void testAppendRowLineageFields() {
-    HoodieSchema schema = HoodieSchema.createRecord("rec", "ns", "doc", Arrays.asList(
-        HoodieSchemaField.of("key", HoodieSchema.create(HoodieSchemaType.STRING)),
-        nullableLongField("ts")));
-    assertSame(schema, HoodieSchemaUtils.appendRowLineageFields(schema, Collections.emptyList()));
+  private static List<FormatMetaColumn> formatMetaColumns(HoodieSchemaField... fields) {
+    return Arrays.stream(fields).map(field -> new FormatMetaColumn() {
+      @Override
+      public HoodieSchemaField field() {
+        return field;
+      }
 
-    HoodieSchemaField rowIdField = nullableLongField("row_id");
-    rowIdField.addProp("prop", "value");
-    List<HoodieSchemaField> rowLineageFields = Arrays.asList(rowIdField, nullableLongField("seq"));
-    HoodieSchema withRowLineage = HoodieSchemaUtils.appendRowLineageFields(schema, rowLineageFields);
-    assertEquals(Arrays.asList("key", "ts", "row_id", "seq"),
-        withRowLineage.getFields().stream().map(HoodieSchemaField::name).collect(Collectors.toList()));
-    assertEquals(schema.getFullName(), withRowLineage.getFullName());
-    assertEquals(rowIdField, withRowLineage.getFields().get(2));
-    assertEquals("value", withRowLineage.getFields().get(2).getProp("prop"));
-    assertEquals(HoodieSchema.NULL_VALUE, withRowLineage.getFields().get(3).defaultVal().get());
-    // The fields of the table format are copied, so they can be appended to any number of schemas
-    assertEquals(withRowLineage, HoodieSchemaUtils.appendRowLineageFields(schema, rowLineageFields));
+      @Override
+      public Object valueOnWrite(String instantTime) {
+        return null;
+      }
+
+      @Override
+      public BaseFileColumnResolver resolverFor(HoodieTableMetaClient metaClient, HoodieBaseFile baseFile) {
+        throw new UnsupportedOperationException();
+      }
+    }).collect(Collectors.toList());
   }
 
   @Test
-  void testAppendInvalidRowLineageFields() {
+  void testAppendFormatMetaColumns() {
+    HoodieSchema schema = HoodieSchema.createRecord("rec", "ns", "doc", Arrays.asList(
+        HoodieSchemaField.of("key", HoodieSchema.create(HoodieSchemaType.STRING)),
+        nullableLongField("ts")));
+    assertSame(schema, HoodieSchemaUtils.appendFormatMetaColumns(schema, Collections.emptyList()));
+
+    HoodieSchemaField rowIdField = nullableLongField("row_id");
+    rowIdField.addProp("prop", "value");
+    List<FormatMetaColumn> columns = formatMetaColumns(rowIdField, nullableLongField("seq"));
+    HoodieSchema withColumns = HoodieSchemaUtils.appendFormatMetaColumns(schema, columns);
+    assertEquals(Arrays.asList("key", "ts", "row_id", "seq"),
+        withColumns.getFields().stream().map(HoodieSchemaField::name).collect(Collectors.toList()));
+    assertEquals(schema.getFullName(), withColumns.getFullName());
+    assertEquals(rowIdField, withColumns.getFields().get(2));
+    assertEquals("value", withColumns.getFields().get(2).getProp("prop"));
+    assertEquals(HoodieSchema.NULL_VALUE, withColumns.getFields().get(3).defaultVal().get());
+    // The fields of the table format are copied, so they can be appended to any number of schemas
+    assertEquals(withColumns, HoodieSchemaUtils.appendFormatMetaColumns(schema, columns));
+    // Any nullable type that defaults to null
+    HoodieSchemaField stringField = HoodieSchemaField.of("tag", HoodieSchema.createNullable(HoodieSchemaType.STRING), null, HoodieSchema.NULL_VALUE);
+    assertEquals(stringField, HoodieSchemaUtils.appendFormatMetaColumns(schema, formatMetaColumns(stringField)).getFields().get(2));
+  }
+
+  @Test
+  void testAppendInvalidFormatMetaColumns() {
     HoodieSchema schema = HoodieSchema.createRecord("rec", "ns", "doc", Arrays.asList(
         HoodieSchemaField.of("key", HoodieSchema.create(HoodieSchemaType.STRING)),
         nullableLongField("ts")));
     HoodieSchemaField rowIdField = nullableLongField("row_id");
     Stream.of(
-        Collections.singletonList(rowIdField),
-        Arrays.asList(rowIdField, nullableLongField("seq"), nullableLongField("other")),
-        Arrays.asList(rowIdField, nullableLongField("row_id")),
-        Arrays.asList(rowIdField, nullableLongField("ts")),
-        Arrays.asList(rowIdField, HoodieSchemaField.of("seq", HoodieSchema.create(HoodieSchemaType.LONG))),
-        Arrays.asList(rowIdField, HoodieSchemaField.of("seq", HoodieSchema.createNullable(HoodieSchemaType.LONG))),
-        Arrays.asList(rowIdField, HoodieSchemaField.of("seq", HoodieSchema.createNullable(HoodieSchemaType.INT), null, HoodieSchema.NULL_VALUE)))
-        .forEach(rowLineageFields -> assertThrows(IllegalArgumentException.class,
-            () -> HoodieSchemaUtils.appendRowLineageFields(schema, rowLineageFields), rowLineageFields::toString));
+        formatMetaColumns(rowIdField, nullableLongField("row_id")),
+        formatMetaColumns(rowIdField, nullableLongField("ts")),
+        formatMetaColumns(rowIdField, HoodieSchemaField.of("seq", HoodieSchema.create(HoodieSchemaType.LONG))),
+        formatMetaColumns(rowIdField, HoodieSchemaField.of("seq", HoodieSchema.createNullable(HoodieSchemaType.LONG))))
+        .forEach(columns -> assertThrows(IllegalArgumentException.class,
+            () -> HoodieSchemaUtils.appendFormatMetaColumns(schema, columns), columns::toString));
   }
 }

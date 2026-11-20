@@ -136,7 +136,7 @@ public abstract class MultipleSparkJobExecutionStrategy<T>
   private HoodieWriteConfig newGroupWriteConfig(Option<Long> parquetMaxFileSize) {
     HoodieWriteConfig config = HoodieWriteConfig.newBuilder().withProps(getWriteConfig().getProps()).build();
     parquetMaxFileSize.ifPresent(bytes -> config.setValue(HoodieStorageConfig.PARQUET_MAX_FILE_SIZE, String.valueOf(bytes)));
-    setRowLineageWriteSchema(config);
+    setFormatMetaColumnsWriteSchema(config);
     return config;
   }
 
@@ -391,13 +391,13 @@ public abstract class MultipleSparkJobExecutionStrategy<T>
 
   /**
    * The table schema with meta fields, resolved from the timeline: in case of MIT, config.getSchema may not contain
-   * the full table schema. The row lineage columns the table format declares follow the columns of the table.
+   * the full table schema. The format meta columns the table format declares follow the columns of the table.
    */
   private HoodieSchema getTableSchemaWithMetaFields() {
     try {
       HoodieTableMetaClient metaClient = getHoodieTable().getMetaClient();
-      return HoodieSchemaUtils.addMetadataFields(HoodieSchemaUtils.appendRowLineageFields(new TableSchemaResolver(metaClient).getTableSchema(false),
-          metaClient.getTableFormat().getRowLineageColumns()), getWriteConfig().allowOperationMetadataField());
+      return HoodieSchemaUtils.addMetadataFields(HoodieSchemaUtils.appendFormatMetaColumns(new TableSchemaResolver(metaClient).getTableSchema(false),
+          metaClient.getTableFormat().getFormatMetaColumns()), getWriteConfig().allowOperationMetadataField());
     } catch (Exception e) {
       throw new HoodieException("Failed to get table schema during clustering", e);
     }

@@ -18,6 +18,7 @@
 
 package org.apache.hudi.common.table;
 
+import org.apache.hudi.common.FormatMetaColumn;
 import org.apache.hudi.common.avro.VariantSchemaUtils;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.fs.FileNameParser;
@@ -125,11 +126,11 @@ public class TableSchemaResolver {
     Option<HoodieSchema> schema = getTableParquetSchemaFromDataFile()
         .map(VariantSchemaUtils::stripVariantShredding)
         .map(VariantSchemaUtils::stripVariantShreddingByShape);
-    // The row lineage columns of an external table format are stored in rewritten base files only and
+    // The metadata columns of an external table format are stored in rewritten base files only and
     // are not columns of the table.
-    List<HoodieSchemaField> rowLineageColumns = metaClient.getTableFormat().getRowLineageColumns();
-    return rowLineageColumns.isEmpty() ? schema : schema.map(fileSchema -> HoodieSchemaUtils.removeFields(
-        fileSchema, rowLineageColumns.stream().map(HoodieSchemaField::name).collect(Collectors.toSet())));
+    List<FormatMetaColumn> formatMetaColumns = metaClient.getTableFormat().getFormatMetaColumns();
+    return formatMetaColumns.isEmpty() ? schema : schema.map(fileSchema -> HoodieSchemaUtils.removeFields(
+        fileSchema, formatMetaColumns.stream().map(column -> column.field().name()).collect(Collectors.toSet())));
   }
 
   /**

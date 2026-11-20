@@ -21,6 +21,7 @@ package org.apache.hudi.common;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.schema.HoodieSchemaField;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.exception.HoodieNotSupportedException;
 
 import java.io.Serializable;
 
@@ -57,4 +58,17 @@ public interface FormatMetaColumn extends Serializable {
    * @param baseFile   the base file being rewritten.
    */
   BaseFileColumnResolver resolverFor(HoodieTableMetaClient metaClient, HoodieBaseFile baseFile);
+
+  /**
+   * Fails if the table format declares format meta columns, for a rewrite of base files that does not carry them over.
+   *
+   * @param tableFormat the table format of the table
+   * @param rewriter    the class that rewrites the base files
+   */
+  static void checkNotDeclared(HoodieTableFormat tableFormat, Class<?> rewriter) {
+    if (!tableFormat.getFormatMetaColumns().isEmpty()) {
+      throw new HoodieNotSupportedException("Table format " + tableFormat.getName() + " declares format meta columns, but "
+          + rewriter.getSimpleName() + " does not carry them over to the base files it rewrites");
+    }
+  }
 }

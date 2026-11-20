@@ -19,6 +19,7 @@
 
 package org.apache.hudi.io;
 
+import org.apache.hudi.common.FormatMetaColumn;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.engine.HoodieReaderContext;
 import org.apache.hudi.common.engine.TaskContextSupplier;
@@ -26,7 +27,6 @@ import org.apache.hudi.common.model.CompactionOperation;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.model.HoodieRecord;
-import org.apache.hudi.common.schema.HoodieSchemaField;
 import org.apache.hudi.common.schema.internal.InternalSchema;
 import org.apache.hudi.common.table.read.HoodieRecordReader;
 import org.apache.hudi.common.table.read.lsm.HoodieLsmFileGroupReader;
@@ -67,9 +67,9 @@ public class LsmFileGroupReaderBasedMergeHandle<T, I, K, O> extends FileGroupRea
   }
 
   @Override
-  protected List<HoodieSchemaField> getRowLineageColumns() {
-    // The LSM file-group reader does not maintain row lineage columns
-    return checkNoRowLineageColumns();
+  protected List<FormatMetaColumn> getFormatMetaColumns() {
+    // The LSM file-group reader does not maintain format meta columns
+    return checkNoFormatMetaColumns();
   }
 
   @Override

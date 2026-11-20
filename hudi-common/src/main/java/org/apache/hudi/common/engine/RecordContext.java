@@ -172,26 +172,14 @@ public abstract class RecordContext<T> implements Serializable {
   public abstract T constructEngineRecord(HoodieSchema recordSchema, Object[] fieldValues);
 
   /**
-   * Sets the nullable long field at the given position of the record to the given value, unless the field
-   * already holds a value.
+   * Sets the field at the given position of the record to the given value, converted to the engine type.
    *
    * @param record the record in engine-specific type
    * @param pos    the position of the field in the record
-   * @param value  the value to set
+   * @param value  the value to set, possibly null
    * @return the record with the field set, which is the given record when it can be updated in place
    */
-  public T setLongIfNull(T record, int pos, long value) {
-    throw new UnsupportedOperationException("Setting a field of a record is not supported by " + getClass().getSimpleName());
-  }
-
-  /**
-   * Sets the nullable field at the given position of the record to null.
-   *
-   * @param record the record in engine-specific type
-   * @param pos    the position of the field in the record
-   * @return the record with the field set to null, which is the given record when it can be updated in place
-   */
-  public T setNullAt(T record, int pos) {
+  public T setValue(T record, int pos, Object value) {
     throw new UnsupportedOperationException("Setting a field of a record is not supported by " + getClass().getSimpleName());
   }
 

@@ -19,6 +19,8 @@
 package org.apache.hudi.tableformat;
 
 import org.apache.hudi.avro.model.HoodieCleanMetadata;
+import org.apache.hudi.common.BaseFileColumnResolver;
+import org.apache.hudi.common.FormatMetaColumn;
 import org.apache.hudi.common.HoodieTableFormat;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.fs.FSUtils;
@@ -34,6 +36,7 @@ import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.TimelineFactory;
 import org.apache.hudi.common.table.view.FileSystemViewManager;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.metadata.TableMetadataFactory;
 import org.apache.hudi.storage.StoragePath;
 
@@ -54,7 +57,11 @@ import java.util.function.Supplier;
  *
  * <p>With {@link #ROW_LINEAGE_ENABLED} set in the table config, the table format also tracks row lineage: when
  * a commit completes, it assigns the next sequence number to the commit and to every base file the commit
- * added, and the next range of row IDs, one per record, to each of these base files.
+ * added, and the next range of row IDs, one per record, to each of these base files. It declares two format meta
+ * columns: the row ID and the last updated sequence number of a row. A rewrite stores them null for a new or
+ * updated row, which gets a new row lineage, and for a row carried over unchanged, it stores the value its base
+ * file stores, or derives it: the first row ID of the base file plus the position of the row in the file, and the
+ * sequence number of the base file.
  */
 @NoArgsConstructor
 public class TestTableFormat implements HoodieTableFormat {
@@ -118,19 +125,11 @@ public class TestTableFormat implements HoodieTableFormat {
   }
 
   @Override
-  public List<HoodieSchemaField> getRowLineageColumns() {
+  public List<FormatMetaColumn> getFormatMetaColumns() {
     if (!rowLineageEnabled) {
       return Collections.emptyList();
     }
-    HoodieSchema nullableLong = HoodieSchema.createNullable(HoodieSchemaType.LONG);
-    return Arrays.asList(
-        HoodieSchemaField.of(ROW_ID_COLUMN, nullableLong, null, HoodieSchema.NULL_VALUE),
-        HoodieSchemaField.of(LAST_UPDATED_SEQUENCE_NUMBER_COLUMN, nullableLong, null, HoodieSchema.NULL_VALUE));
-  }
-
-  @Override
-  public Option<BaseFileRowLineage> getBaseFileRowLineage(HoodieTableMetaClient metaClient, String partitionPath, HoodieBaseFile baseFile) {
-    return getBaseFileRowLineage(metaClient.getBasePath().toString(), baseFile.getFileName());
+    return Arrays.asList(new RowLineageColumn(ROW_ID_COLUMN, true), new RowLineageColumn(LAST_UPDATED_SEQUENCE_NUMBER_COLUMN, false));
   }
 
   @Override
@@ -189,6 +188,46 @@ public class TestTableFormat implements HoodieTableFormat {
   @Override
   public TableMetadataFactory getMetadataFactory() {
     return TestTableMetadataFactory.getInstance();
+  }
+
+  private static HoodieSchemaField nullableLongField(String name) {
+    return HoodieSchemaField.of(name, HoodieSchema.createNullable(HoodieSchemaType.LONG), null, HoodieSchema.NULL_VALUE);
+  }
+
+  /**
+   * A row lineage column: null for a new or updated row, and for a row carried over unchanged, the value its base
+   * file stores, or the one derived from the row lineage values assigned to the base file.
+   */
+  private static class RowLineageColumn implements FormatMetaColumn {
+    private final String name;
+    private final boolean rowId;
+
+    private RowLineageColumn(String name, boolean rowId) {
+      this.name = name;
+      this.rowId = rowId;
+    }
+
+    @Override
+    public HoodieSchemaField field() {
+      return nullableLongField(name);
+    }
+
+    @Override
+    public Object valueOnWrite(String instantTime) {
+      return null;
+    }
+
+    @Override
+    public BaseFileColumnResolver resolverFor(HoodieTableMetaClient metaClient, HoodieBaseFile baseFile) {
+      BaseFileRowLineage baseFileRowLineage = getBaseFileRowLineage(metaClient.getBasePath().toString(), baseFile.getFileName())
+          .orElseThrow(() -> new HoodieException("Table format test-format declares row lineage columns but has no row lineage for base file "
+              + baseFile.getPath() + ", so the records carried over from it cannot keep their row lineage"));
+      long firstRowId = baseFileRowLineage.getFirstRowId();
+      long sequenceNumber = baseFileRowLineage.getSequenceNumber();
+      return rowId
+          ? (rowPosition, storedValue) -> storedValue != null ? storedValue : (Object) (firstRowId + rowPosition)
+          : (rowPosition, storedValue) -> storedValue != null ? storedValue : (Object) sequenceNumber;
+    }
   }
 
   /**

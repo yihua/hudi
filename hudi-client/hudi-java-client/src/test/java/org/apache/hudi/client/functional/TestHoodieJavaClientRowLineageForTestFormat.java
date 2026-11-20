@@ -109,7 +109,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Functional tests for the row lineage columns of an external table format, see
- * {@link org.apache.hudi.common.HoodieTableFormat#getRowLineageColumns()}: a record that a rewrite carries over
+ * {@link org.apache.hudi.common.HoodieTableFormat#getFormatMetaColumns()}: a record that a rewrite carries over
  * unchanged into a new base file keeps its row lineage, and a new or updated record gets a new one.
  *
  * <p>The tests read the row lineage columns straight from the parquet files, and derive the row lineage of a
@@ -142,7 +142,7 @@ public class TestHoodieJavaClientRowLineageForTestFormat extends HoodieJavaClien
         .set(Collections.singletonMap(TestTableFormat.ROW_LINEAGE_ENABLED, String.valueOf(rowLineageEnabled)))
         .initTable(storageConf.newInstance(), basePath);
     assertEquals(tableVersion, metaClient.getTableConfig().getTableVersion());
-    assertEquals(rowLineageEnabled ? 2 : 0, metaClient.getTableFormat().getRowLineageColumns().size());
+    assertEquals(rowLineageEnabled ? 2 : 0, metaClient.getTableFormat().getFormatMetaColumns().size());
   }
 
   private HoodieWriteConfig buildConfig(HoodieTableVersion tableVersion) {
@@ -469,8 +469,8 @@ public class TestHoodieJavaClientRowLineageForTestFormat extends HoodieJavaClien
   }
 
   private static String refusalMessage(Class<?> handleClass) {
-    return "Table format test-format declares row lineage columns, but " + handleClass.getSimpleName()
-        + " does not keep the row lineage of the records it rewrites";
+    return "Table format test-format declares format meta columns, but " + handleClass.getSimpleName()
+        + " does not carry them over to the base files it rewrites";
   }
 
   private List<String> listDataFiles() throws IOException {

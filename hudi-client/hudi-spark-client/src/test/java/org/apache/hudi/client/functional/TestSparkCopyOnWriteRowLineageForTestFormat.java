@@ -77,7 +77,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Functional test for the row lineage columns of an external table format, see
- * {@link org.apache.hudi.common.HoodieTableFormat#getRowLineageColumns()}, on a copy-on-write table written
+ * {@link org.apache.hudi.common.HoodieTableFormat#getFormatMetaColumns()}, on a copy-on-write table written
  * with the Spark write client. Reading and writing Spark records needs the Spark version adapter of the
  * Spark datasource modules, where a subclass runs this test with Spark records.
  */
@@ -109,7 +109,7 @@ public class TestSparkCopyOnWriteRowLineageForTestFormat extends SparkClientFunc
         .setTableFormat("test-format")
         .set(Collections.singletonMap(TestTableFormat.ROW_LINEAGE_ENABLED, "true"))
         .initTable(storageConf().newInstance(), basePath());
-    assertEquals(2, metaClient.getTableFormat().getRowLineageColumns().size());
+    assertEquals(2, metaClient.getTableFormat().getFormatMetaColumns().size());
     return metaClient;
   }
 

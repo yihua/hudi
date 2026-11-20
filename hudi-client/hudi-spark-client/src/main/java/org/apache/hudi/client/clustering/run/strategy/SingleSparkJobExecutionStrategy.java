@@ -51,7 +51,7 @@ public abstract class SingleSparkJobExecutionStrategy<T>
 
   @Override
   public HoodieWriteMetadata<HoodieData<WriteStatus>> performClustering(final HoodieClusteringPlan clusteringPlan, final HoodieSchema schema, final String instantTime) {
-    checkNoRowLineageColumns();
+    checkNoFormatMetaColumns();
     final TaskContextSupplier taskContextSupplier = getEngineContext().getTaskContextSupplier();
     final List<ClusteringGroupInfo> clusteringGroupInfos = clusteringPlan.getInputGroups().stream().map(ClusteringGroupInfo::create).collect(Collectors.toList());
 

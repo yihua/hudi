@@ -52,9 +52,9 @@ public class ReaderParameters {
   // considers the log records which are inflight.
   @Builder.Default
   private final boolean inflightInstantsAllowed = false;
-  // Names of the row lineage columns that are read from the base file in addition to the columns of the table
+  // Names of the format meta columns that are read from the base file in addition to the columns of the table
   @Builder.Default
-  private final Set<String> rowLineageColumns = Collections.emptySet();
+  private final Set<String> formatMetaColumns = Collections.emptySet();
 
   public boolean shouldUseRecordPosition() {
     return shouldUseRecordPosition;

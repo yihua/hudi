@@ -18,6 +18,7 @@
 
 package org.apache.hudi.common.schema;
 
+import org.apache.hudi.common.FormatMetaColumn;
 import org.apache.hudi.common.avro.HoodieAvroUtils;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.schema.internal.HoodieSchemaException;
@@ -38,6 +39,7 @@ import org.apache.avro.generic.GenericData;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -645,31 +647,28 @@ public final class HoodieSchemaUtils {
   }
 
   /**
-   * Appends the row lineage columns an external table format declares, see
-   * {@code HoodieTableFormat#getRowLineageColumns}, at the end of the given schema. Returns the given schema
-   * as is when the table format declares none.
+   * Appends the metadata columns an external table format declares, see
+   * {@code HoodieTableFormat#getFormatMetaColumns}, at the end of the given schema, in their order. Returns the
+   * given schema as is when the table format declares none.
    *
-   * @param schema           the schema to append the row lineage columns to
-   * @param rowLineageFields the row ID column followed by the last updated sequence number column, or an empty list
-   * @return the schema ending with the row lineage columns
-   * @throws IllegalArgumentException if the columns are not two nullable long fields that default to null, or
-   *                                  if the schema already has a field with the name of one of them
+   * @param schema  the schema to append the columns to
+   * @param columns the metadata columns of the table format, or an empty list
+   * @return the schema ending with the columns
+   * @throws IllegalArgumentException if a column is not nullable with a null default, or if two columns, or a
+   *                                  column and a field of the schema, have the same name
    */
-  public static HoodieSchema appendRowLineageFields(HoodieSchema schema, List<HoodieSchemaField> rowLineageFields) {
-    if (rowLineageFields.isEmpty()) {
+  public static HoodieSchema appendFormatMetaColumns(HoodieSchema schema, List<FormatMetaColumn> columns) {
+    if (columns.isEmpty()) {
       return schema;
     }
-    ValidationUtils.checkArgument(
-        rowLineageFields.size() == 2 && !rowLineageFields.get(0).name().equals(rowLineageFields.get(1).name()),
-        () -> "Expected a row ID column and a last updated sequence number column, got: " + rowLineageFields);
-    List<HoodieSchemaField> newFields = new ArrayList<>(rowLineageFields.size());
-    for (HoodieSchemaField field : rowLineageFields) {
-      ValidationUtils.checkArgument(
-          field.isNullable() && field.getNonNullSchema().getType() == HoodieSchemaType.LONG
-              && field.hasDefaultValue() && toJavaDefaultValue(field) == null,
-          () -> "A row lineage column has to be a nullable long that defaults to null, got: " + field);
-      ValidationUtils.checkArgument(schema.getField(field.name()).isEmpty(),
-          () -> "The row lineage column " + field.name() + " has the name of a field in the schema: " + schema);
+    List<HoodieSchemaField> newFields = new ArrayList<>(columns.size());
+    Set<String> names = new HashSet<>();
+    for (FormatMetaColumn column : columns) {
+      HoodieSchemaField field = column.field();
+      ValidationUtils.checkArgument(field.isNullable() && field.hasDefaultValue() && toJavaDefaultValue(field) == null,
+          () -> "A format meta column has to be nullable and default to null, got: " + field);
+      ValidationUtils.checkArgument(schema.getField(field.name()).isEmpty() && names.add(field.name()),
+          () -> "The format meta column " + field.name() + " has the name of another field: " + schema + ", " + columns);
       HoodieSchemaField newField = createNewSchemaField(field);
       field.getObjectProps().forEach(newField::addProp);
       newFields.add(newField);

@@ -19,10 +19,10 @@
 package org.apache.hudi.io;
 
 import org.apache.hudi.client.WriteStatus;
+import org.apache.hudi.common.FormatMetaColumn;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.engine.HoodieReaderContext;
 import org.apache.hudi.common.engine.TaskContextSupplier;
-import org.apache.hudi.common.model.BaseFileRowLineage;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieOperation;
@@ -32,15 +32,17 @@ import org.apache.hudi.common.model.HoodieWriteStat.RuntimeStats;
 import org.apache.hudi.common.model.MetaFieldsMode;
 import org.apache.hudi.common.model.MetadataValues;
 import org.apache.hudi.common.schema.HoodieSchema;
-import org.apache.hudi.common.schema.HoodieSchemaField;
+import org.apache.hudi.common.schema.HoodieSchemaUtils;
 import org.apache.hudi.common.serialization.DefaultSerializer;
 import org.apache.hudi.common.table.read.BufferedRecord;
 import org.apache.hudi.common.table.read.BufferedRecords;
+import org.apache.hudi.common.table.read.FormatMetaColumnHandler;
 import org.apache.hudi.common.util.CloseableUtils;
 import org.apache.hudi.common.util.ConfigUtils;
 import org.apache.hudi.common.util.DefaultSizeEstimator;
 import org.apache.hudi.common.util.HoodieRecordSizeEstimator;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.ValidationUtils;
 import org.apache.hudi.common.util.collection.ExternalSpillableMap;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.core.io.storage.HoodieFileReader;
@@ -50,7 +52,6 @@ import org.apache.hudi.core.io.storage.HoodieIOFactory;
 import org.apache.hudi.exception.HoodieCorruptedDataException;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
-import org.apache.hudi.exception.HoodieNotSupportedException;
 import org.apache.hudi.exception.HoodieUpsertException;
 import org.apache.hudi.keygen.BaseKeyGenerator;
 import org.apache.hudi.metadata.HoodieTableMetadata;
@@ -123,6 +124,9 @@ public class HoodieWriteMergeHandle<T, I, K, O> extends HoodieAbstractMergeHandl
   protected long recordsDeleted = 0;
   protected long updatedRecordsWritten = 0;
   protected long insertRecordsWritten = 0;
+  // The data schema with the format meta columns, and the handler that sets their values on write, see writeToFile
+  private HoodieSchema writeSchemaWithFormatMetaColumns;
+  private FormatMetaColumnHandler<T> formatMetaColumnsOnWrite;
 
   public HoodieWriteMergeHandle(HoodieWriteConfig config, String instantTime, HoodieTable<T, I, K, O> hoodieTable,
                                 MergeContext<T> mergeContext, String partitionPath, String fileId,
@@ -210,40 +214,38 @@ public class HoodieWriteMergeHandle<T, I, K, O> extends HoodieAbstractMergeHandl
   }
 
   /**
-   * Fails if the table format declares row lineage columns, as this handle does not keep the row lineage of the
-   * records it carries over. A handle that keeps it overrides this method.
+   * Fails if the table format declares format meta columns, as this handle does not carry them over to the file it
+   * writes. A handle that carries them over overrides this method.
    */
   @Override
-  protected List<HoodieSchemaField> getRowLineageColumns() {
-    return checkNoRowLineageColumns();
+  protected List<FormatMetaColumn> getFormatMetaColumns() {
+    return checkNoFormatMetaColumns();
   }
 
   /**
-   * Fails if the table format declares row lineage columns, and returns no row lineage columns otherwise.
+   * Fails if the table format declares format meta columns, and returns no format meta columns otherwise.
    */
-  protected final List<HoodieSchemaField> checkNoRowLineageColumns() {
-    if (!getTableFormatRowLineageColumns().isEmpty()) {
-      throw new HoodieNotSupportedException("Table format " + hoodieTable.getMetaClient().getTableFormat().getName()
-          + " declares row lineage columns, but " + getClass().getSimpleName() + " does not keep the row lineage of the records it rewrites");
+  protected final List<FormatMetaColumn> checkNoFormatMetaColumns() {
+    if (!hoodieTable.isMetadataTable()) {
+      FormatMetaColumn.checkNotDeclared(hoodieTable.getMetaClient().getTableFormat(), getClass());
     }
     return Collections.emptyList();
   }
 
   /**
-   * Returns the row lineage columns the table format declares, none for the metadata table.
+   * Returns the format meta columns the table format declares, none for the metadata table.
    */
-  protected List<HoodieSchemaField> getTableFormatRowLineageColumns() {
-    return hoodieTable.isMetadataTable() ? Collections.emptyList() : hoodieTable.getMetaClient().getTableFormat().getRowLineageColumns();
+  protected List<FormatMetaColumn> getTableFormatMetaColumns() {
+    return hoodieTable.isMetadataTable() ? Collections.emptyList() : hoodieTable.getMetaClient().getTableFormat().getFormatMetaColumns();
   }
 
   /**
-   * Returns the values from which the row lineage of the records carried over from the base file is derived.
+   * Returns a handler of the format meta columns of the records read from the file group, empty without format meta
+   * columns. Fails if the table format cannot resolve their values for the base file.
    */
-  protected Option<BaseFileRowLineage> getBaseFileRowLineage() {
-    if (getRowLineageColumns().isEmpty() || baseFileToMerge == null) {
-      return Option.empty();
-    }
-    return Option.of(BaseFileRowLineage.getRequired(hoodieTable.getMetaClient(), partitionPath, baseFileToMerge));
+  protected Option<FormatMetaColumnHandler<T>> createFormatMetaColumnHandler() {
+    return FormatMetaColumnHandler.create(readerContext.getRecordContext(), formatMetaColumns, hoodieTable.getMetaClient(),
+        Option.ofNullable(baseFileToMerge), instantTime);
   }
 
   /**
@@ -478,10 +480,30 @@ public class HoodieWriteMergeHandle<T, I, K, O> extends HoodieAbstractMergeHandl
           : record;
       fileWriter.write(key.getRecordKey(), populatedRecord, writeSchemaWithMetaFields, props);
     } else {
+      if (!formatMetaColumns.isEmpty()) {
+        record = appendFormatMetaColumnValuesOnWrite(record, schema, props);
+        schema = writeSchemaWithFormatMetaColumns;
+      }
       // rewrite the record to include metadata fields in schema, and the values will be set later.
       record = record.prependMetaFields(schema, writeSchemaWithMetaFields, new MetadataValues(), config.getProps());
       fileWriter.writeWithMetadata(key, record, writeSchemaWithMetaFields, props);
     }
+  }
+
+  /**
+   * Appends the format meta columns to a record written as new or changed, with their values on write.
+   */
+  private HoodieRecord<T> appendFormatMetaColumnValuesOnWrite(HoodieRecord<T> record, HoodieSchema schema, Properties props) {
+    if (formatMetaColumnsOnWrite == null) {
+      writeSchemaWithFormatMetaColumns = HoodieSchemaUtils.appendFormatMetaColumns(writeSchema, formatMetaColumns);
+      formatMetaColumnsOnWrite = FormatMetaColumnHandler.create(readerContext.getRecordContext(), formatMetaColumns,
+          hoodieTable.getMetaClient(), Option.empty(), instantTime).get();
+    }
+    HoodieRecord<T> newRecord = record.rewriteRecordWithNewSchema(schema, props, writeSchemaWithFormatMetaColumns);
+    T data = newRecord.getData();
+    ValidationUtils.checkState(formatMetaColumnsOnWrite.setNonNullValuesOnWrite(data, writeSchemaWithFormatMetaColumns) == data,
+        "The format meta columns of a record have to be updated in place");
+    return newRecord;
   }
 
   protected void writeIncomingRecords() throws IOException {
