@@ -20,6 +20,12 @@ until the next releases. Spark 3.5 is the only supported engine for now.
 Read the [limitations](#limitations) before you use it with data you care about.
 :::
 
+:::tip Hand this guide to your AI agent
+The steps in [Run it](#run-it) work for AI coding agents as well as people: pinned versions, fixed paths, and a
+`CHECK ... PASS` line after every step. To jumpstart writing Iceberg tables with Hudi, point your agent at this
+page and ask it to run the steps and report the `CHECK` lines.
+:::
+
 ## What this guide shows
 
 In one local Spark session you create a Hudi table with `hoodie.table.format=ICEBERG`, change it with Spark SQL
