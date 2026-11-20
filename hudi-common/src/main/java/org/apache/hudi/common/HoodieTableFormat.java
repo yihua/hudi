@@ -166,6 +166,15 @@ public interface HoodieTableFormat extends Serializable {
   }
 
   /**
+   * Returns the per-row metadata columns this table format declares for base files, see {@link FormatMetaColumn},
+   * or an empty list, the default. A rewrite of a base file stores them after the columns of the table, in this
+   * order, and fails if it cannot carry them over.
+   */
+  default List<FormatMetaColumn> getFormatMetaColumns() {
+    return Collections.emptyList();
+  }
+
+  /**
    * Returns the row lineage columns this table format declares for base files, or an empty list, the default,
    * when the table format does not track row lineage.
    *
