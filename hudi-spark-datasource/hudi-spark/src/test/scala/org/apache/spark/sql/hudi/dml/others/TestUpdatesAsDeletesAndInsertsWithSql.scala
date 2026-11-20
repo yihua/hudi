@@ -81,6 +81,49 @@ class TestUpdatesAsDeletesAndInsertsWithSql extends HoodieSparkSqlTestBase {
     }
   }
 
+  test("Test MERGE INTO without an update clause writing updates as deletes and inserts") {
+    withTable { (tableName, tablePath) =>
+      // Delete only: id 2 fails the condition and id 9 has no match
+      spark.sql(
+        s"""
+           |merge into $tableName t
+           |using (select 1 as id, 'p1' as dt, 'del' as op union all select 2, 'p1', 'none' union all select 9, 'p1', 'del') s
+           |on t.id = s.id
+           |when matched and s.op = 'del' then delete
+         """.stripMargin)
+      checkAnswer(s"select id, name, price, dt from $tableName order by id")(
+        Seq(2, "a2", 20.0, "p1"), Seq(3, "a3", 30.0, "p1"), Seq(4, "a4", 40.0, "p2"), Seq(5, "a5", 50.0, "p2"))
+      assertEquals(Seq("1"), positionalDeletes(tablePath))
+
+      // Insert only: the matched id 2 is neither inserted again nor deleted
+      spark.sql(
+        s"""
+           |merge into $tableName t
+           |using (select 2 as id, 'a2m' as name, 21.0 as price, 'p1' as dt union all select 6, 'a6', 60.0, 'p2') s
+           |on t.id = s.id
+           |when not matched then insert *
+         """.stripMargin)
+      checkAnswer(s"select id, name, price, dt from $tableName order by id")(
+        Seq(2, "a2", 20.0, "p1"), Seq(3, "a3", 30.0, "p1"), Seq(4, "a4", 40.0, "p2"), Seq(5, "a5", 50.0, "p2"),
+        Seq(6, "a6", 60.0, "p2"))
+      assertEquals(Seq("1"), positionalDeletes(tablePath))
+
+      // Delete and insert
+      spark.sql(
+        s"""
+           |merge into $tableName t
+           |using (select 4 as id, 'a4m' as name, 41.0 as price, 'p2' as dt union all select 7, 'a7', 70.0, 'p1') s
+           |on t.id = s.id
+           |when matched then delete
+           |when not matched then insert *
+         """.stripMargin)
+      checkAnswer(s"select id, name, price, dt from $tableName order by id")(
+        Seq(2, "a2", 20.0, "p1"), Seq(3, "a3", 30.0, "p1"), Seq(5, "a5", 50.0, "p2"), Seq(6, "a6", 60.0, "p2"),
+        Seq(7, "a7", 70.0, "p1"))
+      assertEquals(Seq("1", "4"), positionalDeletes(tablePath))
+    }
+  }
+
   test("Test MERGE INTO with a partial update assignment writing updates as deletes and inserts") {
     withTable { (tableName, tablePath) =>
       // An insert into a base file must carry every column, which a partial update record does not
