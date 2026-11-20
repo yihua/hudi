@@ -99,9 +99,13 @@ public class TestSparkCopyOnWriteRowLineageForTestFormat extends SparkClientFunc
   }
 
   protected HoodieTableMetaClient initTable() throws IOException {
+    return initTable(HoodieTableType.COPY_ON_WRITE);
+  }
+
+  protected HoodieTableMetaClient initTable(HoodieTableType tableType) throws IOException {
     HoodieTableMetaClient metaClient = HoodieTableMetaClient.newTableBuilder()
         .setTableName("test-trip-table")
-        .setTableType(HoodieTableType.COPY_ON_WRITE)
+        .setTableType(tableType)
         .setTableFormat("test-format")
         .set(Collections.singletonMap(TestTableFormat.ROW_LINEAGE_ENABLED, "true"))
         .initTable(storageConf().newInstance(), basePath());
@@ -162,9 +166,45 @@ public class TestSparkCopyOnWriteRowLineageForTestFormat extends SparkClientFunc
     }
   }
 
+  /**
+   * An insert of new records only into the existing small base file goes through the concat handle, which carries
+   * the records of the base file over unchanged and appends the new ones.
+   */
+  @Test
+  void testInsertIntoSmallFileKeepsRowLineageOfExistingRecords() throws IOException {
+    HoodieRecordType recordType = getRecordType();
+    HoodieTableMetaClient metaClient = initTable();
+    String tableBasePath = metaClient.getBasePath().toString();
+    HoodieWriteConfig config = buildConfig(metaClient, recordType, 1024 * 1024 * 1024L, HoodieClusteringConfig.newBuilder().build());
+    HoodieTestDataGenerator dataGen = new HoodieTestDataGenerator(new String[] {PARTITION});
+    try (SparkRDDWriteClient client = getHoodieWriteClient(config)) {
+      List<HoodieRecord> inserts = dataGen.generateInsertsForPartition("001", 10, PARTITION);
+      write(client, toRecordType(inserts, recordType), false);
+      HoodieBaseFile baseFile1 = getOnlyLatestBaseFile(metaClient);
+      Map<String, Pair<Long, Long>> rowLineage1 = deriveRowLineage(storageConf(), tableBasePath, baseFile1);
+
+      List<HoodieRecord> newInserts = dataGen.generateInsertsForPartition("002", 5, PARTITION);
+      write(client, toRecordType(newInserts, recordType), false);
+      HoodieBaseFile baseFile2 = getOnlyLatestBaseFile(metaClient);
+      assertEquals(baseFile1.getFileId(), baseFile2.getFileId());
+      assertNotEquals(baseFile1.getFileName(), baseFile2.getFileName());
+
+      Map<String, Pair<Long, Long>> expectedStored = new LinkedHashMap<>(rowLineage1);
+      keys(newInserts).forEach(key -> expectedStored.put(key, NO_ROW_LINEAGE));
+      assertEquals(expectedStored, readStoredRowLineage(storageConf(), baseFile2));
+      assertNewRowLineage(tableBasePath, baseFile2, deriveRowLineage(storageConf(), tableBasePath, baseFile2), keys(newInserts), rowLineage1.values());
+      assertRowLineageChangesWithCommitSeqNo(storageConf(), tableBasePath, baseFile1, baseFile2, 10, 0);
+    }
+  }
+
   protected void write(SparkRDDWriteClient client, List<HoodieRecord> records) {
+    write(client, records, true);
+  }
+
+  protected void write(SparkRDDWriteClient client, List<HoodieRecord> records, boolean upsert) {
     String instantTime = client.startCommit();
-    List<WriteStatus> statuses = ((JavaRDD<WriteStatus>) client.upsert(jsc().parallelize(records, 1), instantTime)).collect();
+    JavaRDD<HoodieRecord> recordRDD = jsc().parallelize(records, 1);
+    List<WriteStatus> statuses = ((JavaRDD<WriteStatus>) (upsert ? client.upsert(recordRDD, instantTime) : client.insert(recordRDD, instantTime))).collect();
     assertNoWriteErrors(statuses);
     assertTrue(client.commit(instantTime, jsc().parallelize(statuses, 1)));
   }
