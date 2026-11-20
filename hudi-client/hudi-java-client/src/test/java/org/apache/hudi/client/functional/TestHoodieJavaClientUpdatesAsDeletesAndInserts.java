@@ -399,6 +399,71 @@ public class TestHoodieJavaClientUpdatesAsDeletesAndInserts extends HoodieJavaCl
         "no update record must be written in this mode");
   }
 
+  private static Stream<Arguments> indexAndUpdateRequestedBeforeCompaction() {
+    return Stream.of(HoodieIndex.IndexType.SIMPLE, HoodieIndex.IndexType.GLOBAL_SIMPLE)
+        .flatMap(indexType -> Stream.of(Arguments.of(indexType, false), Arguments.of(indexType, true)));
+  }
+
+  /**
+   * Updates a key in a file group under compaction and then again after the compaction. An index that
+   * scans base files finds the compacted copy of the key as well as its new copy, so a compaction
+   * scheduled after the first update started would keep the tombstoned row under a later instant.
+   */
+  @ParameterizedTest
+  @MethodSource("indexAndUpdateRequestedBeforeCompaction")
+  void testUpdatesAroundPendingCompaction(HoodieIndex.IndexType indexType, boolean updateRequestedBeforeCompaction) throws Exception {
+    initTable(HoodieTableVersion.TEN);
+    HoodieWriteConfig config = getConfigBuilder(HoodieTestDataGenerator.TRIP_EXAMPLE_SCHEMA, indexType)
+        .withProperties(keyGenProps())
+        .withIndexConfig(HoodieIndexConfig.newBuilder().withIndexType(indexType)
+            .withGlobalSimpleIndexUpdatePartitionPath(false).build())
+        .withCompactionConfig(HoodieCompactionConfig.newBuilder().withMaxNumDeltaCommitsBeforeCompaction(1).build())
+        .withWriteUpdatesAsDeletesAndInserts(true)
+        .withWriteTableVersion(HoodieTableVersion.TEN.versionCode())
+        .withAutoUpgradeVersion(false)
+        .build();
+    HoodieJavaWriteClient client = getHoodieWriteClient(config);
+
+    String insertTime = WriteClientTestUtils.createNewInstantTime();
+    List<HoodieRecord> inserts = dataGen.generateInserts(insertTime, 100);
+    writeAndCommit(client, insertTime, () -> client.insert(inserts, insertTime));
+    String firstUpdateTime = WriteClientTestUtils.createNewInstantTime();
+    List<HoodieRecord> firstUpdates = dataGen.generateUpdates(firstUpdateTime, inserts.subList(0, 30));
+    writeAndCommit(client, firstUpdateTime, () -> client.upsert(firstUpdates, firstUpdateTime));
+
+    List<HoodieRecord> keysUnderCompaction = inserts.subList(30, 60);
+    String updateTime;
+    Option<String> compactionTime;
+    if (updateRequestedBeforeCompaction) {
+      updateTime = WriteClientTestUtils.createNewInstantTime();
+      WriteClientTestUtils.startCommitWithTime(client, updateTime);
+      compactionTime = client.scheduleCompaction(Option.empty());
+    } else {
+      compactionTime = client.scheduleCompaction(Option.empty());
+      updateTime = WriteClientTestUtils.createNewInstantTime();
+      WriteClientTestUtils.startCommitWithTime(client, updateTime);
+    }
+    List<HoodieRecord> updates = dataGen.generateUpdates(updateTime, keysUnderCompaction);
+    client.commit(updateTime, client.upsert(updates, updateTime));
+    if (!compactionTime.isPresent()) {
+      compactionTime = client.scheduleCompaction(Option.empty());
+    }
+    assertTrue(compactionTime.isPresent());
+    client.commitCompaction(compactionTime.get(), client.compact(compactionTime.get()), Option.empty());
+    Map<String, GenericRecord> afterCompaction = GenericRecordValidationTestUtils.getRecordsMap(config, storageConf, dataGen);
+    assertEquals(100, afterCompaction.size());
+    keysUnderCompaction.forEach(record -> assertEquals(updateTime,
+        afterCompaction.get(record.getRecordKey()).get(HoodieRecord.COMMIT_TIME_METADATA_FIELD).toString()));
+
+    String nextUpdateTime = WriteClientTestUtils.createNewInstantTime();
+    List<HoodieRecord> nextUpdates = dataGen.generateUpdates(nextUpdateTime, keysUnderCompaction);
+    writeAndCommit(client, nextUpdateTime, () -> client.upsert(nextUpdates, nextUpdateTime));
+    Map<String, GenericRecord> recordMap = GenericRecordValidationTestUtils.getRecordsMap(config, storageConf, dataGen);
+    assertEquals(100, recordMap.size());
+    keysUnderCompaction.forEach(record -> assertEquals(nextUpdateTime,
+        recordMap.get(record.getRecordKey()).get(HoodieRecord.COMMIT_TIME_METADATA_FIELD).toString()));
+  }
+
   @Test
   public void testLogCompactionRejectedInDeleteInsertMode() throws Exception {
     HoodieWriteConfig config = buildConfig(true);

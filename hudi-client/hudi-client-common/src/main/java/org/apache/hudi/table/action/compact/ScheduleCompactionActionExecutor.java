@@ -111,6 +111,16 @@ public class ScheduleCompactionActionExecutor<T, I, K, O> extends BaseTableServi
         }
       }
     }
+    if (config.shouldWriteUpdatesAsDeletesAndInserts()) {
+      // A delta commit started before this compaction tombstones rows the plan misses, so the compacted base
+      // file would keep them under a later instant than the new copies, while this write mode treats the copy
+      // with the latest base file instant as the live one
+      Option<HoodieInstant> earliestPendingDeltaCommit = table.getActiveTimeline().getDeltaCommitTimeline().filterInflightsAndRequested().firstInstant();
+      if (earliestPendingDeltaCommit.isPresent() && !compareTimestamps(earliestPendingDeltaCommit.get().requestedTime(), GREATER_THAN, instantTime)) {
+        log.info("Skipping to schedule compaction at {} since delta commit {} started earlier and is pending", instantTime, earliestPendingDeltaCommit.get());
+        return Option.empty();
+      }
+    }
 
     HoodieCompactionPlan plan = scheduleCompaction();
     Option<HoodieCompactionPlan> option = Option.empty();
