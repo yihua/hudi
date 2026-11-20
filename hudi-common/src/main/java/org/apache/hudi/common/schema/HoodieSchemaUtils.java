@@ -645,6 +645,39 @@ public final class HoodieSchemaUtils {
   }
 
   /**
+   * Appends the row lineage columns an external table format declares, see
+   * {@code HoodieTableFormat#getRowLineageColumns}, at the end of the given schema. Returns the given schema
+   * as is when the table format declares none.
+   *
+   * @param schema           the schema to append the row lineage columns to
+   * @param rowLineageFields the row ID column followed by the last updated sequence number column, or an empty list
+   * @return the schema ending with the row lineage columns
+   * @throws IllegalArgumentException if the columns are not two nullable long fields that default to null, or
+   *                                  if the schema already has a field with the name of one of them
+   */
+  public static HoodieSchema appendRowLineageFields(HoodieSchema schema, List<HoodieSchemaField> rowLineageFields) {
+    if (rowLineageFields.isEmpty()) {
+      return schema;
+    }
+    ValidationUtils.checkArgument(
+        rowLineageFields.size() == 2 && !rowLineageFields.get(0).name().equals(rowLineageFields.get(1).name()),
+        () -> "Expected a row ID column and a last updated sequence number column, got: " + rowLineageFields);
+    List<HoodieSchemaField> newFields = new ArrayList<>(rowLineageFields.size());
+    for (HoodieSchemaField field : rowLineageFields) {
+      ValidationUtils.checkArgument(
+          field.isNullable() && field.getNonNullSchema().getType() == HoodieSchemaType.LONG
+              && field.hasDefaultValue() && toJavaDefaultValue(field) == null,
+          () -> "A row lineage column has to be a nullable long that defaults to null, got: " + field);
+      ValidationUtils.checkArgument(schema.getField(field.name()).isEmpty(),
+          () -> "The row lineage column " + field.name() + " has the name of a field in the schema: " + schema);
+      HoodieSchemaField newField = createNewSchemaField(field);
+      field.getObjectProps().forEach(newField::addProp);
+      newFields.add(newField);
+    }
+    return appendFieldsToSchema(schema, newFields);
+  }
+
+  /**
    * Create a new schema but maintain all meta info from the old schema.
    *
    * @param schema schema to get the meta info from

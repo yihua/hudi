@@ -64,6 +64,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -121,9 +122,14 @@ public class TableSchemaResolver {
     // variant columns are also stripped by shape. Both strips recurse through records, array
     // elements and map values, so typed_value never surfaces here no matter which writer shredded
     // the column or at what depth.
-    return getTableParquetSchemaFromDataFile()
+    Option<HoodieSchema> schema = getTableParquetSchemaFromDataFile()
         .map(VariantSchemaUtils::stripVariantShredding)
         .map(VariantSchemaUtils::stripVariantShreddingByShape);
+    // The row lineage columns of an external table format are stored in rewritten base files only and
+    // are not columns of the table.
+    List<HoodieSchemaField> rowLineageColumns = metaClient.getTableFormat().getRowLineageColumns();
+    return rowLineageColumns.isEmpty() ? schema : schema.map(fileSchema -> HoodieSchemaUtils.removeFields(
+        fileSchema, rowLineageColumns.stream().map(HoodieSchemaField::name).collect(Collectors.toSet())));
   }
 
   /**
