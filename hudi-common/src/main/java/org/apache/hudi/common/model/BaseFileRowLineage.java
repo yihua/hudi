@@ -18,6 +18,10 @@
 
 package org.apache.hudi.common.model;
 
+import org.apache.hudi.common.HoodieTableFormat;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.exception.HoodieException;
+
 import lombok.Value;
 
 import java.io.Serializable;
@@ -34,4 +38,16 @@ public class BaseFileRowLineage implements Serializable {
   long firstRowId;
   // Sequence number the table format assigned to the base file
   long sequenceNumber;
+
+  /**
+   * Returns the values the table format of the table assigned to the base file, see
+   * {@link HoodieTableFormat#getBaseFileRowLineage}, and fails if it has none, as the records a rewrite carries
+   * over from the base file would get a new row lineage.
+   */
+  public static BaseFileRowLineage getRequired(HoodieTableMetaClient metaClient, String partitionPath, HoodieBaseFile baseFile) {
+    HoodieTableFormat tableFormat = metaClient.getTableFormat();
+    return tableFormat.getBaseFileRowLineage(metaClient, partitionPath, baseFile).orElseThrow(() -> new HoodieException(
+        "Table format " + tableFormat.getName() + " declares row lineage columns but has no row lineage for base file "
+            + baseFile.getPath() + ", so the records carried over from it cannot keep their row lineage"));
+  }
 }

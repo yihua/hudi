@@ -21,6 +21,8 @@ package org.apache.hudi.client.functional;
 import org.apache.hudi.client.HoodieJavaWriteClient;
 import org.apache.hudi.client.WriteClientTestUtils;
 import org.apache.hudi.client.WriteStatus;
+import org.apache.hudi.client.clustering.plan.strategy.JavaSizeBasedClusteringPlanStrategy;
+import org.apache.hudi.client.clustering.run.strategy.JavaSortAndSizeExecutionStrategy;
 import org.apache.hudi.common.avro.HoodieAvroReaderContext;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.config.TypedProperties;
@@ -47,6 +49,7 @@ import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.ReflectionUtils;
 import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.common.util.collection.Pair;
+import org.apache.hudi.config.HoodieClusteringConfig;
 import org.apache.hudi.config.HoodieCompactionConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.index.HoodieIndex;
@@ -322,6 +325,60 @@ public class TestHoodieJavaClientRowLineageForTestFormat extends HoodieJavaClien
     assertRowLineageColumnsNotInTable(17);
   }
 
+  /**
+   * Clustering carries the records of several file groups over unchanged into a new base file, so every record keeps
+   * its row lineage, whether its base file stores it or not. A record that a log file of a merge-on-read file slice
+   * updates gets a new row lineage.
+   */
+  @ParameterizedTest
+  @EnumSource(HoodieTableType.class)
+  void testClusteringKeepsRowLineage(HoodieTableType tableType) throws Exception {
+    initTable(tableType, HoodieTableVersion.current(), true);
+    HoodieWriteConfig config = HoodieWriteConfig.newBuilder().withProperties(buildConfig(HoodieTableVersion.current()).getProps())
+        .withCompactionConfig(HoodieCompactionConfig.newBuilder().compactionSmallFileSize(0).withInlineCompaction(false).build())
+        .withClusteringConfig(HoodieClusteringConfig.newBuilder()
+            .withClusteringPlanStrategyClass(JavaSizeBasedClusteringPlanStrategy.class.getName())
+            .withClusteringExecutionStrategyClass(JavaSortAndSizeExecutionStrategy.class.getName()).build())
+        .build();
+    HoodieJavaWriteClient client = getHoodieWriteClient(config);
+
+    // Three file groups; the base file of the first one stores the row lineage of some records after an upsert on
+    // copy-on-write, and has a log file with the updates on merge-on-read
+    List<HoodieRecord> inserts = new ArrayList<>();
+    for (String instant : Arrays.asList("001", "002", "003")) {
+      List<HoodieRecord> batch = dataGen.generateInsertsForPartition(instant, 5, PARTITION);
+      write(client, batch, false);
+      inserts.addAll(batch);
+    }
+    List<HoodieRecord> updates = Arrays.asList(inserts.get(1), inserts.get(3));
+    write(client, dataGen.generateUpdates("004", updates), true);
+    List<FileSlice> fileSlices = getLatestFileSlices();
+    assertEquals(3, fileSlices.size());
+    assertEquals(tableType == HoodieTableType.MERGE_ON_READ, fileSlices.stream().anyMatch(fileSlice -> fileSlice.getLogFiles().count() > 0));
+    Map<String, Pair<Long, Long>> rowLineageBefore = new LinkedHashMap<>();
+    for (FileSlice fileSlice : fileSlices) {
+      rowLineageBefore.putAll(deriveRowLineage(storageConf, basePath, fileSlice.getBaseFile().get()));
+    }
+    assertEquals(15, new HashSet<>(rowLineageBefore.values()).size());
+
+    Option<String> clusteringTime = client.scheduleClustering(Option.empty());
+    assertTrue(clusteringTime.isPresent());
+    client.cluster(clusteringTime.get(), true);
+    HoodieBaseFile clusteredBaseFile = getOnlyLatestBaseFile();
+
+    Map<String, Pair<Long, Long>> expectedStored = new HashMap<>(rowLineageBefore);
+    if (tableType == HoodieTableType.MERGE_ON_READ) {
+      keys(updates).forEach(key -> expectedStored.put(key, NO_ROW_LINEAGE));
+    }
+    assertEquals(expectedStored, new HashMap<>(readStoredRowLineage(storageConf, clusteredBaseFile)));
+    for (FileSlice fileSlice : fileSlices) {
+      boolean hasUpdates = fileSlice.getLogFiles().count() > 0;
+      assertRowLineageChangesWithCommitSeqNo(storageConf, basePath, fileSlice.getBaseFile().get(), clusteredBaseFile,
+          hasUpdates ? 3 : 5, hasUpdates ? 2 : 0);
+    }
+    assertRowLineageColumnsNotInTable(15);
+  }
+
   @Test
   void testRewriteFailsWithoutRowLineageOfBaseFile() throws Exception {
     initTable(HoodieTableType.COPY_ON_WRITE, HoodieTableVersion.current(), true);
@@ -475,12 +532,17 @@ public class TestHoodieJavaClientRowLineageForTestFormat extends HoodieJavaClien
   }
 
   private HoodieBaseFile getOnlyLatestBaseFile() throws IOException {
+    List<FileSlice> fileSlices = getLatestFileSlices();
+    assertEquals(1, fileSlices.size(), "The records of every write are expected in one file group");
+    return fileSlices.get(0).getBaseFile().get();
+  }
+
+  private List<FileSlice> getLatestFileSlices() throws IOException {
     try (SyncableFileSystemView fsView = getFileSystemView(metaClient.reloadActiveTimeline())) {
       List<FileSlice> fileSlices = Arrays.stream(dataGen.getPartitionPaths())
           .flatMap(fsView::getLatestFileSlices).collect(Collectors.toList());
-      assertEquals(1, fileSlices.size(), "The records of every write are expected in one file group");
-      assertEquals(PARTITION, fileSlices.get(0).getPartitionPath());
-      return fileSlices.get(0).getBaseFile().get();
+      fileSlices.forEach(fileSlice -> assertEquals(PARTITION, fileSlice.getPartitionPath()));
+      return fileSlices;
     }
   }
 

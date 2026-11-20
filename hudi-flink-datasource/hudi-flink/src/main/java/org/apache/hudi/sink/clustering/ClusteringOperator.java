@@ -22,6 +22,7 @@ import org.apache.hudi.adapter.MaskingOutputAdapter;
 import org.apache.hudi.adapter.Utils;
 import org.apache.hudi.client.HoodieFlinkWriteClient;
 import org.apache.hudi.client.WriteStatus;
+import org.apache.hudi.common.HoodieTableFormat;
 import org.apache.hudi.common.config.HoodieStorageConfig;
 import org.apache.hudi.common.model.ClusteringOperation;
 import org.apache.hudi.common.model.FileSlice;
@@ -43,6 +44,7 @@ import org.apache.hudi.configuration.OptionsResolver;
 import org.apache.hudi.core.io.storage.HoodieFileReaderFactory;
 import org.apache.hudi.core.io.storage.HoodieIOFactory;
 import org.apache.hudi.exception.HoodieClusteringException;
+import org.apache.hudi.exception.HoodieNotSupportedException;
 import org.apache.hudi.io.MergeUtils;
 import org.apache.hudi.metrics.FlinkClusteringMetrics;
 import org.apache.hudi.sink.bulk.BulkInsertWriterHelper;
@@ -166,6 +168,11 @@ public class ClusteringOperator extends TableStreamOperator<ClusteringCommitEven
     this.writeConfig = FlinkWriteClients.getHoodieClientConfig(this.conf, false, false);
     this.writeClient = FlinkWriteClients.createWriteClient(conf, getRuntimeContext());
     this.table = writeClient.getHoodieTable();
+    HoodieTableFormat tableFormat = table.getMetaClient().getTableFormat();
+    if (!tableFormat.getRowLineageColumns().isEmpty()) {
+      throw new HoodieNotSupportedException("Table format " + tableFormat.getName() + " declares row lineage columns, but "
+          + getClass().getSimpleName() + " does not keep the row lineage of the records it rewrites");
+    }
 
     this.schema = HoodieSchemaConverter.convertToSchema(
         rowType,

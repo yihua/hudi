@@ -23,7 +23,6 @@ import org.apache.hudi.DefaultSparkRecordMerger;
 import org.apache.hudi.client.SparkRDDWriteClient;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
-import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieEmptyRecord;
 import org.apache.hudi.common.model.HoodieRecord;
@@ -188,12 +187,16 @@ public class TestSparkCopyOnWriteRowLineageForTestFormat extends SparkClientFunc
   }
 
   protected HoodieBaseFile getOnlyLatestBaseFile(HoodieTableMetaClient metaClient) {
+    List<HoodieBaseFile> baseFiles = getLatestBaseFiles(metaClient);
+    assertEquals(1, baseFiles.size(), "The records of every write are expected in one file group");
+    return baseFiles.get(0);
+  }
+
+  protected List<HoodieBaseFile> getLatestBaseFiles(HoodieTableMetaClient metaClient) {
     HoodieTableFileSystemView fsView = HoodieTableFileSystemView.fileListingBasedFileSystemView(
         context(), metaClient, metaClient.reloadActiveTimeline().filterCompletedInstants());
     try {
-      List<FileSlice> fileSlices = fsView.getLatestFileSlices(PARTITION).collect(Collectors.toList());
-      assertEquals(1, fileSlices.size(), "The records of every write are expected in one file group");
-      return fileSlices.get(0).getBaseFile().get();
+      return fsView.getLatestFileSlices(PARTITION).map(fileSlice -> fileSlice.getBaseFile().get()).collect(Collectors.toList());
     } finally {
       fsView.close();
     }

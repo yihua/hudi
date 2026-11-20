@@ -25,6 +25,7 @@ import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.engine.HoodieReaderContext;
 import org.apache.hudi.common.engine.ReaderContextFactory;
 import org.apache.hudi.common.model.BaseFile;
+import org.apache.hudi.common.model.BaseFileRowLineage;
 import org.apache.hudi.common.model.ClusteringOperation;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieBaseFile;
@@ -32,6 +33,7 @@ import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecord.HoodieRecordType;
 import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
 import org.apache.hudi.common.schema.HoodieSchemaUtils;
 import org.apache.hudi.common.schema.internal.InternalSchema;
 import org.apache.hudi.common.schema.internal.utils.SerDeHelper;
@@ -80,7 +82,8 @@ public abstract class ClusteringExecutionStrategy<T, I, K, O> implements Seriali
     this.hoodieTable = table;
     this.engineContext = engineContext;
     this.recordType = table.getConfig().getRecordMerger().getRecordType();
-    this.readerSchemaWithMetaFields = HoodieSchemaUtils.addMetadataFields(HoodieSchema.parse(writeConfig.getSchema()));
+    this.readerSchemaWithMetaFields = HoodieSchemaUtils.addMetadataFields(HoodieSchemaUtils.appendRowLineageFields(
+        HoodieSchema.parse(writeConfig.getSchema()), table.getMetaClient().getTableFormat().getRowLineageColumns()));
   }
 
   /**
@@ -89,6 +92,18 @@ public abstract class ClusteringExecutionStrategy<T, I, K, O> implements Seriali
    * Note that commit is not done as part of strategy. commit is callers responsibility.
    */
   public abstract HoodieWriteMetadata<O> performClustering(final HoodieClusteringPlan clusteringPlan, final HoodieSchema schema, final String instantTime);
+
+  /**
+   * Makes the write handles of the given write config store the row lineage columns the table format declares,
+   * after the columns of the table, as the records read for clustering have them, see {@link #getFileGroupReader}.
+   */
+  protected void setRowLineageWriteSchema(HoodieWriteConfig groupWriteConfig) {
+    List<HoodieSchemaField> rowLineageColumns = hoodieTable.getMetaClient().getTableFormat().getRowLineageColumns();
+    if (!rowLineageColumns.isEmpty()) {
+      groupWriteConfig.setValue(HoodieWriteConfig.WRITE_SCHEMA_OVERRIDE,
+          HoodieSchemaUtils.appendRowLineageFields(HoodieSchema.parse(groupWriteConfig.getWriteSchema()), rowLineageColumns).toString());
+    }
+  }
 
   /**
    * Fails if the table format declares row lineage columns, for a strategy that does not keep the row lineage of
@@ -158,10 +173,17 @@ public abstract class ClusteringExecutionStrategy<T, I, K, O> implements Seriali
     return fileSlice;
   }
 
+  /**
+   * Returns a reader of the records of the file slice. When the table format declares row lineage columns, the reader
+   * schema has them and the records carried over unchanged from the base file keep their row lineage.
+   */
   protected static <R> HoodieFileGroupReader<R> getFileGroupReader(HoodieTableMetaClient metaClient, FileSlice fileSlice, HoodieSchema readerSchema, Option<InternalSchema> internalSchemaOption,
                                                                    ReaderContextFactory<R> readerContextFactory, String instantTime,
                                                                    TypedProperties properties, boolean usePosition) {
     HoodieReaderContext<R> readerContext = readerContextFactory.getContext();
+    List<HoodieSchemaField> rowLineageColumns = metaClient.getTableFormat().getRowLineageColumns();
+    Option<BaseFileRowLineage> baseFileRowLineage = rowLineageColumns.isEmpty() || fileSlice.getBaseFile().isEmpty() ? Option.empty()
+        : Option.of(BaseFileRowLineage.getRequired(metaClient, fileSlice.getPartitionPath(), fileSlice.getBaseFile().get()));
     return HoodieFileGroupReader.<R>builder()
         .withReaderContext(readerContext)
         .withHoodieTableMetaClient(metaClient)
@@ -174,6 +196,8 @@ public abstract class ClusteringExecutionStrategy<T, I, K, O> implements Seriali
         .withInternalSchemaOpt(internalSchemaOption)
         .withShouldUseRecordPosition(usePosition)
         .withProps(properties)
+        .withRowLineageColumns(rowLineageColumns)
+        .withBaseFileRowLineage(baseFileRowLineage)
         .build();
   }
 }

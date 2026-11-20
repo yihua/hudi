@@ -19,7 +19,6 @@
 package org.apache.hudi.io;
 
 import org.apache.hudi.client.WriteStatus;
-import org.apache.hudi.common.HoodieTableFormat;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.engine.HoodieReaderContext;
 import org.apache.hudi.common.engine.TaskContextSupplier;
@@ -244,13 +243,7 @@ public class HoodieWriteMergeHandle<T, I, K, O> extends HoodieAbstractMergeHandl
     if (getRowLineageColumns().isEmpty() || baseFileToMerge == null) {
       return Option.empty();
     }
-    HoodieTableFormat tableFormat = hoodieTable.getMetaClient().getTableFormat();
-    Option<BaseFileRowLineage> baseFileRowLineage = tableFormat.getBaseFileRowLineage(hoodieTable.getMetaClient(), partitionPath, baseFileToMerge);
-    if (baseFileRowLineage.isEmpty()) {
-      throw new HoodieException("Table format " + tableFormat.getName() + " declares row lineage columns but has no row lineage for base file "
-          + baseFileToMerge.getPath() + ", so the records carried over from it cannot keep their row lineage");
-    }
-    return baseFileRowLineage;
+    return Option.of(BaseFileRowLineage.getRequired(hoodieTable.getMetaClient(), partitionPath, baseFileToMerge));
   }
 
   /**
