@@ -42,7 +42,7 @@ import org.apache.hudi.storage.StoragePath;
 
 import lombok.NoArgsConstructor;
 
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -62,6 +62,10 @@ import java.util.function.Supplier;
  * updated row, which gets a new row lineage, and for a row carried over unchanged, it stores the value its base
  * file stores, or derives it: the first row ID of the base file plus the position of the row in the file, and the
  * sequence number of the base file.
+ *
+ * <p>With {@link #INSTANT_TIME_COLUMN_ENABLED} set in the table config, the table format declares a format meta
+ * column with a value on write: the instant time of the write that wrote a row into a base file as new or changed.
+ * A row carried over unchanged keeps the value its base file stores, or gets the instant time of the base file.
  */
 @NoArgsConstructor
 public class TestTableFormat implements HoodieTableFormat {
@@ -69,12 +73,15 @@ public class TestTableFormat implements HoodieTableFormat {
   public static final String ROW_LINEAGE_ENABLED = HoodieTableConfig.TABLE_FORMAT.key() + ".test.row.lineage.enabled";
   public static final String ROW_ID_COLUMN = "_test_row_id";
   public static final String LAST_UPDATED_SEQUENCE_NUMBER_COLUMN = "_test_last_updated_sequence_number";
+  public static final String INSTANT_TIME_COLUMN_ENABLED = HoodieTableConfig.TABLE_FORMAT.key() + ".test.instant.time.column.enabled";
+  public static final String INSTANT_TIME_COLUMN = "_test_instant_time";
 
   private static final Map<String, List<HoodieInstant>> RECORDED_INSTANTS = new ConcurrentHashMap<>();
   private static final Map<String, Properties> INIT_PROPERTIES = new ConcurrentHashMap<>();
   private static final Map<String, TableRowLineage> ROW_LINEAGE = new ConcurrentHashMap<>();
 
   private boolean rowLineageEnabled;
+  private boolean instantTimeColumnEnabled;
 
   public static List<HoodieInstant> getRecordedInstants(String basePath) {
     return RECORDED_INSTANTS.getOrDefault(basePath, Collections.emptyList());
@@ -122,14 +129,20 @@ public class TestTableFormat implements HoodieTableFormat {
     copy.putAll(properties);
     INIT_PROPERTIES.put(properties.getProperty(HoodieTableConfig.NAME.key(), ""), copy);
     rowLineageEnabled = Boolean.parseBoolean(properties.getProperty(ROW_LINEAGE_ENABLED, "false"));
+    instantTimeColumnEnabled = Boolean.parseBoolean(properties.getProperty(INSTANT_TIME_COLUMN_ENABLED, "false"));
   }
 
   @Override
   public List<FormatMetaColumn> getFormatMetaColumns() {
-    if (!rowLineageEnabled) {
-      return Collections.emptyList();
+    List<FormatMetaColumn> columns = new ArrayList<>();
+    if (rowLineageEnabled) {
+      columns.add(new RowLineageColumn(ROW_ID_COLUMN, true));
+      columns.add(new RowLineageColumn(LAST_UPDATED_SEQUENCE_NUMBER_COLUMN, false));
     }
-    return Arrays.asList(new RowLineageColumn(ROW_ID_COLUMN, true), new RowLineageColumn(LAST_UPDATED_SEQUENCE_NUMBER_COLUMN, false));
+    if (instantTimeColumnEnabled) {
+      columns.add(new InstantTimeColumn());
+    }
+    return columns;
   }
 
   @Override
@@ -227,6 +240,27 @@ public class TestTableFormat implements HoodieTableFormat {
       return rowId
           ? (rowPosition, storedValue) -> storedValue != null ? storedValue : (Object) (firstRowId + rowPosition)
           : (rowPosition, storedValue) -> storedValue != null ? storedValue : (Object) sequenceNumber;
+    }
+  }
+
+  /**
+   * The instant time of the write that wrote a row into a base file as new or changed, as a long.
+   */
+  private static class InstantTimeColumn implements FormatMetaColumn {
+    @Override
+    public HoodieSchemaField field() {
+      return nullableLongField(INSTANT_TIME_COLUMN);
+    }
+
+    @Override
+    public Object valueOnWrite(String instantTime) {
+      return Long.parseLong(instantTime);
+    }
+
+    @Override
+    public BaseFileColumnResolver resolverFor(HoodieTableMetaClient metaClient, HoodieBaseFile baseFile) {
+      long baseFileInstantTime = Long.parseLong(baseFile.getCommitTime());
+      return (rowPosition, storedValue) -> storedValue != null ? storedValue : (Object) baseFileInstantTime;
     }
   }
 
