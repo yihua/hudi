@@ -17,6 +17,8 @@ module.exports = {
                 'flink-quick-start-guide',
                 'python-rust-quick-start-guide',
                 'unstructured-data-quick-start-guide',
+                'pluggable-table-format-iceberg-quick-start',
+                'pluggable-table-format-iceberg-aws-demo',
                 'docker_demo',
                 'use_cases',
             ],
