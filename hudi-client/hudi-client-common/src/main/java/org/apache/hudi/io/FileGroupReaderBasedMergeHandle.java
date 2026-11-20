@@ -48,6 +48,7 @@ import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.table.cdc.HoodieCDCUtils;
 import org.apache.hudi.common.table.read.BaseFileUpdateCallback;
 import org.apache.hudi.common.table.read.BufferedRecord;
+import org.apache.hudi.common.table.read.FormatMetaColumnHandler;
 import org.apache.hudi.common.table.read.HoodieFileGroupReader;
 import org.apache.hudi.common.table.read.HoodieReadStats;
 import org.apache.hudi.common.table.read.HoodieRecordReader;
@@ -356,8 +357,10 @@ public class FileGroupReaderBasedMergeHandle<T, I, K, O> extends HoodieWriteMerg
         .withDataSchema(writeSchemaWithMetaFields).withRequestedSchema(writeSchemaWithMetaFields)
         .withInternalSchemaOpt(internalSchemaOption).withProps(props)
         .withShouldUseRecordPosition(usePosition).withSortOutput(hoodieTable.requireSortedRecords())
-        .withFileGroupUpdateCallback(createCallback())
-        .withFormatMetaColumnHandler(createFormatMetaColumnHandler());
+        .withFileGroupUpdateCallback(createCallback());
+    Option<FormatMetaColumnHandler<T>> formatMetaColumnHandler = createFormatMetaColumnHandler();
+    formatMetaColumnHandler.ifPresent(this::setFormatMetaColumnsOnWrite);
+    fileGroupBuilder.withFormatMetaColumnHandler(formatMetaColumnHandler);
 
     if (logFileStreamOpt.isPresent()) {
       fileGroupBuilder.withLogFiles(logFileStreamOpt.get());

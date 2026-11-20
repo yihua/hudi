@@ -53,6 +53,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -63,6 +64,7 @@ import java.util.Properties;
 import java.util.stream.Collectors;
 
 import static org.apache.hudi.common.testutils.HoodieTestDataGenerator.TRIP_EXAMPLE_SCHEMA;
+import static org.apache.hudi.tableformat.TestTableFormat.FIRST_INSTANT_TIME_COLUMN;
 import static org.apache.hudi.tableformat.TestTableFormat.INSTANT_TIME_COLUMN;
 import static org.apache.hudi.testutils.Assertions.assertNoWriteErrors;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -70,10 +72,12 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Functional test of a format meta column with a value on write, see
- * {@link org.apache.hudi.common.HoodieTableFormat#getFormatMetaColumns()}: the instant time column of
+ * Functional test of format meta columns with a value on write, see
+ * {@link org.apache.hudi.common.HoodieTableFormat#getFormatMetaColumns()}: the instant time columns of
  * {@link TestTableFormat}. A record written as new or changed into a base file gets the instant time of the write,
  * and a record carried over unchanged keeps the value its base file stores, or gets the instant time of that file.
+ * The first instant time column has a value on update, so a changed version of a record of the base file keeps the
+ * value of that record.
  */
 public class TestHoodieJavaClientFormatMetaColumnForTestFormat extends HoodieJavaClientTestHarness {
 
@@ -111,22 +115,28 @@ public class TestHoodieJavaClientFormatMetaColumnForTestFormat extends HoodieJav
 
     // Rewrite the first file group: the updated records get the instant time of the rewrite, the others the one of
     // the base file that stores no values
+    // The batch updates one of the records twice, which the write combines into one update
     List<HoodieRecord> updates1 = Arrays.asList(inserts1.get(1), inserts1.get(3));
-    String updateTime1 = write(client, dataGen.generateUpdates("003", updates1), true);
+    List<HoodieRecord> batch1 = new ArrayList<>(dataGen.generateUpdates("003", updates1));
+    batch1.addAll(dataGen.generateUpdates("003", updates1.subList(0, 1)));
+    String updateTime1 = write(client, batch1, true);
     String rewriteTime1 = tableType == HoodieTableType.MERGE_ON_READ ? compact(client) : updateTime1;
     Map<String, Long> expected = expectedValues(inserts1, insertTime1);
+    Map<String, Long> expectedFirst = new HashMap<>(expected);
     keys(updates1).forEach(key -> expected.put(key, Long.parseLong(rewriteTime1)));
-    assertEquals(expected, readInstantTimeColumn(getLatestBaseFile(fileId1)));
+    assertEquals(expected, readColumn(getLatestBaseFile(fileId1), INSTANT_TIME_COLUMN));
+    assertEquals(expectedFirst, readColumn(getLatestBaseFile(fileId1), FIRST_INSTANT_TIME_COLUMN));
 
     // Update the second file group: copy-on-write rewrites it, merge-on-read writes the update to a log file
     List<HoodieRecord> updates2 = Collections.singletonList(inserts2.get(2));
     String updateTime2 = write(client, dataGen.generateUpdates("004", updates2), true);
     Map<String, Long> expected2 = expectedValues(inserts2, insertTime2);
+    expectedFirst.putAll(expected2);
     if (tableType == HoodieTableType.COPY_ON_WRITE) {
       keys(updates2).forEach(key -> expected2.put(key, Long.parseLong(updateTime2)));
-      assertEquals(expected2, readInstantTimeColumn(getLatestBaseFile(fileId2)));
+      assertEquals(expected2, readColumn(getLatestBaseFile(fileId2), INSTANT_TIME_COLUMN));
     } else {
-      assertTrue(readInstantTimeColumn(getLatestBaseFile(fileId2)).values().stream().allMatch(Objects::isNull));
+      assertTrue(readColumn(getLatestBaseFile(fileId2), INSTANT_TIME_COLUMN).values().stream().allMatch(Objects::isNull));
     }
 
     // Clustering carries every record over with its value; a record a log file updates gets the clustering instant time
@@ -139,12 +149,14 @@ public class TestHoodieJavaClientFormatMetaColumnForTestFormat extends HoodieJav
     expected.putAll(expected2);
     List<FileSlice> fileSlices = getLatestFileSlices();
     assertEquals(1, fileSlices.size());
-    assertEquals(expected, readInstantTimeColumn(fileSlices.get(0).getBaseFile().get()));
+    assertEquals(expected, readColumn(fileSlices.get(0).getBaseFile().get(), INSTANT_TIME_COLUMN));
+    assertEquals(expectedFirst, readColumn(fileSlices.get(0).getBaseFile().get(), FIRST_INSTANT_TIME_COLUMN));
 
     metaClient.reloadActiveTimeline();
     TableSchemaResolver schemaResolver = new TableSchemaResolver(metaClient);
     assertFalse(schemaResolver.getTableSchemaFromDataFile().getField(INSTANT_TIME_COLUMN).isPresent());
     assertFalse(schemaResolver.getTableSchema().getField(INSTANT_TIME_COLUMN).isPresent());
+    assertFalse(schemaResolver.getTableSchema().getField(FIRST_INSTANT_TIME_COLUMN).isPresent());
   }
 
   private void initTable(HoodieTableType tableType) throws IOException {
@@ -156,7 +168,7 @@ public class TestHoodieJavaClientFormatMetaColumnForTestFormat extends HoodieJav
     metaClient = HoodieTestUtils.getMetaClientBuilder(tableType, properties, null)
         .set(Collections.singletonMap(TestTableFormat.INSTANT_TIME_COLUMN_ENABLED, "true"))
         .initTable(storageConf.newInstance(), basePath);
-    assertEquals(1, metaClient.getTableFormat().getFormatMetaColumns().size());
+    assertEquals(2, metaClient.getTableFormat().getFormatMetaColumns().size());
   }
 
   private HoodieWriteConfig buildConfig() {
@@ -211,24 +223,24 @@ public class TestHoodieJavaClientFormatMetaColumnForTestFormat extends HoodieJav
   private Map<String, String> getFileIdsByRecordKey() throws IOException {
     Map<String, String> fileIds = new HashMap<>();
     for (FileSlice fileSlice : getLatestFileSlices()) {
-      readInstantTimeColumn(fileSlice.getBaseFile().get()).keySet().forEach(key -> fileIds.put(key, fileSlice.getFileId()));
+      readColumn(fileSlice.getBaseFile().get(), INSTANT_TIME_COLUMN).keySet().forEach(key -> fileIds.put(key, fileSlice.getFileId()));
     }
     assertEquals(2, fileIds.values().stream().distinct().count());
     return fileIds;
   }
 
   /**
-   * Returns the value of the instant time column the base file stores for each of its records by record key, null
-   * for a record that stores none.
+   * Returns the value of the column the base file stores for each of its records by record key, null for a record
+   * that stores none.
    */
-  private Map<String, Long> readInstantTimeColumn(HoodieBaseFile baseFile) throws IOException {
+  private Map<String, Long> readColumn(HoodieBaseFile baseFile, String column) throws IOException {
     Map<String, Long> values = new HashMap<>();
     try (ParquetReader<Group> reader = ParquetReader.builder(new GroupReadSupport(), new Path(baseFile.getPath()))
         .withConf(storageConf.unwrapAs(Configuration.class)).build()) {
       Group row;
       while ((row = reader.read()) != null) {
-        boolean stored = row.getType().containsField(INSTANT_TIME_COLUMN) && row.getFieldRepetitionCount(INSTANT_TIME_COLUMN) > 0;
-        values.put(row.getString(HoodieRecord.RECORD_KEY_METADATA_FIELD, 0), stored ? row.getLong(INSTANT_TIME_COLUMN, 0) : null);
+        boolean stored = row.getType().containsField(column) && row.getFieldRepetitionCount(column) > 0;
+        values.put(row.getString(HoodieRecord.RECORD_KEY_METADATA_FIELD, 0), stored ? row.getLong(column, 0) : null);
       }
     }
     return values;

@@ -22,11 +22,14 @@ package org.apache.hudi.common.table.read;
 import org.apache.hudi.common.BaseFileColumnResolver;
 import org.apache.hudi.common.FormatMetaColumn;
 import org.apache.hudi.common.avro.AvroRecordContext;
+import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieOperation;
+import org.apache.hudi.common.model.MetaFieldsMode;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.schema.HoodieSchemaField;
 import org.apache.hudi.common.schema.HoodieSchemaType;
+import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.util.collection.ClosableIterator;
 
@@ -62,6 +65,7 @@ class TestFormatMetaColumnHandler {
       (rowPosition, storedValue) -> storedValue != null ? storedValue : (Object) 5L);
 
   private final AvroRecordContext recordContext = new AvroRecordContext();
+  private final AvroRecordContext keyedRecordContext = keyedRecordContext();
   private final FormatMetaColumnHandler<IndexedRecord> handler = new FormatMetaColumnHandler<>(recordContext, COLUMNS, RESOLVERS, "001");
 
   private static HoodieSchemaField nullableLongField(String name) {
@@ -69,6 +73,10 @@ class TestFormatMetaColumnHandler {
   }
 
   private static FormatMetaColumn column(String name, Long valueOnWrite) {
+    return column(name, valueOnWrite, false);
+  }
+
+  private static FormatMetaColumn column(String name, Long valueOnWrite, boolean keptOnUpdate) {
     return new FormatMetaColumn() {
       @Override
       public HoodieSchemaField field() {
@@ -81,10 +89,33 @@ class TestFormatMetaColumnHandler {
       }
 
       @Override
+      public Object valueOnUpdate(String instantTime, Object replacedValue) {
+        return keptOnUpdate ? replacedValue : valueOnWrite;
+      }
+
+      @Override
       public BaseFileColumnResolver resolverFor(HoodieTableMetaClient metaClient, HoodieBaseFile baseFile) {
         throw new UnsupportedOperationException();
       }
     };
+  }
+
+  /**
+   * A record context that extracts the record key from the "key" field.
+   */
+  private static AvroRecordContext keyedRecordContext() {
+    HoodieTableConfig tableConfig = new HoodieTableConfig();
+    tableConfig.setValue(HoodieTableConfig.META_FIELDS_MODE, MetaFieldsMode.NONE.name());
+    tableConfig.setValue(HoodieTableConfig.RECORDKEY_FIELDS, "key");
+    return new AvroRecordContext(tableConfig, null, new TypedProperties());
+  }
+
+  /**
+   * A handler whose row id column keeps the value of the replaced record on update and whose sequence number column
+   * gets 42 on write.
+   */
+  private FormatMetaColumnHandler<IndexedRecord> handlerWithValuesOnUpdate() {
+    return new FormatMetaColumnHandler<>(keyedRecordContext, Arrays.asList(column("row_id", null, true), column("seq", 42L)), RESOLVERS, "001");
   }
 
   private static IndexedRecord record(String key, Long rowId, Long sequenceNumber) {
@@ -161,9 +192,80 @@ class TestFormatMetaColumnHandler {
 
     // A record written as new gets the non-null values on write in place
     IndexedRecord inserted = record("key5", null, null);
-    assertSame(inserted, withValues.setNonNullValuesOnWrite(inserted, SCHEMA));
+    assertSame(inserted, withValues.setNonNullValuesOnWrite("key5", inserted, SCHEMA));
     assertEquals(record("key5", null, 42L), inserted);
-    assertThrows(IllegalArgumentException.class, () -> withValues.setNonNullValuesOnWrite(
+    assertThrows(IllegalArgumentException.class, () -> withValues.setNonNullValuesOnWrite("key6",
         new GenericData.Record(SCHEMA_WITHOUT_FORMAT_META_COLUMNS.toAvroSchema()), SCHEMA_WITHOUT_FORMAT_META_COLUMNS));
+  }
+
+  @Test
+  void testChangedVersionOfTheLastBaseFileRecordGetsTheValuesOnUpdate() {
+    FormatMetaColumnHandler<IndexedRecord> withValuesOnUpdate = handlerWithValuesOnUpdate();
+    Integer schemaId = keyedRecordContext.encodeSchema(SCHEMA);
+    withValuesOnUpdate.resolveNextBaseFileRecord(record("key0", null, null), SCHEMA);
+    withValuesOnUpdate.resolveNextBaseFileRecord(record("key1", 7L, 3L), SCHEMA);
+
+    BufferedRecord<IndexedRecord> updated = new BufferedRecord<>("key1", 0, record("key1", null, null), schemaId, HoodieOperation.UPDATE_AFTER);
+    withValuesOnUpdate.setValuesOnWriteIfChanged(updated);
+    assertEquals(record("key1", 7L, 42L), updated.getRecord());
+    // A batch that updates the record twice is combined into one record, which gets the values on update once more
+    BufferedRecord<IndexedRecord> updatedAgain = new BufferedRecord<>("key1", 0, record("key1", 8L, 4L), schemaId, HoodieOperation.UPDATE_AFTER);
+    withValuesOnUpdate.setValuesOnWriteIfChanged(updatedAgain);
+    assertEquals(record("key1", 7L, 42L), updatedAgain.getRecord());
+
+    BufferedRecord<IndexedRecord> inserted = new BufferedRecord<>("key9", 0, record("key9", 8L, 4L), schemaId, HoodieOperation.INSERT);
+    withValuesOnUpdate.setValuesOnWriteIfChanged(inserted);
+    assertEquals(record("key9", null, 42L), inserted.getRecord());
+    BufferedRecord<IndexedRecord> earlierBaseFileRecord = new BufferedRecord<>("key0", 0, record("key0", 8L, 4L), schemaId, HoodieOperation.UPDATE_AFTER);
+    withValuesOnUpdate.setValuesOnWriteIfChanged(earlierBaseFileRecord);
+    assertEquals(record("key0", null, 42L), earlierBaseFileRecord.getRecord());
+  }
+
+  @Test
+  void testRecordWrittenAsChangedVersionOfTheLastBaseFileRecordGetsTheNonNullValuesOnUpdate() {
+    FormatMetaColumnHandler<IndexedRecord> withValuesOnUpdate = handlerWithValuesOnUpdate();
+    IndexedRecord beforeAnyBaseFileRecord = record("key0", null, null);
+    withValuesOnUpdate.setNonNullValuesOnWrite("key0", beforeAnyBaseFileRecord, SCHEMA);
+    assertEquals(record("key0", null, 42L), beforeAnyBaseFileRecord);
+
+    withValuesOnUpdate.resolveNextBaseFileRecord(record("key0", null, null), SCHEMA);
+    IndexedRecord updated = record("key0", null, null);
+    assertSame(updated, withValuesOnUpdate.setNonNullValuesOnWrite("key0", updated, SCHEMA));
+    assertEquals(record("key0", 100L, 42L), updated);
+    IndexedRecord inserted = record("key5", null, null);
+    withValuesOnUpdate.setNonNullValuesOnWrite("key5", inserted, SCHEMA);
+    assertEquals(record("key5", null, 42L), inserted);
+  }
+
+  @Test
+  void testNullValueOfTheReplacedRecordIsKeptOnUpdate() {
+    List<BaseFileColumnResolver> storedValues = Arrays.asList((rowPosition, storedValue) -> storedValue, (rowPosition, storedValue) -> storedValue);
+    FormatMetaColumnHandler<IndexedRecord> keepingNull = new FormatMetaColumnHandler<>(keyedRecordContext,
+        Arrays.asList(column("row_id", 9L, true), column("seq", 42L)), storedValues, "001");
+    keepingNull.resolveNextBaseFileRecord(record("key0", null, 3L), SCHEMA);
+    IndexedRecord updated = record("key0", null, null);
+    keepingNull.setNonNullValuesOnWrite("key0", updated, SCHEMA);
+    assertEquals(record("key0", null, 42L), updated);
+  }
+
+  @Test
+  void testDefaultValueOnUpdateIsTheValueOnWrite() {
+    FormatMetaColumn withoutValueOnUpdate = new FormatMetaColumn() {
+      @Override
+      public HoodieSchemaField field() {
+        return nullableLongField("row_id");
+      }
+
+      @Override
+      public Object valueOnWrite(String instantTime) {
+        return Long.parseLong(instantTime);
+      }
+
+      @Override
+      public BaseFileColumnResolver resolverFor(HoodieTableMetaClient metaClient, HoodieBaseFile baseFile) {
+        throw new UnsupportedOperationException();
+      }
+    };
+    assertEquals(1L, withoutValueOnUpdate.valueOnUpdate("001", 7L));
   }
 }

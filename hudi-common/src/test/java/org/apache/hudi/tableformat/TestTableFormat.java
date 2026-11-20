@@ -65,7 +65,9 @@ import java.util.function.Supplier;
  *
  * <p>With {@link #INSTANT_TIME_COLUMN_ENABLED} set in the table config, the table format declares a format meta
  * column with a value on write: the instant time of the write that wrote a row into a base file as new or changed.
- * A row carried over unchanged keeps the value its base file stores, or gets the instant time of the base file.
+ * A row carried over unchanged keeps the value its base file stores, or gets the instant time of the base file. It
+ * also declares a first instant time column with a value on update: a row written as a changed version of a row of
+ * the base file keeps the value of that row, and is otherwise maintained like the instant time column.
  */
 @NoArgsConstructor
 public class TestTableFormat implements HoodieTableFormat {
@@ -75,6 +77,7 @@ public class TestTableFormat implements HoodieTableFormat {
   public static final String LAST_UPDATED_SEQUENCE_NUMBER_COLUMN = "_test_last_updated_sequence_number";
   public static final String INSTANT_TIME_COLUMN_ENABLED = HoodieTableConfig.TABLE_FORMAT.key() + ".test.instant.time.column.enabled";
   public static final String INSTANT_TIME_COLUMN = "_test_instant_time";
+  public static final String FIRST_INSTANT_TIME_COLUMN = "_test_first_instant_time";
 
   private static final Map<String, List<HoodieInstant>> RECORDED_INSTANTS = new ConcurrentHashMap<>();
   private static final Map<String, Properties> INIT_PROPERTIES = new ConcurrentHashMap<>();
@@ -140,7 +143,8 @@ public class TestTableFormat implements HoodieTableFormat {
       columns.add(new RowLineageColumn(LAST_UPDATED_SEQUENCE_NUMBER_COLUMN, false));
     }
     if (instantTimeColumnEnabled) {
-      columns.add(new InstantTimeColumn());
+      columns.add(new InstantTimeColumn(INSTANT_TIME_COLUMN, false));
+      columns.add(new InstantTimeColumn(FIRST_INSTANT_TIME_COLUMN, true));
     }
     return columns;
   }
@@ -244,17 +248,31 @@ public class TestTableFormat implements HoodieTableFormat {
   }
 
   /**
-   * The instant time of the write that wrote a row into a base file as new or changed, as a long.
+   * The instant time of the write that wrote a row into a base file as new or changed, as a long. With
+   * {@code keptOnUpdate}, a row written as a changed version of a row of the base file keeps the value of that row.
    */
   private static class InstantTimeColumn implements FormatMetaColumn {
+    private final String name;
+    private final boolean keptOnUpdate;
+
+    private InstantTimeColumn(String name, boolean keptOnUpdate) {
+      this.name = name;
+      this.keptOnUpdate = keptOnUpdate;
+    }
+
     @Override
     public HoodieSchemaField field() {
-      return nullableLongField(INSTANT_TIME_COLUMN);
+      return nullableLongField(name);
     }
 
     @Override
     public Object valueOnWrite(String instantTime) {
       return Long.parseLong(instantTime);
+    }
+
+    @Override
+    public Object valueOnUpdate(String instantTime, Object replacedValue) {
+      return keptOnUpdate ? replacedValue : valueOnWrite(instantTime);
     }
 
     @Override

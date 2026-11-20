@@ -481,7 +481,7 @@ public class HoodieWriteMergeHandle<T, I, K, O> extends HoodieAbstractMergeHandl
       fileWriter.write(key.getRecordKey(), populatedRecord, writeSchemaWithMetaFields, props);
     } else {
       if (!formatMetaColumns.isEmpty()) {
-        record = appendFormatMetaColumnValuesOnWrite(record, schema, props);
+        record = appendFormatMetaColumnValuesOnWrite(key.getRecordKey(), record, schema, props);
         schema = writeSchemaWithFormatMetaColumns;
       }
       // rewrite the record to include metadata fields in schema, and the values will be set later.
@@ -491,17 +491,28 @@ public class HoodieWriteMergeHandle<T, I, K, O> extends HoodieAbstractMergeHandl
   }
 
   /**
-   * Appends the format meta columns to a record written as new or changed, with their values on write.
+   * Sets the handler of the format meta columns that gives the values of a record written as new or changed. A handle
+   * that writes the records of a file group reader sets the handler of the reader, so that a record the reader
+   * returns as a changed version of a record of the base file gets the values on update for that record.
    */
-  private HoodieRecord<T> appendFormatMetaColumnValuesOnWrite(HoodieRecord<T> record, HoodieSchema schema, Properties props) {
-    if (formatMetaColumnsOnWrite == null) {
+  protected void setFormatMetaColumnsOnWrite(FormatMetaColumnHandler<T> formatMetaColumnsOnWrite) {
+    this.formatMetaColumnsOnWrite = formatMetaColumnsOnWrite;
+  }
+
+  /**
+   * Appends the format meta columns to a record written as new or changed, with their values on update or on write.
+   */
+  private HoodieRecord<T> appendFormatMetaColumnValuesOnWrite(String recordKey, HoodieRecord<T> record, HoodieSchema schema, Properties props) {
+    if (writeSchemaWithFormatMetaColumns == null) {
       writeSchemaWithFormatMetaColumns = HoodieSchemaUtils.appendFormatMetaColumns(writeSchema, formatMetaColumns);
+    }
+    if (formatMetaColumnsOnWrite == null) {
       formatMetaColumnsOnWrite = FormatMetaColumnHandler.create(readerContext.getRecordContext(), formatMetaColumns,
           hoodieTable.getMetaClient(), Option.empty(), instantTime).get();
     }
     HoodieRecord<T> newRecord = record.rewriteRecordWithNewSchema(schema, props, writeSchemaWithFormatMetaColumns);
     T data = newRecord.getData();
-    ValidationUtils.checkState(formatMetaColumnsOnWrite.setNonNullValuesOnWrite(data, writeSchemaWithFormatMetaColumns) == data,
+    ValidationUtils.checkState(formatMetaColumnsOnWrite.setNonNullValuesOnWrite(recordKey, data, writeSchemaWithFormatMetaColumns) == data,
         "The format meta columns of a record have to be updated in place");
     return newRecord;
   }

@@ -31,8 +31,10 @@ import java.io.Serializable;
  *
  * <p>A rewrite of a base file stores the column after the columns of the table and follows the rule of the Hudi
  * meta fields: a record carried over unchanged from the base file keeps its value, resolved by
- * {@link #resolverFor}, and a record written as new or changed gets {@link #valueOnWrite}. The column is not a
- * column of the table: it is not in the table schema, the commit metadata schema or the records a reader returns.
+ * {@link #resolverFor}, a record that replaces a record of the base file with a changed version gets
+ * {@link #valueOnUpdate}, and any other record written as new or changed gets {@link #valueOnWrite}. The column is
+ * not a column of the table: it is not in the table schema, the commit metadata schema or the records a reader
+ * returns.
  */
 public interface FormatMetaColumn extends Serializable {
 
@@ -48,6 +50,19 @@ public interface FormatMetaColumn extends Serializable {
    * @param instantTime instant time of the write.
    */
   Object valueOnWrite(String instantTime);
+
+  /**
+   * Returns the value of the column for a record that a write with the given instant writes into a base file as a
+   * changed version of a record of the base file being rewritten, such as an update merged with the record it
+   * updates. Returns {@link #valueOnWrite} unless the table format overrides it, for example to keep the value of
+   * the replaced record.
+   *
+   * @param instantTime   instant time of the write.
+   * @param replacedValue the value of the column for the replaced record, as {@link #resolverFor} resolves it.
+   */
+  default Object valueOnUpdate(String instantTime, Object replacedValue) {
+    return valueOnWrite(instantTime);
+  }
 
   /**
    * Returns the resolver of the values of the column for the records of a base file being rewritten, possibly

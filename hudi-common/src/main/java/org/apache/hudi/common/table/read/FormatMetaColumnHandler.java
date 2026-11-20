@@ -42,17 +42,26 @@ import java.util.stream.Collectors;
  * group and writes to a new base file.
  *
  * <p>A record carried over from the base file the way the file stores it gets the value the table format resolves
- * from the position of the record in the file and the value the file stores for it. A record the rewrite inserts
- * or changes gets the value on write of the column.
+ * from the position of the record in the file and the value the file stores for it. A changed version of the last
+ * record read from the base file gets the value on update of the column for the value resolved for that record, see
+ * {@link FormatMetaColumn#valueOnUpdate}, and any other record the rewrite inserts or changes gets the value on write
+ * of the column.
  */
 public final class FormatMetaColumnHandler<T> {
   private final RecordContext<T> recordContext;
+  private final List<FormatMetaColumn> columns;
+  private final String instantTime;
   private final List<String> columnNames;
   private final Object[] valuesOnWrite;
   // Resolvers of the values for the records of the base file, empty without a base file
   private final List<BaseFileColumnResolver> baseFileResolvers;
   // Position in the base file of the next record read from it
   private long baseFilePosition = 0;
+  // The last record read from the base file with its schema, its key once needed, and the values resolved for it
+  private T lastBaseFileRecord;
+  private HoodieSchema lastBaseFileRecordSchema;
+  private String lastBaseFileRecordKey;
+  private Object[] lastBaseFileValues;
   // Positions of the columns in the schema of the records of the base file, resolved on the first record
   private int[] baseFileRecordPositions;
   // Positions of the columns in the schema of the last changed record, -1 for a column the schema does not have
@@ -65,6 +74,8 @@ public final class FormatMetaColumnHandler<T> {
   FormatMetaColumnHandler(RecordContext<T> recordContext, List<FormatMetaColumn> columns,
                           List<BaseFileColumnResolver> baseFileResolvers, String instantTime) {
     this.recordContext = recordContext;
+    this.columns = columns;
+    this.instantTime = instantTime;
     this.columnNames = columns.stream().map(column -> column.field().name()).collect(Collectors.toList());
     this.valuesOnWrite = columns.stream().map(column -> column.valueOnWrite(instantTime)).toArray();
     this.baseFileResolvers = baseFileResolvers;
@@ -136,6 +147,7 @@ public final class FormatMetaColumnHandler<T> {
       baseFileRecordPositions = getPositions(schema);
       ValidationUtils.checkArgument(Arrays.stream(baseFileRecordPositions).allMatch(pos -> pos >= 0),
           () -> "The format meta columns " + columnNames + " have to be read from the base file, got: " + schema);
+      lastBaseFileValues = new Object[columnNames.size()];
     }
     long position = baseFilePosition++;
     T result = record;
@@ -145,13 +157,41 @@ public final class FormatMetaColumnHandler<T> {
       if (value != storedValue) {
         result = recordContext.setValue(result, baseFileRecordPositions[i], value);
       }
+      lastBaseFileValues[i] = value;
     }
+    lastBaseFileRecord = result;
+    lastBaseFileRecordSchema = schema;
+    lastBaseFileRecordKey = null;
     return result;
   }
 
   /**
-   * Sets the format meta columns of the record to their values on write if the record is not returned the way it
-   * is stored in the base file.
+   * Returns the values of the format meta columns for a record written as new or changed: the values on update for
+   * the values of the last record read from the base file if the record has its key, so is a changed version of it,
+   * and the values on write otherwise. A file group reader merges a record of the base file and returns the result
+   * before it reads the next one, so a record it returns as changed has the key of the last record read from the
+   * base file exactly when it replaces that record.
+   */
+  private Object[] valuesFor(String recordKey) {
+    if (lastBaseFileRecord == null) {
+      return valuesOnWrite;
+    }
+    if (lastBaseFileRecordKey == null) {
+      lastBaseFileRecordKey = recordContext.getRecordKey(lastBaseFileRecord, lastBaseFileRecordSchema);
+    }
+    if (!lastBaseFileRecordKey.equals(recordKey)) {
+      return valuesOnWrite;
+    }
+    Object[] values = new Object[columns.size()];
+    for (int i = 0; i < columns.size(); i++) {
+      values[i] = columns.get(i).valueOnUpdate(instantTime, lastBaseFileValues[i]);
+    }
+    return values;
+  }
+
+  /**
+   * Sets the format meta columns of the record to their values on update or on write, see {@link #valuesFor}, if
+   * the record is not returned the way it is stored in the base file.
    */
   void setValuesOnWriteIfChanged(BufferedRecord<T> record) {
     if (record.getHoodieOperation() == null || record.isDelete() || record.isEmpty() || record.getSchemaId() == null) {
@@ -161,10 +201,11 @@ public final class FormatMetaColumnHandler<T> {
       changedRecordPositions = getPositions(recordContext.getSchemaFromBufferRecord(record));
       changedRecordSchemaId = record.getSchemaId();
     }
+    Object[] values = valuesFor(record.getRecordKey());
     T result = record.getRecord();
     for (int i = 0; i < columnNames.size(); i++) {
       if (changedRecordPositions[i] >= 0) {
-        result = recordContext.setValue(result, changedRecordPositions[i], valuesOnWrite[i]);
+        result = recordContext.setValue(result, changedRecordPositions[i], values[i]);
       }
     }
     record.replaceRecord(result);
@@ -172,22 +213,25 @@ public final class FormatMetaColumnHandler<T> {
 
   /**
    * Sets the format meta columns of a record written as new or changed, which are null, to their non-null values on
-   * write.
+   * update or on write, see {@link #valuesFor}. A handle that writes the records a file group reader returns calls
+   * it on the handler of the reader for each record before it reads the next one.
    *
-   * @param record the record
-   * @param schema schema of the record, which has the format meta columns
+   * @param recordKey key of the record
+   * @param record    the record
+   * @param schema    schema of the record, which has the format meta columns
    * @return the record with the values set, which is the given record when it can be updated in place
    */
-  public T setNonNullValuesOnWrite(T record, HoodieSchema schema) {
+  public T setNonNullValuesOnWrite(String recordKey, T record, HoodieSchema schema) {
     if (schema != writtenRecordSchema) {
       writtenRecordPositions = getPositions(schema);
       writtenRecordSchema = schema;
     }
+    Object[] values = valuesFor(recordKey);
     T result = record;
     for (int i = 0; i < columnNames.size(); i++) {
-      if (valuesOnWrite[i] != null) {
+      if (values[i] != null) {
         ValidationUtils.checkArgument(writtenRecordPositions[i] >= 0, () -> "The record has no format meta columns " + columnNames + ": " + schema);
-        result = recordContext.setValue(result, writtenRecordPositions[i], valuesOnWrite[i]);
+        result = recordContext.setValue(result, writtenRecordPositions[i], values[i]);
       }
     }
     return result;
