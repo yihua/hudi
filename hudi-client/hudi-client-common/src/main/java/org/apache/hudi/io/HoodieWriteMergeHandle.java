@@ -51,6 +51,7 @@ import org.apache.hudi.core.io.storage.HoodieIOFactory;
 import org.apache.hudi.exception.HoodieCorruptedDataException;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
+import org.apache.hudi.exception.HoodieNotSupportedException;
 import org.apache.hudi.exception.HoodieUpsertException;
 import org.apache.hudi.keygen.BaseKeyGenerator;
 import org.apache.hudi.metadata.HoodieTableMetadata;
@@ -207,6 +208,26 @@ public class HoodieWriteMergeHandle<T, I, K, O> extends HoodieAbstractMergeHandl
 
   protected HoodieRecord.HoodieRecordType getRecordType() {
     return recordMerger.getRecordType();
+  }
+
+  /**
+   * Fails if the table format declares row lineage columns, as this handle does not keep the row lineage of the
+   * records it carries over. A handle that keeps it overrides this method.
+   */
+  @Override
+  protected List<HoodieSchemaField> getRowLineageColumns() {
+    return checkNoRowLineageColumns();
+  }
+
+  /**
+   * Fails if the table format declares row lineage columns, and returns no row lineage columns otherwise.
+   */
+  protected final List<HoodieSchemaField> checkNoRowLineageColumns() {
+    if (!getTableFormatRowLineageColumns().isEmpty()) {
+      throw new HoodieNotSupportedException("Table format " + hoodieTable.getMetaClient().getTableFormat().getName()
+          + " declares row lineage columns, but " + getClass().getSimpleName() + " does not keep the row lineage of the records it rewrites");
+    }
+    return Collections.emptyList();
   }
 
   /**

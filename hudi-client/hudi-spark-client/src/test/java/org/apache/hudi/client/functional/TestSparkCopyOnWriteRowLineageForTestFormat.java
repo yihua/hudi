@@ -36,6 +36,7 @@ import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
 import org.apache.hudi.common.util.collection.Pair;
+import org.apache.hudi.config.HoodieClusteringConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.index.HoodieIndex;
 import org.apache.hudi.table.HoodieSparkTable;
@@ -98,9 +99,7 @@ public class TestSparkCopyOnWriteRowLineageForTestFormat extends SparkClientFunc
     return HoodieRecordType.AVRO;
   }
 
-  @Test
-  void testUpsertKeepsRowLineageOfUnchangedRecords() throws IOException {
-    HoodieRecordType recordType = getRecordType();
+  protected HoodieTableMetaClient initTable() throws IOException {
     HoodieTableMetaClient metaClient = HoodieTableMetaClient.newTableBuilder()
         .setTableName("test-trip-table")
         .setTableType(HoodieTableType.COPY_ON_WRITE)
@@ -108,9 +107,12 @@ public class TestSparkCopyOnWriteRowLineageForTestFormat extends SparkClientFunc
         .set(Collections.singletonMap(TestTableFormat.ROW_LINEAGE_ENABLED, "true"))
         .initTable(storageConf().newInstance(), basePath());
     assertEquals(2, metaClient.getTableFormat().getRowLineageColumns().size());
-    // The table format keeps the row lineage it assigns by the base path of the meta client
-    String tableBasePath = metaClient.getBasePath().toString();
-    HoodieWriteConfig.Builder configBuilder = getConfigBuilder(true, HoodieIndex.IndexType.SIMPLE)
+    return metaClient;
+  }
+
+  protected HoodieWriteConfig buildConfig(HoodieTableMetaClient metaClient, HoodieRecordType recordType, long smallFileSize,
+                                          HoodieClusteringConfig clusteringConfig) {
+    HoodieWriteConfig.Builder configBuilder = getConfigBuilder(true, false, HoodieIndex.IndexType.SIMPLE, smallFileSize, clusteringConfig)
         .withMetadataConfig(HoodieMetadataConfig.newBuilder().enable(false).build())
         .withEmbeddedTimelineServerEnabled(false);
     if (recordType == HoodieRecordType.SPARK) {
@@ -119,6 +121,16 @@ public class TestSparkCopyOnWriteRowLineageForTestFormat extends SparkClientFunc
     HoodieWriteConfig config = configBuilder.build();
     // The merge reads and writes records of the given type
     assertEquals(recordType, HoodieSparkTable.create(config, context(), metaClient).getRecordContextForWrite().getEngineRecordType());
+    return config;
+  }
+
+  @Test
+  void testUpsertKeepsRowLineageOfUnchangedRecords() throws IOException {
+    HoodieRecordType recordType = getRecordType();
+    HoodieTableMetaClient metaClient = initTable();
+    // The table format keeps the row lineage it assigns by the base path of the meta client
+    String tableBasePath = metaClient.getBasePath().toString();
+    HoodieWriteConfig config = buildConfig(metaClient, recordType, 1024 * 1024 * 1024L, HoodieClusteringConfig.newBuilder().build());
     HoodieTestDataGenerator dataGen = new HoodieTestDataGenerator(new String[] {PARTITION});
     try (SparkRDDWriteClient client = getHoodieWriteClient(config)) {
       List<HoodieRecord> inserts = dataGen.generateInsertsForPartition("001", 20, PARTITION);
@@ -151,14 +163,14 @@ public class TestSparkCopyOnWriteRowLineageForTestFormat extends SparkClientFunc
     }
   }
 
-  private void write(SparkRDDWriteClient client, List<HoodieRecord> records) {
+  protected void write(SparkRDDWriteClient client, List<HoodieRecord> records) {
     String instantTime = client.startCommit();
     List<WriteStatus> statuses = ((JavaRDD<WriteStatus>) client.upsert(jsc().parallelize(records, 1), instantTime)).collect();
     assertNoWriteErrors(statuses);
     assertTrue(client.commit(instantTime, jsc().parallelize(statuses, 1)));
   }
 
-  private static List<HoodieRecord> toRecordType(List<HoodieRecord> records, HoodieRecordType recordType) {
+  protected static List<HoodieRecord> toRecordType(List<HoodieRecord> records, HoodieRecordType recordType) {
     if (recordType == HoodieRecordType.AVRO) {
       return records;
     }
@@ -171,11 +183,11 @@ public class TestSparkCopyOnWriteRowLineageForTestFormat extends SparkClientFunc
             structType, false)).collect(Collectors.toList());
   }
 
-  private static Set<String> keys(List<HoodieRecord> records) {
+  protected static Set<String> keys(List<HoodieRecord> records) {
     return records.stream().map(HoodieRecord::getRecordKey).collect(Collectors.toSet());
   }
 
-  private HoodieBaseFile getOnlyLatestBaseFile(HoodieTableMetaClient metaClient) {
+  protected HoodieBaseFile getOnlyLatestBaseFile(HoodieTableMetaClient metaClient) {
     HoodieTableFileSystemView fsView = HoodieTableFileSystemView.fileListingBasedFileSystemView(
         context(), metaClient, metaClient.reloadActiveTimeline().filterCompletedInstants());
     try {

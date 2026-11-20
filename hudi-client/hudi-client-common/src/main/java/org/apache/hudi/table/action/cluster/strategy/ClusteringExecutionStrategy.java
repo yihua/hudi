@@ -19,6 +19,7 @@
 package org.apache.hudi.table.action.cluster.strategy;
 
 import org.apache.hudi.avro.model.HoodieClusteringPlan;
+import org.apache.hudi.common.HoodieTableFormat;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.engine.HoodieReaderContext;
@@ -42,6 +43,7 @@ import org.apache.hudi.common.util.ValidationUtils;
 import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieClusteringException;
+import org.apache.hudi.exception.HoodieNotSupportedException;
 import org.apache.hudi.storage.StoragePath;
 import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.table.action.HoodieWriteMetadata;
@@ -87,6 +89,18 @@ public abstract class ClusteringExecutionStrategy<T, I, K, O> implements Seriali
    * Note that commit is not done as part of strategy. commit is callers responsibility.
    */
   public abstract HoodieWriteMetadata<O> performClustering(final HoodieClusteringPlan clusteringPlan, final HoodieSchema schema, final String instantTime);
+
+  /**
+   * Fails if the table format declares row lineage columns, for a strategy that does not keep the row lineage of
+   * the records it rewrites.
+   */
+  protected void checkNoRowLineageColumns() {
+    HoodieTableFormat tableFormat = hoodieTable.getMetaClient().getTableFormat();
+    if (!tableFormat.getRowLineageColumns().isEmpty()) {
+      throw new HoodieNotSupportedException("Table format " + tableFormat.getName() + " declares row lineage columns, but "
+          + getClass().getSimpleName() + " does not keep the row lineage of the records it rewrites");
+    }
+  }
 
   protected ClosableIterator<HoodieRecord<T>> getRecordIterator(ReaderContextFactory<T> readerContextFactory, ClusteringOperation operation, String instantTime, long maxMemory) {
     TypedProperties props = getReaderProperties(maxMemory);

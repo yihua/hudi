@@ -24,6 +24,8 @@ import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.common.avro.HoodieAvroReaderContext;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.config.TypedProperties;
+import org.apache.hudi.common.engine.TaskContextSupplier;
+import org.apache.hudi.common.model.CompactionOperation;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
@@ -42,11 +44,20 @@ import org.apache.hudi.common.table.view.SyncableFileSystemView;
 import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
 import org.apache.hudi.common.testutils.HoodieTestUtils;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.ReflectionUtils;
 import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.config.HoodieCompactionConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.index.HoodieIndex;
+import org.apache.hudi.io.HoodieMergeHandleWithChangeLog;
+import org.apache.hudi.io.HoodieSortedMergeHandle;
+import org.apache.hudi.io.HoodieSortedMergeHandleWithChangeLog;
+import org.apache.hudi.io.HoodieWriteMergeHandle;
+import org.apache.hudi.io.LsmFileGroupReaderBasedMergeHandle;
+import org.apache.hudi.storage.StoragePath;
+import org.apache.hudi.table.HoodieJavaTable;
+import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.table.action.HoodieWriteMetadata;
 import org.apache.hudi.tableformat.TestTableFormat;
 import org.apache.hudi.testutils.HoodieJavaClientTestHarness;
@@ -66,6 +77,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -329,6 +341,84 @@ public class TestHoodieJavaClientRowLineageForTestFormat extends HoodieJavaClien
         + baseFile1.getPath();
     assertTrue(exceptionChainContains(failure, expectedMessage), () -> "Unexpected failure: " + failure);
     assertEquals(1, metaClient.reloadActiveTimeline().getCommitsTimeline().filterCompletedInstants().countInstants());
+  }
+
+  /**
+   * The merge handle class config selects the legacy merge handle, which does not keep the row lineage of the
+   * records it carries over. It refuses the write, and with the fallback to the default merge handle enabled, the
+   * default handle rewrites the base file and keeps the row lineage.
+   */
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void testLegacyMergeHandleIsRefused(boolean fallback) throws Exception {
+    initTable(HoodieTableType.COPY_ON_WRITE, HoodieTableVersion.current(), true);
+    Map<String, String> handleProps = new HashMap<>();
+    handleProps.put(HoodieWriteConfig.MERGE_HANDLE_CLASS_NAME.key(), HoodieWriteMergeHandle.class.getName());
+    handleProps.put(HoodieWriteConfig.MERGE_HANDLE_PERFORM_FALLBACK.key(), String.valueOf(fallback));
+    HoodieWriteConfig config = HoodieWriteConfig.newBuilder().withProperties(buildConfig(HoodieTableVersion.current()).getProps())
+        .withProps(handleProps).build();
+    HoodieJavaWriteClient client = getHoodieWriteClient(config);
+
+    List<HoodieRecord> inserts = dataGen.generateInsertsForPartition("001", 10, PARTITION);
+    write(client, inserts, false);
+    HoodieBaseFile baseFile1 = getOnlyLatestBaseFile();
+    Map<String, Pair<Long, Long>> rowLineage1 = deriveRowLineage(storageConf, basePath, baseFile1);
+    List<HoodieRecord> updates = inserts.subList(0, 2);
+    if (fallback) {
+      write(client, dataGen.generateUpdates("002", updates), true);
+      Map<String, Pair<Long, Long>> expectedStored = new LinkedHashMap<>(rowLineage1);
+      keys(updates).forEach(key -> expectedStored.put(key, NO_ROW_LINEAGE));
+      assertEquals(expectedStored, readStoredRowLineage(storageConf, getOnlyLatestBaseFile()));
+      return;
+    }
+    String instantTime = WriteClientTestUtils.createNewInstantTime();
+    WriteClientTestUtils.startCommitWithTime(client, instantTime);
+    Throwable failure = assertThrows(Exception.class, () -> client.upsert(dataGen.generateUpdates("002", updates), instantTime));
+    assertTrue(exceptionChainContains(failure, refusalMessage(HoodieWriteMergeHandle.class)), () -> "Unexpected failure: " + failure);
+    assertEquals(1, metaClient.reloadActiveTimeline().getCommitsTimeline().filterCompletedInstants().countInstants());
+    assertEquals(Collections.singletonList(baseFile1.getFileName()), listDataFiles());
+  }
+
+  /**
+   * Every merge handle that does not keep the row lineage of the records it carries over refuses a table format
+   * that declares row lineage columns when it is created, before it writes a file.
+   */
+  @Test
+  void testMergeHandlesWithoutRowLineageAreRefused() throws Exception {
+    initTable(HoodieTableType.COPY_ON_WRITE, HoodieTableVersion.current(), true);
+    HoodieWriteConfig config = buildConfig(HoodieTableVersion.current());
+    HoodieJavaWriteClient client = getHoodieWriteClient(config);
+    write(client, dataGen.generateInsertsForPartition("001", 10, PARTITION), false);
+    HoodieBaseFile baseFile = getOnlyLatestBaseFile();
+    HoodieJavaTable table = HoodieJavaTable.create(config, context, metaClient);
+    String instantTime = WriteClientTestUtils.createNewInstantTime();
+
+    // The handles of the compaction path without the file group reader, and of the merge handle class config
+    Class<?>[] compactionConstructorTypes = new Class<?>[] {HoodieWriteConfig.class, String.class, HoodieTable.class, Map.class,
+        String.class, String.class, HoodieBaseFile.class, TaskContextSupplier.class, Option.class};
+    for (Class<?> handleClass : Arrays.asList(HoodieWriteMergeHandle.class, HoodieSortedMergeHandle.class,
+        HoodieMergeHandleWithChangeLog.class, HoodieSortedMergeHandleWithChangeLog.class)) {
+      Throwable failure = assertThrows(Exception.class, () -> ReflectionUtils.loadClass(handleClass.getName(), compactionConstructorTypes,
+          config, instantTime, table, Collections.emptyMap(), PARTITION, baseFile.getFileId(), baseFile, table.getTaskContextSupplier(), Option.empty()));
+      assertTrue(exceptionChainContains(failure, refusalMessage(handleClass)), () -> "Unexpected failure: " + failure);
+    }
+    // The handle of the LSM tree storage layout
+    CompactionOperation operation = new CompactionOperation(baseFile.getFileId(), PARTITION, baseFile.getCommitTime(), Option.of(baseFile.getCommitTime()),
+        Collections.emptyList(), Option.of(baseFile.getFileName()), Option.empty(), Collections.emptyMap());
+    Throwable failure = assertThrows(Exception.class, () -> new LsmFileGroupReaderBasedMergeHandle(
+        config, instantTime, table, operation, table.getTaskContextSupplier(), null, instantTime, HoodieRecord.HoodieRecordType.AVRO));
+    assertTrue(exceptionChainContains(failure, refusalMessage(LsmFileGroupReaderBasedMergeHandle.class)), () -> "Unexpected failure: " + failure);
+    assertEquals(Collections.singletonList(baseFile.getFileName()), listDataFiles());
+  }
+
+  private static String refusalMessage(Class<?> handleClass) {
+    return "Table format test-format declares row lineage columns, but " + handleClass.getSimpleName()
+        + " does not keep the row lineage of the records it rewrites";
+  }
+
+  private List<String> listDataFiles() throws IOException {
+    return metaClient.getStorage().listDirectEntries(new StoragePath(basePath, PARTITION)).stream()
+        .map(pathInfo -> pathInfo.getPath().getName()).filter(name -> !name.startsWith(".")).collect(Collectors.toList());
   }
 
   @Test

@@ -35,7 +35,6 @@ import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.keygen.BaseKeyGenerator;
 import org.apache.hudi.table.HoodieTable;
 
-import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.stream.Stream;
@@ -70,7 +69,7 @@ public class LsmFileGroupReaderBasedMergeHandle<T, I, K, O> extends FileGroupRea
   @Override
   protected List<HoodieSchemaField> getRowLineageColumns() {
     // The LSM file-group reader does not maintain row lineage columns
-    return Collections.emptyList();
+    return checkNoRowLineageColumns();
   }
 
   @Override
