@@ -1,5 +1,5 @@
 ---
-title: "Demo: Hudi Writes Iceberg on AWS"
+title: "Pluggable Table Format in action on AWS"
 keywords: [hudi, iceberg, pluggable table format, xtable, aws, emr, glue, athena, trino]
 summary: "Write an Iceberg table with Hudi on Amazon EMR, commit it to the AWS Glue Data Catalog, and read it from Athena, Trino and Spark"
 toc: true

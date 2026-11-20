@@ -442,7 +442,7 @@ Expect `CHECK catalog PASS`.
 - For time travel by name, use the DataFrame reader with the `snapshot-id` option, as above. SQL `VERSION AS OF`
   fails on Iceberg tables in a session that loads Hudi's SQL extension.
 - The table's location in the catalog is the Hudi base path. The catalog's `warehouse` setting is required by the
-  catalog but does not hold this table. For AWS Glue, see the [AWS demo guide](pluggable-table-format-iceberg-aws-demo.md).
+  catalog but does not hold this table. For AWS Glue, see the [Pluggable Table Format in action on AWS](pluggable-table-format-iceberg-aws-demo.md).
 
 | Setting | Meaning |
 |:--------|:--------|
@@ -521,7 +521,7 @@ These hold for the current snapshot builds.
 
 ## Next steps
 
-- Run the same table on AWS: [Hudi writes Iceberg on AWS](pluggable-table-format-iceberg-aws-demo.md).
+- Run the same table on AWS: [Pluggable Table Format in action on AWS](pluggable-table-format-iceberg-aws-demo.md).
 - Hudi's own features on this table: [table services](compaction.md), [indexes](indexes.md),
   [write operations](write_operations.md).
 - For translating existing tables between formats after the fact, see [Apache XTable](syncing_xtable.md).
