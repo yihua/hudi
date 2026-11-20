@@ -51,6 +51,7 @@ import org.apache.hudi.config.HoodieIndexConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.core.io.storage.HoodieFileReader;
 import org.apache.hudi.core.io.storage.HoodieIOFactory;
+import org.apache.hudi.index.HoodieInMemoryHashIndex;
 import org.apache.hudi.index.HoodieIndex;
 import org.apache.hudi.keygen.constant.KeyGeneratorOptions;
 import org.apache.hudi.storage.StoragePath;
@@ -524,6 +525,21 @@ public class TestHoodieJavaClientUpdatesAsDeletesAndInserts extends HoodieJavaCl
         .withWriteUpdatesAsDeletesAndInserts(true)
         .build();
     assertWriteRejected(config, operation, "produces record positions");
+  }
+
+  /**
+   * A custom index class takes precedence over the index type, so the index type no longer describes
+   * the index in use.
+   */
+  @ParameterizedTest
+  @EnumSource(value = WriteOperationType.class, names = {"UPSERT", "INSERT", "DELETE"})
+  void testCustomIndexClassRejectedInDeleteInsertMode(WriteOperationType operation) throws Exception {
+    HoodieWriteConfig config = getConfigBuilder(HoodieTestDataGenerator.TRIP_EXAMPLE_SCHEMA, HoodieIndex.IndexType.SIMPLE)
+        .withIndexConfig(HoodieIndexConfig.newBuilder().withIndexType(HoodieIndex.IndexType.SIMPLE)
+            .withIndexClass(HoodieInMemoryHashIndex.class.getName()).build())
+        .withWriteUpdatesAsDeletesAndInserts(true)
+        .build();
+    assertWriteRejected(config, operation, HoodieIndexConfig.INDEX_CLASS_NAME.key());
   }
 
   @Test

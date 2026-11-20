@@ -966,7 +966,8 @@ public class HoodieWriteConfig extends HoodieConfig {
           + "deletion vectors can represent the table exactly. Upserts, inserts and deletes require write table "
           + "version 8 or higher, " + WRITE_RECORD_POSITIONS.key() + ", the BLOOM, SIMPLE, GLOBAL_BLOOM, "
           + "GLOBAL_SIMPLE or RECORD_INDEX index (other index types write inserts to log files or do not locate "
-          + "records by base file position), and commit-time ordering merge semantics. Prepped upserts, inserts and deletes are not "
+          + "records by base file position, and a custom index class is not supported), and commit-time ordering "
+          + "merge semantics. Prepped upserts, inserts and deletes are not "
           + "supported on merge-on-read tables.");
 
   public static final ConfigProperty<String> WRITE_PARTIAL_UPDATE_SCHEMA = ConfigProperty

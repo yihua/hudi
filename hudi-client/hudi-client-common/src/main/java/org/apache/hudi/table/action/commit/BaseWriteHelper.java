@@ -42,6 +42,7 @@ import org.apache.hudi.common.util.HoodieRecordUtils;
 import org.apache.hudi.common.util.HoodieTimer;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.StringUtils;
+import org.apache.hudi.config.HoodieIndexConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieNotSupportedException;
@@ -138,6 +139,12 @@ public abstract class BaseWriteHelper<T, I, K, O, R> extends ParallelismHelper<I
       throw new HoodieNotSupportedException(
           HoodieWriteConfig.WRITE_UPDATES_AS_DELETES_AND_INSERTS.key()
               + " requires commit-time ordering merge semantics but the table uses " + mergeMode);
+    }
+    if (!StringUtils.isNullOrEmpty(config.getIndexClass())) {
+      // A custom index class takes precedence over the index type checked below
+      throw new HoodieNotSupportedException(
+          HoodieWriteConfig.WRITE_UPDATES_AS_DELETES_AND_INSERTS.key() + " does not support a custom index class but "
+              + HoodieIndexConfig.INDEX_CLASS_NAME.key() + " is " + config.getIndexClass());
     }
     HoodieIndex.IndexType indexType = config.getIndexType();
     if (!POSITION_PRODUCING_INDEX_TYPES.contains(indexType)) {
