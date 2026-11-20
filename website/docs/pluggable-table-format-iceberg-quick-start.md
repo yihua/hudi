@@ -203,10 +203,8 @@ USING hudi
 PARTITIONED BY (city)
 LOCATION 'file:///tmp/hudi_iceberg/trips'
 TBLPROPERTIES (
-  'type' = 'cow',
   'primaryKey' = 'uuid',
-  'hoodie.table.format' = 'ICEBERG',
-  'hoodie.table.format.iceberg.format-version' = '3'
+  'hoodie.table.format' = 'ICEBERG'
 )""")
 
 spark.sql("""
@@ -232,7 +230,7 @@ check("insert", sameRows() && fares().size == 8 && ops() == Seq("append"))
 Expect `CHECK insert PASS`. The snapshot's `hudi_instant` equals the `commit_time` that `show_commits` prints.
 
 - `hoodie.table.format`: write it as `ICEBERG`, in upper case.
-- `hoodie.table.format.iceberg.format-version`: `3` (the default) or `2`. See [Iceberg format version](#iceberg-format-version).
+- The table is copy-on-write and Iceberg format version 3, both defaults. See [Iceberg format version](#iceberg-format-version).
 - The table has no ordering field, so the latest write of a key wins.
 
 ### 6. Update, delete and merge {#upserts}
@@ -366,10 +364,7 @@ val morOptions = Map(
   "hoodie.datasource.write.recordkey.field" -> "uuid",
   "hoodie.datasource.write.partitionpath.field" -> "city",
   "hoodie.table.format" -> "ICEBERG",
-  "hoodie.write.updates.as.deletes.and.inserts" -> "true",
-  "hoodie.write.record.positions" -> "true",
-  "hoodie.index.type" -> "SIMPLE",
-  "hoodie.record.merge.mode" -> "COMMIT_TIME_ORDERING")
+  "hoodie.write.updates.as.deletes.and.inserts" -> "true")
 val columns = Seq("ts", "uuid", "rider", "driver", "fare", "city")
 def writeMor(rows: Seq[(Long, String, String, String, Double, String)], operation: String): Unit =
   rows.toDF(columns: _*).write.format("hudi").options(morOptions).
@@ -398,13 +393,8 @@ Expect `CHECK mor PASS`: two deletion vectors, one for the old version of `rider
 `rider-F`. The upsert adds files and deletion vectors, so it is an `overwrite`; the delete adds only a deletion
 vector, so it is a `delete`.
 
-The settings that matter:
-
-- `hoodie.write.updates.as.deletes.and.inserts=true` turns on the write mode.
-- `hoodie.write.record.positions=true` (the default) keeps the row position of each delete.
-- `hoodie.index.type`: `SIMPLE` or `BLOOM`. The index must locate records by base file position.
-- `hoodie.record.merge.mode=COMMIT_TIME_ORDERING`: the latest write wins.
-- The table needs Iceberg format version 3. The plugin refuses a merge-on-read table set to version 2.
+`hoodie.write.updates.as.deletes.and.inserts=true` turns on the write mode. Hudi's defaults do the rest: the
+`SIMPLE` index locates each record's row position, and with no ordering field the latest write wins.
 
 #### Compaction
 

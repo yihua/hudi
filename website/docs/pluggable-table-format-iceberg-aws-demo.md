@@ -115,8 +115,8 @@ spark.sql("CREATE NAMESPACE IF NOT EXISTS glue.<glue_db>")
 
 ## Step 2: Write with Hudi
 
-These are the write options the demo uses for `trips_v2`. For `trips_v3`, change the table name, the base path and
-the format version.
+These are the write options for `trips_v2`. For `trips_v3`, change the table name and the base path, and drop the
+format version line: version 3 is the default.
 
 ```python
 table = "trips_v2"                                   # also the Glue table name
@@ -124,18 +124,13 @@ base_path = "s3://<bucket>/<prefix>/tables/trips_v2"
 
 options = {
     "hoodie.table.name": table,
-    "hoodie.datasource.write.table.name": table,
-    "hoodie.datasource.write.table.type": "COPY_ON_WRITE",
     "hoodie.datasource.write.recordkey.field": "key",
     "hoodie.datasource.write.partitionpath.field": "region",
-    "hoodie.datasource.write.keygenerator.class": "org.apache.hudi.keygen.SimpleKeyGenerator",
     "hoodie.write.table.version": "9",
-    "hoodie.record.merge.mode": "COMMIT_TIME_ORDERING",
     # Iceberg table format
     "hoodie.table.format": "ICEBERG",
     "hoodie.table.format.iceberg.format-version": "2",
     # commit each Iceberg snapshot through the Glue Data Catalog
-    "hoodie.table.format.iceberg.catalog.name": "glue",
     "hoodie.table.format.iceberg.catalog.impl": "org.apache.iceberg.aws.glue.GlueCatalog",
     "hoodie.table.format.iceberg.catalog.option.warehouse": "s3://<bucket>/<prefix>/glue-warehouse",
     "hoodie.table.format.iceberg.namespace": "<glue_db>",
@@ -361,8 +356,6 @@ for k, v in {
     "hoodie.datasource.hive_sync.database": "<glue_db>",
     "hoodie.datasource.hive_sync.table": "trips_v2_hudi",
     "hoodie.datasource.hive_sync.partition_fields": "region",
-    "hoodie.datasource.hive_sync.partition_extractor_class": "org.apache.hudi.hive.MultiPartKeysValueExtractor",
-    "hoodie.datasource.hive_sync.base_file_format": "PARQUET",
 }.items():
     props.setProperty(k, v)
 
