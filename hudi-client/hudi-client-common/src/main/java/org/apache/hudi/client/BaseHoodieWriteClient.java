@@ -120,6 +120,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 
@@ -148,6 +149,9 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
   @Getter
   @Setter
   private transient WriteOperationType operationType;
+  // The operation type of each instant started by preWrite, since table services and other writes of
+  // this client can run between a write and its commit
+  private final transient Map<String, WriteOperationType> operationTypesByInstant = new ConcurrentHashMap<>();
 
   protected transient Timer.Context writeTimer = null;
 
@@ -264,7 +268,7 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
             table.getMetaClient().getTableType(), commitActionType)
         .reconcileMetadataForMissingFiles(config, context, table, instantTime,
             CommitUtils.buildMetadata(tableWriteStats.getDataTableWriteStats(), partitionToReplaceFileIds,
-                extraMetadata, operationType, config.getWriteSchema(), commitActionType));
+                extraMetadata, operationTypesByInstant.getOrDefault(instantTime, operationType), config.getWriteSchema(), commitActionType));
     HoodieInstant inflightInstant = table.getMetaClient().createNewInstant(State.INFLIGHT, commitActionType, instantTime);
     WriterHeartbeatUtils.abortIfHeartbeatExpired(instantTime, table, heartbeatClient, config);
     this.txnManager.beginStateChange(Option.of(inflightInstant),
@@ -601,6 +605,7 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
       BaseWriteHelper.validateUpdatesAsDeletesAndInserts(config, metaClient);
     }
     setOperationType(writeOperationType);
+    operationTypesByInstant.put(instantTime, writeOperationType);
     this.lastCompletedTxnAndMetadata = txnManager.isLockRequired()
         ? TransactionUtils.getLastCompletedTxnInstantAndMetadata(metaClient) : Option.empty();
     this.pendingInflightAndRequestedInstants = TransactionUtils.getInflightAndRequestedInstants(metaClient);
@@ -1690,6 +1695,7 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
   public void releaseResources(String instantTime) {
     // stop heartbeat for instant
     heartbeatClient.stop(instantTime);
+    operationTypesByInstant.remove(instantTime);
   }
 
   @Override
