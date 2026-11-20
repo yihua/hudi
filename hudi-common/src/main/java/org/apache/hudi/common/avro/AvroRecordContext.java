@@ -196,6 +196,20 @@ public class AvroRecordContext extends RecordContext<IndexedRecord> {
   }
 
   @Override
+  public IndexedRecord setLongIfNull(IndexedRecord record, int pos, long value) {
+    if (record.get(pos) == null) {
+      record.put(pos, value);
+    }
+    return record;
+  }
+
+  @Override
+  public IndexedRecord setNullAt(IndexedRecord record, int pos) {
+    record.put(pos, null);
+    return record;
+  }
+
+  @Override
   public HoodieRecord.HoodieRecordType getEngineRecordType() {
     return HoodieRecord.HoodieRecordType.AVRO;
   }

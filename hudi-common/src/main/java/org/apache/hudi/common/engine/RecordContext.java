@@ -172,6 +172,30 @@ public abstract class RecordContext<T> implements Serializable {
   public abstract T constructEngineRecord(HoodieSchema recordSchema, Object[] fieldValues);
 
   /**
+   * Sets the nullable long field at the given position of the record to the given value, unless the field
+   * already holds a value.
+   *
+   * @param record the record in engine-specific type
+   * @param pos    the position of the field in the record
+   * @param value  the value to set
+   * @return the record with the field set, which is the given record when it can be updated in place
+   */
+  public T setLongIfNull(T record, int pos, long value) {
+    throw new UnsupportedOperationException("Setting a field of a record is not supported by " + getClass().getSimpleName());
+  }
+
+  /**
+   * Sets the nullable field at the given position of the record to null.
+   *
+   * @param record the record in engine-specific type
+   * @param pos    the position of the field in the record
+   * @return the record with the field set to null, which is the given record when it can be updated in place
+   */
+  public T setNullAt(T record, int pos) {
+    throw new UnsupportedOperationException("Setting a field of a record is not supported by " + getClass().getSimpleName());
+  }
+
+  /**
    * Returns the engine record type produced by this context (e.g. {@code AVRO}, {@code SPARK}, {@code FLINK},
    * {@code HIVE}). This mirrors the concrete type of records built by {@link #constructEngineRecord}, so callers that
    * feed those engine records into a {@link org.apache.hudi.io.storage.HoodieFileWriter} can pick a writer that

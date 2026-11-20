@@ -151,6 +151,20 @@ public abstract class BaseSparkInternalRecordContext extends RecordContext<Inter
   }
 
   @Override
+  public InternalRow setLongIfNull(InternalRow row, int pos, long value) {
+    if (row.isNullAt(pos)) {
+      row.setLong(pos, value);
+    }
+    return row;
+  }
+
+  @Override
+  public InternalRow setNullAt(InternalRow row, int pos) {
+    row.setNullAt(pos);
+    return row;
+  }
+
+  @Override
   public HoodieRecord.HoodieRecordType getEngineRecordType() {
     return HoodieRecord.HoodieRecordType.SPARK;
   }

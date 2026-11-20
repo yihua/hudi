@@ -23,6 +23,7 @@ import org.apache.hudi.common.config.HoodieReaderConfig;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.engine.HoodieReaderContext;
 import org.apache.hudi.common.model.BaseFile;
+import org.apache.hudi.common.model.BaseFileRowLineage;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.model.HoodieRecord;
@@ -58,6 +59,7 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.function.UnaryOperator;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -93,6 +95,9 @@ public final class HoodieFileGroupReader<T> implements HoodieRecordReader<T> {
   @Getter
   private List<String> validBlockInstants = Collections.emptyList();
   private BufferedRecordConverter<T> bufferedRecordConverter;
+  // Maintains the row lineage columns of the returned records, null unless the reader is given row lineage columns
+  private final RowLineageHandler<T> rowLineageHandler;
+  private final Option<BaseFileRowLineage> baseFileRowLineage;
 
   @Builder(setterPrefix = "with")
   private HoodieFileGroupReader(
@@ -116,7 +121,9 @@ public final class HoodieFileGroupReader<T> implements HoodieRecordReader<T> {
       Boolean emitDelete,
       Boolean sortOutput,
       Option<BaseFileUpdateCallback<T>> fileGroupUpdateCallback,
-      FileGroupRecordBufferLoader<T> recordBufferLoader) {
+      FileGroupRecordBufferLoader<T> recordBufferLoader,
+      List<HoodieSchemaField> rowLineageColumns,
+      Option<BaseFileRowLineage> baseFileRowLineage) {
 
     // Validations
     ValidationUtils.checkArgument(readerContext != null, "Reader context is required");
@@ -155,6 +162,12 @@ public final class HoodieFileGroupReader<T> implements HoodieRecordReader<T> {
     if (fileGroupUpdateCallback == null) {
       fileGroupUpdateCallback = Option.empty();
     }
+    if (rowLineageColumns == null) {
+      rowLineageColumns = Collections.emptyList();
+    }
+    if (baseFileRowLineage == null) {
+      baseFileRowLineage = Option.empty();
+    }
 
     if (tableState == null) {
       tableState = TableState.fromMetaClient(hoodieTableMetaClient);
@@ -183,6 +196,7 @@ public final class HoodieFileGroupReader<T> implements HoodieRecordReader<T> {
         .emitDeletes(emitDelete)
         .sortOutputs(sortOutput)
         .inflightInstantsAllowed(allowInflightInstants)
+        .rowLineageColumns(rowLineageColumns.stream().map(HoodieSchemaField::name).collect(Collectors.toSet()))
         .build();
     this.inputSplit = InputSplit.builder()
         .baseFileOption(baseFileOption)
@@ -221,6 +235,19 @@ public final class HoodieFileGroupReader<T> implements HoodieRecordReader<T> {
     this.outputConverter = readerContext.getSchemaHandler().getOutputConverter();
     this.orderingFieldNames = HoodieRecordUtils.getOrderingFieldNames(readerContext.getMergeMode(), tableConfig);
     this.readStats = new HoodieReadStats();
+    if (rowLineageColumns.isEmpty()) {
+      this.rowLineageHandler = null;
+    } else {
+      ValidationUtils.checkArgument(baseFileRowLineage.isPresent() || inputSplit.getBaseFileOption().isEmpty(),
+          "The row lineage of the base file is required to read its row lineage columns");
+      // The row lineage of a record is derived from its position in the base file, so the read has to return
+      // every record of the base file, in the order and with the schema of the file
+      ValidationUtils.checkArgument(inputSplit.getStart() == 0 && !readerContext.getHasBootstrapBaseFile()
+              && readerContext.getKeyFilterOpt().isEmpty() && readerContext.getSchemaHandler().getInternalSchema().isEmptySchema(),
+          "Row lineage columns cannot be read from a part of a base file, from a bootstrap base file, with a key filter or with schema evolution on read");
+      this.rowLineageHandler = new RowLineageHandler<>(readerContext.getRecordContext(), rowLineageColumns);
+    }
+    this.baseFileRowLineage = baseFileRowLineage;
   }
 
   /**
@@ -267,9 +294,12 @@ public final class HoodieFileGroupReader<T> implements HoodieRecordReader<T> {
           readerContext.getSchemaHandler().getTableSchema(),
           readerContext.getSchemaHandler().getRequiredSchema(), storage);
     }
+    // Filled before any filter applies, as the row lineage is derived from the position of a record in the base file
+    ClosableIterator<T> baseFileRecords = rowLineageHandler == null ? recordIterator
+        : rowLineageHandler.fillRowLineage(recordIterator, readerContext.getSchemaHandler().getRequiredSchema(), baseFileRowLineage.get());
     return readerContext.getInstantRange().isPresent()
-        ? readerContext.applyInstantRangeFilter(recordIterator)
-        : recordIterator;
+        ? readerContext.applyInstantRangeFilter(baseFileRecords)
+        : baseFileRecords;
   }
 
   private ClosableIterator<T> makeBootstrapBaseFileIterator(HoodieBaseFile baseFile) throws IOException {
@@ -356,6 +386,9 @@ public final class HoodieFileGroupReader<T> implements HoodieRecordReader<T> {
    */
   BufferedRecord<T> next() {
     BufferedRecord<T> nextVal = recordBuffer == null ? bufferedRecordConverter.convert(baseFileIterator.next()) : recordBuffer.next();
+    if (rowLineageHandler != null) {
+      rowLineageHandler.clearRowLineageIfChanged(nextVal);
+    }
     if (outputConverter.isPresent()) {
       return nextVal.project(outputConverter.get());
     }

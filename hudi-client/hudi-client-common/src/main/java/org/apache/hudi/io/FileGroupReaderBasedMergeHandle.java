@@ -20,6 +20,7 @@
 package org.apache.hudi.io;
 
 import org.apache.hudi.client.WriteStatus;
+import org.apache.hudi.common.HoodieTableFormat;
 import org.apache.hudi.common.config.HoodieCommonConfig;
 import org.apache.hudi.common.config.HoodieMemoryConfig;
 import org.apache.hudi.common.config.TypedProperties;
@@ -27,6 +28,7 @@ import org.apache.hudi.common.engine.HoodieReaderContext;
 import org.apache.hudi.common.engine.RecordContext;
 import org.apache.hudi.common.engine.TaskContextSupplier;
 import org.apache.hudi.common.fs.FSUtils;
+import org.apache.hudi.common.model.BaseFileRowLineage;
 import org.apache.hudi.common.model.CompactionOperation;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieIndexDefinition;
@@ -39,6 +41,8 @@ import org.apache.hudi.common.model.HoodieRecordDelegate;
 import org.apache.hudi.common.model.HoodieRecordLocation;
 import org.apache.hudi.common.model.HoodieWriteStat;
 import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
+import org.apache.hudi.common.schema.HoodieSchemaUtils;
 import org.apache.hudi.common.schema.internal.InternalSchema;
 import org.apache.hudi.common.schema.internal.utils.AvroSchemaEvolutionUtils;
 import org.apache.hudi.common.schema.internal.utils.SchemaChangeUtils;
@@ -265,6 +269,27 @@ public class FileGroupReaderBasedMergeHandle<T, I, K, O> extends HoodieWriteMerg
   }
 
   @Override
+  protected List<HoodieSchemaField> getRowLineageColumns() {
+    return hoodieTable.isMetadataTable() ? Collections.emptyList() : hoodieTable.getMetaClient().getTableFormat().getRowLineageColumns();
+  }
+
+  /**
+   * Returns the values from which the row lineage of the records carried over from the base file is derived.
+   */
+  private Option<BaseFileRowLineage> getBaseFileRowLineage() {
+    if (getRowLineageColumns().isEmpty() || baseFileToMerge == null) {
+      return Option.empty();
+    }
+    HoodieTableFormat tableFormat = hoodieTable.getMetaClient().getTableFormat();
+    Option<BaseFileRowLineage> baseFileRowLineage = tableFormat.getBaseFileRowLineage(hoodieTable.getMetaClient(), partitionPath, baseFileToMerge);
+    if (baseFileRowLineage.isEmpty()) {
+      throw new HoodieException("Table format " + tableFormat.getName() + " declares row lineage columns but has no row lineage for base file "
+          + baseFileToMerge.getPath() + ", so the records carried over from it cannot keep their row lineage");
+    }
+    return baseFileRowLineage;
+  }
+
+  @Override
   protected void populateIncomingRecordsMap(Iterator<HoodieRecord<T>> newRecordsItr) {
     // no op.
   }
@@ -290,6 +315,8 @@ public class FileGroupReaderBasedMergeHandle<T, I, K, O> extends HoodieWriteMerg
     Option<Stream<HoodieLogFile>> logFilesStreamOpt = compactionOperation.map(op -> op.getDeltaFileNames().stream().map(logFileName ->
         new HoodieLogFile(new StoragePath(FSUtils.constructAbsolutePath(
             config.getBasePath(), op.getPartitionPath()), logFileName))));
+    List<HoodieSchemaField> rowLineageColumns = getRowLineageColumns();
+    HoodieSchema writeSchemaWithRowLineage = HoodieSchemaUtils.appendRowLineageFields(writeSchema, rowLineageColumns);
     // Initializes file group reader
     try (HoodieRecordReader<T> fileGroupReader = getFileGroupReader(usePosition, internalSchemaOption, props, logFilesStreamOpt, incomingRecordsItr)) {
       // Reads the records from the file slice
@@ -312,7 +339,13 @@ public class FileGroupReaderBasedMergeHandle<T, I, K, O> extends HoodieWriteMerg
             // the operation will be null. Records that are being updated or records being added to the file group for the first time will have an operation set and must generate new metadata.
             boolean shouldPreserveRecordMetadata = preserveMetadata || record.getOperation() == null;
             HoodieSchema recordSchema = shouldPreserveRecordMetadata ? writeSchemaWithMetaFields : writeSchema;
-            writeToFile(record.getKey(), record, recordSchema, config.getPayloadConfig().getProps(), shouldPreserveRecordMetadata);
+            if (!shouldPreserveRecordMetadata && !rowLineageColumns.isEmpty()) {
+              // A new or updated record gets a new row lineage, so it is written with null in the row lineage columns
+              writeToFile(record.getKey(), record.rewriteRecordWithNewSchema(recordSchema, props, writeSchemaWithRowLineage),
+                  writeSchemaWithRowLineage, config.getPayloadConfig().getProps(), false);
+            } else {
+              writeToFile(record.getKey(), record, recordSchema, config.getPayloadConfig().getProps(), shouldPreserveRecordMetadata);
+            }
             writeStatus.markSuccess(record, recordMetadata);
             recordsWritten++;
           } catch (Exception e) {
@@ -345,12 +378,14 @@ public class FileGroupReaderBasedMergeHandle<T, I, K, O> extends HoodieWriteMerg
 
   protected HoodieRecordReader<T> getFileGroupReader(boolean usePosition, Option<InternalSchema> internalSchemaOption, TypedProperties props,
                                                      Option<Stream<HoodieLogFile>> logFileStreamOpt, Iterator<HoodieRecord<T>> incomingRecordsItr) {
+    Option<BaseFileRowLineage> baseFileRowLineage = getBaseFileRowLineage();
     HoodieFileGroupReader.HoodieFileGroupReaderBuilder<T> fileGroupBuilder = HoodieFileGroupReader.<T>builder().withReaderContext(readerContext).withHoodieTableMetaClient(hoodieTable.getMetaClient())
         .withLatestCommitTime(maxInstantTime).withPartitionPath(partitionPath).withBaseFileOption(Option.ofNullable(baseFileToMerge))
         .withDataSchema(writeSchemaWithMetaFields).withRequestedSchema(writeSchemaWithMetaFields)
         .withInternalSchemaOpt(internalSchemaOption).withProps(props)
         .withShouldUseRecordPosition(usePosition).withSortOutput(hoodieTable.requireSortedRecords())
-        .withFileGroupUpdateCallback(createCallback());
+        .withFileGroupUpdateCallback(createCallback())
+        .withRowLineageColumns(getRowLineageColumns()).withBaseFileRowLineage(baseFileRowLineage);
 
     if (logFileStreamOpt.isPresent()) {
       fileGroupBuilder.withLogFiles(logFileStreamOpt.get());

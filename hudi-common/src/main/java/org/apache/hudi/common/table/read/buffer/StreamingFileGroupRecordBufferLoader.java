@@ -63,7 +63,7 @@ public class StreamingFileGroupRecordBufferLoader<T> implements FileGroupRecordB
                                                                             List<String> orderingFieldNames, TableState tableState,
                                                                             TypedProperties props, ReaderParameters readerParameters, HoodieReadStats readStats,
                                                                             Option<BaseFileUpdateCallback<T>> fileGroupUpdateCallback) {
-    HoodieSchema recordSchema = HoodieSchemaCache.intern(getRecordSchema(readerContext, props));
+    HoodieSchema recordSchema = HoodieSchemaCache.intern(getRecordSchema(readerContext, props, readerParameters));
     readerContext.getSchemaHandler().setSchemaForUpdates(recordSchema);
     HoodieTableConfig tableConfig = tableState.getTableConfig();
     Option<PartialUpdateMode> partialUpdateModeOpt = tableConfig.getPartialUpdateMode();
@@ -94,13 +94,16 @@ public class StreamingFileGroupRecordBufferLoader<T> implements FileGroupRecordB
     return Pair.of(recordBuffer, Collections.emptyList());
   }
 
-  private static <T> HoodieSchema getRecordSchema(HoodieReaderContext<T> readerContext, TypedProperties props) {
+  private static <T> HoodieSchema getRecordSchema(HoodieReaderContext<T> readerContext, TypedProperties props, ReaderParameters readerParameters) {
     Option<Pair<String, String>> payloadClasses = readerContext.getPayloadClasses(props);
     if (payloadClasses.isPresent() && payloadClasses.get().getRight().equals("org.apache.spark.sql.hudi.command.payload.ExpressionPayload")) {
       String schemaStr = props.getString("hoodie.payload.record.schema");
       return HoodieSchema.parse(schemaStr);
     } else {
-      return HoodieSchemaUtils.removeMetadataFields(readerContext.getSchemaHandler().getRequestedSchema());
+      HoodieSchema recordSchema = HoodieSchemaUtils.removeMetadataFields(readerContext.getSchemaHandler().getRequestedSchema());
+      // The incoming records do not have the row lineage columns that are read from the base file either
+      return readerParameters.getRowLineageColumns().isEmpty()
+          ? recordSchema : HoodieSchemaUtils.removeFields(recordSchema, readerParameters.getRowLineageColumns());
     }
   }
 }

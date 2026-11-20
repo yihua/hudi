@@ -121,7 +121,8 @@ public abstract class HoodieWriteHandle<T, I, K, O> extends HoodieIOHandle<T, I,
     this.partitionPath = partitionPath;
     this.fileId = fileId;
     this.writeSchema = HoodieSchemaCache.intern(overriddenSchema.orElseGet(() -> getWriteSchema(config)));
-    this.writeSchemaWithMetaFields = HoodieSchemaCache.intern(HoodieSchemaUtils.addMetadataFields(writeSchema, config.allowOperationMetadataField()));
+    this.writeSchemaWithMetaFields = HoodieSchemaCache.intern(HoodieSchemaUtils.addMetadataFields(
+        HoodieSchemaUtils.appendRowLineageFields(writeSchema, getRowLineageColumns()), config.allowOperationMetadataField()));
     this.timer = HoodieTimer.start();
     this.newRecordLocation = new HoodieRecordLocation(instantTime, fileId);
     this.taskContextSupplier = taskContextSupplier;
@@ -164,6 +165,15 @@ public abstract class HoodieWriteHandle<T, I, K, O> extends HoodieIOHandle<T, I,
           .collect(Collectors.toList());
       secondaryIndexDefns.forEach(def -> writeStatus.getIndexStats().initSecondaryIndexStats(def.getIndexName()));
     }
+  }
+
+  /**
+   * Returns the row lineage columns this handle stores in the file it writes, after the columns of the table,
+   * see {@link org.apache.hudi.common.HoodieTableFormat#getRowLineageColumns()}. There are none unless the
+   * handle carries the row lineage of existing records over to that file. Called from the constructor.
+   */
+  protected List<HoodieSchemaField> getRowLineageColumns() {
+    return Collections.emptyList();
   }
 
   /**

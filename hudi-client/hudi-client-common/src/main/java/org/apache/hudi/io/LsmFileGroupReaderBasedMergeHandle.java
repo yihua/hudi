@@ -26,6 +26,7 @@ import org.apache.hudi.common.model.CompactionOperation;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.model.HoodieRecord;
+import org.apache.hudi.common.schema.HoodieSchemaField;
 import org.apache.hudi.common.schema.internal.InternalSchema;
 import org.apache.hudi.common.table.read.HoodieRecordReader;
 import org.apache.hudi.common.table.read.lsm.HoodieLsmFileGroupReader;
@@ -34,7 +35,9 @@ import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.keygen.BaseKeyGenerator;
 import org.apache.hudi.table.HoodieTable;
 
+import java.util.Collections;
 import java.util.Iterator;
+import java.util.List;
 import java.util.stream.Stream;
 
 /**
@@ -62,6 +65,12 @@ public class LsmFileGroupReaderBasedMergeHandle<T, I, K, O> extends FileGroupRea
                                             HoodieReaderContext<T> readerContext, String maxInstantTime,
                                             HoodieRecord.HoodieRecordType enginRecordType) {
     super(config, instantTime, hoodieTable, compactionOperation, taskContextSupplier, readerContext, maxInstantTime, enginRecordType);
+  }
+
+  @Override
+  protected List<HoodieSchemaField> getRowLineageColumns() {
+    // The LSM file-group reader does not maintain row lineage columns
+    return Collections.emptyList();
   }
 
   @Override
