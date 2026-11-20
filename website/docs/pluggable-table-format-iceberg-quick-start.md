@@ -40,6 +40,19 @@ same rows.
 With format version 3, rows also keep their Iceberg row lineage: a row that Hudi carries over unchanged keeps its
 `_row_id`, through upserts and clustering.
 
+## For Iceberg users
+
+| Topic | What to expect |
+|:------|:---------------|
+| Spec | A standard Iceberg table: metadata files, manifests and snapshots are written with the Iceberg library. Readers need no Hudi jars. |
+| Format version | 3 by default, with deletion vectors (Puffin) for merge-on-read and row lineage (`_row_id`, `_last_updated_sequence_number`). Version 2 for readers that need it. |
+| Catalogs | Path-based, or any Iceberg catalog named by class: REST (`org.apache.iceberg.rest.RESTCatalog`), AWS Glue, JDBC, Hive. This guide uses JDBC; the [AWS page](pluggable-table-format-iceberg-aws-demo.md) uses Glue. |
+| Query engines | Any engine that reads Iceberg from the catalog or the path, for example Spark, Trino, Amazon Athena (format version 2) and Snowflake. See the [AWS page](pluggable-table-format-iceberg-aws-demo.md). |
+| Snapshots and time travel | One snapshot per Hudi commit, with the usual operations (`append`, `overwrite`, `delete`). Time travel by snapshot id. Metadata tables such as `snapshots`, `files` and `delete_files` work. |
+| Writes | Upserts and deletes by key through Hudi's indexes, from Spark SQL `INSERT`, `UPDATE`, `DELETE` and `MERGE INTO`, or the DataFrame writer. |
+| Commits | Each Hudi commit is one atomic Iceberg commit through the catalog, for example a compare-and-swap of the metadata location in Glue. |
+| Table maintenance | Hudi runs it: compaction, clustering, cleaning, and snapshot expiry through archival. No separate Iceberg maintenance jobs. |
+
 ## How it works
 
 - **One copy of the data.** Hudi writes Parquet base files. The Iceberg metadata points at the same files.
