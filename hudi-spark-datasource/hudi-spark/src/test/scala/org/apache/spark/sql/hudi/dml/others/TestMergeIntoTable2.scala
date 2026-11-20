@@ -982,12 +982,13 @@ class TestMergeIntoTable2 extends HoodieSparkSqlTestBase {
             checkAnswer(s"select id, name, price, dt from $tableName")(
               Seq(3, "a3", 30.0, "p1"), Seq(4, "a4", 40.0, "p2"), Seq(5, "a5", 50.0, "p2"), Seq(6, "a6", 60.0, "p2"))
 
-            // Insert only with a condition: id 4 is matched and the unmatched id 10 fails the condition
+            // Insert only with a condition: id 4 is matched, the unmatched id 10 fails the condition, and so do
+            // two of the three source records of the unmatched id 7
             spark.sql(
               s"""
                  | merge into $tableName t
-                 | using (select 4 as id, 'a4n' as name, 71.0 as price, 'p2' as dt
-                 |  union all select 7, 'a7', 70.0, 'p1' union all select 10, 'a10', 5.0, 'p1') s
+                 | using (select 4 as id, 'a4n' as name, 71.0 as price, 'p2' as dt union all select 7, 'a7x', 5.0, 'p1'
+                 |  union all select 7, 'a7', 70.0, 'p1' union all select 7, 'a7y', 6.0, 'p1' union all select 10, 'a10', 5.0, 'p1') s
                  | on t.id = s.id
                  | when not matched and s.price > 50 then insert *
                """.stripMargin)
