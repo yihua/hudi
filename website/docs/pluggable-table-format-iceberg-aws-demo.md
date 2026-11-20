@@ -49,28 +49,6 @@ The demo runs three tables:
 
 All use Hudi table version 9.
 
-## What was tested
-
-Run on Amazon EMR 7.8.0 (Spark 3.5.4, Java 17), Iceberg 1.11.0, Hudi table version 9, with tables on S3 and Iceberg commits through the AWS Glue Data Catalog.
-
-| Step | `trips_v3` | `trips_v2` | `trips_mor` |
-|:-----|:-----------|:-----------|:------------|
-| Insert 1,000 rows | Pass (1,000 rows) | Pass (1,000 rows) | TBD |
-| Upsert: 200 updates, 50 new rows | Pass (1,050 rows) | Pass (1,050 rows) | TBD |
-| Delete 100 rows | Pass (950 rows) | Pass (950 rows) | TBD |
-| Compaction | Not applicable | Not applicable | TBD |
-| Clustering | Pass (950 rows) | Pass (950 rows) | TBD |
-| Clean | Pass (950 rows) | Pass (950 rows) | TBD |
-| Six more upserts with automatic clean and archival | Pass (950 rows each round) | Pass (950 rows each round) | TBD |
-| One more commit, then roll it back | Pass (960 rows, then 950 after rollback) | Pass (960 rows, then 950 after rollback) | TBD |
-
-After every step, the demo script checks that:
-
-- the rows read through the Glue Iceberg table equal the rows read through Hudi, and the expected rows;
-- the data files Iceberg references are the files Hudi considers live, and they exist on S3;
-- Glue's `metadata_location` points at the newest Iceberg metadata file, and `table_type` is `ICEBERG`;
-- the Iceberg format version is the configured one.
-
 ## Prerequisites
 
 - An EMR 7.x cluster with Spark 3.5. You do not need EMR's Iceberg or Hudi applications. If they are installed,
@@ -289,8 +267,6 @@ spark.sql("SELECT snapshot_id, operation, committed_at FROM glue.<glue_db>.trips
 # time travel to an earlier snapshot
 spark.read.option("snapshot-id", "<snapshot_id>").table("glue.<glue_db>.trips_v3").show()
 ```
-
-Row counts read through Glue matched Hudi's counts after every step; see the table in [What was tested](#what-was-tested).
 
 ## Step 5: Read with Amazon Athena
 
