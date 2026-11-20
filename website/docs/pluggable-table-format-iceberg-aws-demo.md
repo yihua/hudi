@@ -16,10 +16,9 @@ You keep what Hudi does well on the write side: record-level upserts and deletes
 services (clustering, compaction, cleaning, archival) that Hudi plans and runs. Readers get a standard Iceberg
 table. There is one copy of the data, and nothing to migrate.
 
-:::caution Draft
-This page describes a preview that needs snapshot builds. Results marked **TODO(results)** are filled in from the
-EMR run. For the concepts, the full list of settings and the limitations, read the
-[quick start](pluggable-table-format-iceberg-quick-start.md) first.
+:::caution Preview
+This page describes a preview that needs snapshot builds. For the concepts, the full list of settings and the
+limitations, read the [quick start](pluggable-table-format-iceberg-quick-start.md) first.
 :::
 
 ## What you will build
@@ -37,31 +36,33 @@ EMR run. For the concepts, the full list of settings and the limitations, read t
      | read through Glue
      |
   Athena (format version 2) . Trino (format version 2) . Spark on EMR (2 and 3)
-  Snowflake through its Glue catalog integration (not tested)
+  Snowflake (Glue catalog integration)
 ```
 
-The demo runs two copy-on-write tables, identical except for the Iceberg format version:
+The demo runs three tables:
 
-| Table | Iceberg format version | Read by |
-|:------|:-----------------------|:--------|
-| `trips_v3` | 3 (the default) | Spark on EMR |
-| `trips_v2` | 2 | Spark on EMR, Athena, Trino |
+| Table | Table type | Iceberg format version | Read by |
+|:------|:-----------|:-----------------------|:--------|
+| `trips_v3` | copy-on-write | 3 (the default) | Spark on EMR, Snowflake |
+| `trips_v2` | copy-on-write | 2 | Spark on EMR, Athena, Trino |
+| `trips_mor` | merge-on-read, deletion vectors | 3 | Spark on EMR, Snowflake |
 
-Both use Hudi table version 9.
+All use Hudi table version 9.
 
 ## What was tested
 
 Run on Amazon EMR 7.8.0 (Spark 3.5.4, Java 17), Iceberg 1.11.0, Hudi table version 9, with tables on S3 and Iceberg commits through the AWS Glue Data Catalog.
 
-| Step | `trips_v3` | `trips_v2` |
-|:-----|:-----------|:-----------|
-| Insert 1,000 rows | Pass (1,000 rows) | Pass (1,000 rows) |
-| Upsert: 200 updates, 50 new rows | Pass (1,050 rows) | Pass (1,050 rows) |
-| Delete 100 rows | Pass (950 rows) | Pass (950 rows) |
-| Clustering | Pass (950 rows) | Pass (950 rows) |
-| Clean | Pass (950 rows) | Pass (950 rows) |
-| Six more upserts with automatic clean and archival | Pass (950 rows each round) | Pass (950 rows each round) |
-| One more commit, then roll it back | Pass (960 rows, then 950 after rollback) | Pass (960 rows, then 950 after rollback) |
+| Step | `trips_v3` | `trips_v2` | `trips_mor` |
+|:-----|:-----------|:-----------|:------------|
+| Insert 1,000 rows | Pass (1,000 rows) | Pass (1,000 rows) | TBD |
+| Upsert: 200 updates, 50 new rows | Pass (1,050 rows) | Pass (1,050 rows) | TBD |
+| Delete 100 rows | Pass (950 rows) | Pass (950 rows) | TBD |
+| Compaction | Not applicable | Not applicable | TBD |
+| Clustering | Pass (950 rows) | Pass (950 rows) | TBD |
+| Clean | Pass (950 rows) | Pass (950 rows) | TBD |
+| Six more upserts with automatic clean and archival | Pass (950 rows each round) | Pass (950 rows each round) | TBD |
+| One more commit, then roll it back | Pass (960 rows, then 950 after rollback) | Pass (960 rows, then 950 after rollback) | TBD |
 
 After every step, the demo script checks that:
 
@@ -69,8 +70,6 @@ After every step, the demo script checks that:
 - the data files Iceberg references are the files Hudi considers live, and they exist on S3;
 - Glue's `metadata_location` points at the newest Iceberg metadata file, and `table_type` is `ICEBERG`;
 - the Iceberg format version is the configured one.
-
-Merge-on-read with deletion vectors was not part of this AWS run. **TODO(results):** add it if it is run on EMR.
 
 ## Prerequisites
 
@@ -94,11 +93,11 @@ Merge-on-read with deletion vectors was not part of this AWS run. **TODO(results
 | `xtable-core_2.12-0.5.0-SNAPSHOT.jar` |
 | `xtable-iceberg-pluggable-tf_2.12-0.5.0-SNAPSHOT.jar` |
 
-See [Build the snapshot jars](pluggable-table-format-iceberg-quick-start.md#build-the-snapshot-jars). You can build
+See [Build the jars](pluggable-table-format-iceberg-quick-start.md#build-the-jars). You can build
 them on the EMR primary node: Hudi needs JDK 11 and XTable needs JDK 17. Put the jars in one folder on the primary
 node, for example `/home/hadoop/ptf-jars`.
 
-**TODO(release):** publish the demo script with this page, or link to where it lives.
+**Demo script:** TBD
 
 ## Step 1: Start Spark with the Glue catalog
 
@@ -337,15 +336,24 @@ SELECT * FROM iceberg."<glue_db>"."trips_v2" LIMIT 10;
 SELECT * FROM iceberg."<glue_db>"."trips_v2" FOR VERSION AS OF <snapshot_id>;
 ```
 
-The Trino release we used reads Iceberg format versions 1 and 2, so this demo reads `trips_v2` from Trino.
+The Trino release on EMR 7.8.0 reads Iceberg format versions 1 and 2, so this demo reads `trips_v2` from Trino.
 
-**TODO(results):** Trino version, and per-step results on `trips_v2`.
+| | Result |
+|:--|:--|
+| Trino version | TBD |
+| Current table, `trips_v2` | TBD |
+| Time travel to each step's snapshot, `trips_v2` | TBD |
 
-## Snowflake (not tested)
+## Step 7: Read with Snowflake
 
-Snowflake can read Iceberg tables that are registered in the AWS Glue Data Catalog through its Glue catalog
-integration. Because the Hudi-written table is a standard Iceberg table in Glue, this should work the same way. We
-have not tested it.
+Snowflake reads Iceberg tables registered in the AWS Glue Data Catalog through a catalog integration for Glue.
+
+**Setup:** TBD
+
+| | Result |
+|:--|:--|
+| Current table, `trips_v3` | TBD |
+| Current table, `trips_mor` | TBD |
 
 ## The Iceberg route and Hudi's Glue sync
 
@@ -401,9 +409,8 @@ The [quick start limitations](pluggable-table-format-iceberg-quick-start.md#limi
 - **Athena and the Trino release we used read format version 2 only.** Use format version 2 for tables they must
   read. Format version 2 works for copy-on-write tables only.
 - **One writer at a time.** Table services run inside the writing job.
-- **Snowflake and other readers** are untested.
 
 ## Clean up
 
-Drop the Glue tables `trips_v3`, `trips_v2` and `trips_v2_hudi` from `<glue_db>`, and delete
+Drop the Glue tables `trips_v3`, `trips_v2`, `trips_mor` and `trips_v2_hudi` from `<glue_db>`, and delete
 `s3://<bucket>/<prefix>/`.
