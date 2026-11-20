@@ -20,7 +20,6 @@
 package org.apache.hudi.io;
 
 import org.apache.hudi.client.WriteStatus;
-import org.apache.hudi.common.HoodieTableFormat;
 import org.apache.hudi.common.config.HoodieCommonConfig;
 import org.apache.hudi.common.config.HoodieMemoryConfig;
 import org.apache.hudi.common.config.TypedProperties;
@@ -270,23 +269,7 @@ public class FileGroupReaderBasedMergeHandle<T, I, K, O> extends HoodieWriteMerg
 
   @Override
   protected List<HoodieSchemaField> getRowLineageColumns() {
-    return hoodieTable.isMetadataTable() ? Collections.emptyList() : hoodieTable.getMetaClient().getTableFormat().getRowLineageColumns();
-  }
-
-  /**
-   * Returns the values from which the row lineage of the records carried over from the base file is derived.
-   */
-  private Option<BaseFileRowLineage> getBaseFileRowLineage() {
-    if (getRowLineageColumns().isEmpty() || baseFileToMerge == null) {
-      return Option.empty();
-    }
-    HoodieTableFormat tableFormat = hoodieTable.getMetaClient().getTableFormat();
-    Option<BaseFileRowLineage> baseFileRowLineage = tableFormat.getBaseFileRowLineage(hoodieTable.getMetaClient(), partitionPath, baseFileToMerge);
-    if (baseFileRowLineage.isEmpty()) {
-      throw new HoodieException("Table format " + tableFormat.getName() + " declares row lineage columns but has no row lineage for base file "
-          + baseFileToMerge.getPath() + ", so the records carried over from it cannot keep their row lineage");
-    }
-    return baseFileRowLineage;
+    return getTableFormatRowLineageColumns();
   }
 
   @Override

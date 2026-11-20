@@ -19,9 +19,11 @@
 package org.apache.hudi.io;
 
 import org.apache.hudi.client.WriteStatus;
+import org.apache.hudi.common.HoodieTableFormat;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.engine.HoodieReaderContext;
 import org.apache.hudi.common.engine.TaskContextSupplier;
+import org.apache.hudi.common.model.BaseFileRowLineage;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieOperation;
@@ -31,6 +33,7 @@ import org.apache.hudi.common.model.HoodieWriteStat.RuntimeStats;
 import org.apache.hudi.common.model.MetaFieldsMode;
 import org.apache.hudi.common.model.MetadataValues;
 import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
 import org.apache.hudi.common.serialization.DefaultSerializer;
 import org.apache.hudi.common.table.read.BufferedRecord;
 import org.apache.hudi.common.table.read.BufferedRecords;
@@ -204,6 +207,29 @@ public class HoodieWriteMergeHandle<T, I, K, O> extends HoodieAbstractMergeHandl
 
   protected HoodieRecord.HoodieRecordType getRecordType() {
     return recordMerger.getRecordType();
+  }
+
+  /**
+   * Returns the row lineage columns the table format declares, none for the metadata table.
+   */
+  protected List<HoodieSchemaField> getTableFormatRowLineageColumns() {
+    return hoodieTable.isMetadataTable() ? Collections.emptyList() : hoodieTable.getMetaClient().getTableFormat().getRowLineageColumns();
+  }
+
+  /**
+   * Returns the values from which the row lineage of the records carried over from the base file is derived.
+   */
+  protected Option<BaseFileRowLineage> getBaseFileRowLineage() {
+    if (getRowLineageColumns().isEmpty() || baseFileToMerge == null) {
+      return Option.empty();
+    }
+    HoodieTableFormat tableFormat = hoodieTable.getMetaClient().getTableFormat();
+    Option<BaseFileRowLineage> baseFileRowLineage = tableFormat.getBaseFileRowLineage(hoodieTable.getMetaClient(), partitionPath, baseFileToMerge);
+    if (baseFileRowLineage.isEmpty()) {
+      throw new HoodieException("Table format " + tableFormat.getName() + " declares row lineage columns but has no row lineage for base file "
+          + baseFileToMerge.getPath() + ", so the records carried over from it cannot keep their row lineage");
+    }
+    return baseFileRowLineage;
   }
 
   /**

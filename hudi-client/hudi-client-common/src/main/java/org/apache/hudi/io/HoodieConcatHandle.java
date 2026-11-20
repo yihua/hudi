@@ -18,14 +18,19 @@
 
 package org.apache.hudi.io;
 
+import org.apache.hudi.common.engine.RecordContext;
 import org.apache.hudi.common.engine.TaskContextSupplier;
+import org.apache.hudi.common.model.BaseFileRowLineage;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecordLocation;
 import org.apache.hudi.common.model.MetaFieldsMode;
 import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
+import org.apache.hudi.common.schema.HoodieSchemaUtils;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.ValidationUtils;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieUpsertException;
 import org.apache.hudi.keygen.BaseKeyGenerator;
@@ -38,7 +43,9 @@ import javax.annotation.concurrent.NotThreadSafe;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 
 /**
  * Handle to concatenate new records to old records w/o any merging. If Operation is set to Inserts, and if {{@link HoodieWriteConfig#allowDuplicateInserts()}}
@@ -71,6 +78,14 @@ import java.util.Map;
 public class HoodieConcatHandle<T, I, K, O> extends HoodieWriteMergeHandle<T, I, K, O> {
   // a representation of incoming records that tolerates duplicate keys
   private final Iterator<HoodieRecord<T>> recordItr;
+  // Values from which the row lineage of the records carried over from the base file is derived, empty without row lineage columns
+  private Option<BaseFileRowLineage> baseFileRowLineage;
+  // Schema of the new records with the row lineage columns, null without row lineage columns
+  private HoodieSchema writeSchemaWithRowLineage;
+  private int rowIdPos;
+  private int sequenceNumberPos;
+  // Position in the base file of the next record carried over from it
+  private long baseFilePosition = 0;
 
   public HoodieConcatHandle(HoodieWriteConfig config, String instantTime, HoodieTable<T, I, K, O> hoodieTable,
                             MergeContext<T> mergeContext, String partitionPath, String fileId,
@@ -80,6 +95,7 @@ public class HoodieConcatHandle<T, I, K, O> extends HoodieWriteMergeHandle<T, I,
     // an empty iterator (keeping the update count) and keep the real iterator locally.
     super(config, instantTime, hoodieTable, MergeContext.create(mergeContext.getNumUpdates(), Collections.emptyIterator()), partitionPath, fileId, taskContextSupplier, keyGeneratorOpt);
     this.recordItr = mergeContext.getRecordIterator();
+    initRowLineage();
   }
 
   public HoodieConcatHandle(HoodieWriteConfig config, String instantTime, HoodieTable hoodieTable,
@@ -87,6 +103,27 @@ public class HoodieConcatHandle<T, I, K, O> extends HoodieWriteMergeHandle<T, I,
                             HoodieBaseFile baseFile, TaskContextSupplier taskContextSupplier) {
     super(config, instantTime, hoodieTable, Collections.emptyMap(), partitionPath, fileId, baseFile, taskContextSupplier, Option.empty());
     this.recordItr = keyToNewRecords.values().iterator();
+    initRowLineage();
+  }
+
+  @Override
+  protected List<HoodieSchemaField> getRowLineageColumns() {
+    return getTableFormatRowLineageColumns();
+  }
+
+  private void initRowLineage() {
+    this.baseFileRowLineage = getBaseFileRowLineage();
+    if (baseFileRowLineage.isPresent()) {
+      // The row lineage of a record is derived from its position in the base file, so every record of the
+      // base file has to be read in the order and with the schema of the file. The new records of the
+      // compaction path keep their metadata and are not written with null in the row lineage columns.
+      ValidationUtils.checkArgument(!preserveMetadata && !schemaOnReadEnabled && !baseFileToMerge.getBootstrapBaseFile().isPresent(),
+          "Row lineage columns cannot be carried over on the compaction path, from a bootstrap base file or with schema evolution on read");
+      List<HoodieSchemaField> rowLineageColumns = getRowLineageColumns();
+      this.writeSchemaWithRowLineage = HoodieSchemaUtils.appendRowLineageFields(writeSchema, rowLineageColumns);
+      this.rowIdPos = writeSchemaWithMetaFields.getField(rowLineageColumns.get(0).name()).get().pos();
+      this.sequenceNumberPos = writeSchemaWithMetaFields.getField(rowLineageColumns.get(1).name()).get().pos();
+    }
   }
 
   /**
@@ -97,6 +134,9 @@ public class HoodieConcatHandle<T, I, K, O> extends HoodieWriteMergeHandle<T, I,
     HoodieSchema oldSchema = metaFieldsMode == MetaFieldsMode.NONE ? writeSchema : writeSchemaWithMetaFields;
     String key = getRecordKey(oldRecord, oldSchema);
     try {
+      if (baseFileRowLineage.isPresent()) {
+        fillRowLineage(oldRecord);
+      }
       // NOTE: We're enforcing preservation of the record metadata to keep existing semantic
       writeToFile(new HoodieKey(key, partitionPath), oldRecord, oldSchema, config.getPayloadConfig().getProps(), true);
     } catch (IOException | RuntimeException e) {
@@ -107,6 +147,29 @@ public class HoodieConcatHandle<T, I, K, O> extends HoodieWriteMergeHandle<T, I,
       throw new HoodieUpsertException(errMsg, e);
     }
     recordsWritten++;
+  }
+
+  /**
+   * Fills the row lineage columns the base file does not store for the record, which is the next record of the
+   * base file and has the schema {@link #writeSchemaWithMetaFields}.
+   */
+  private void fillRowLineage(HoodieRecord<T> oldRecord) {
+    RecordContext<T> recordContext = readerContext.getRecordContext();
+    T data = oldRecord.getData();
+    T filled = recordContext.setLongIfNull(
+        recordContext.setLongIfNull(data, rowIdPos, baseFileRowLineage.get().getFirstRowId() + baseFilePosition++),
+        sequenceNumberPos, baseFileRowLineage.get().getSequenceNumber());
+    ValidationUtils.checkState(filled == data, "The row lineage columns of a record have to be updated in place");
+  }
+
+  @Override
+  protected void writeToFile(HoodieKey key, HoodieRecord<T> record, HoodieSchema schema, Properties props, boolean shouldPreserveRecordMetadata) throws IOException {
+    if (shouldPreserveRecordMetadata || writeSchemaWithRowLineage == null) {
+      super.writeToFile(key, record, schema, props, shouldPreserveRecordMetadata);
+    } else {
+      // A new record gets a new row lineage, so it is written with null in the row lineage columns
+      super.writeToFile(key, record.rewriteRecordWithNewSchema(schema, props, writeSchemaWithRowLineage), writeSchemaWithRowLineage, props, false);
+    }
   }
 
   @Override

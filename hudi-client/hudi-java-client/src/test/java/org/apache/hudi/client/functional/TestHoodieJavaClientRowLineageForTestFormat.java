@@ -60,6 +60,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -201,10 +202,16 @@ public class TestHoodieJavaClientRowLineageForTestFormat extends HoodieJavaClien
     assertRowLineageColumnsNotInTable(23);
   }
 
-  @Test
-  void testInsertIntoSmallFileKeepsRowLineageOfExistingRecords() throws Exception {
+  /**
+   * New records are routed into the existing small base file. An upsert merges them into the file with the file
+   * group reader based merge handle, an insert appends them to the records of the file with the concat handle.
+   */
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void testInsertIntoSmallFileKeepsRowLineageOfExistingRecords(boolean upsert) throws Exception {
     initTable(HoodieTableType.COPY_ON_WRITE, HoodieTableVersion.current(), true);
     HoodieWriteConfig config = buildConfig(HoodieTableVersion.current());
+    assertTrue(config.allowDuplicateInserts());
     HoodieJavaWriteClient client = getHoodieWriteClient(config);
 
     List<HoodieRecord> inserts = dataGen.generateInsertsForPartition("001", 10, PARTITION);
@@ -212,9 +219,8 @@ public class TestHoodieJavaClientRowLineageForTestFormat extends HoodieJavaClien
     HoodieBaseFile baseFile1 = getOnlyLatestBaseFile();
     Map<String, Pair<Long, Long>> rowLineage1 = deriveRowLineage(storageConf, basePath, baseFile1);
 
-    // An upsert with new records only, which are routed into the existing small base file
     List<HoodieRecord> newInserts = dataGen.generateInsertsForPartition("002", 5, PARTITION);
-    write(client, newInserts, true);
+    write(client, newInserts, upsert);
     HoodieBaseFile baseFile2 = getOnlyLatestBaseFile();
     assertEquals(baseFile1.getFileId(), baseFile2.getFileId());
     assertNotEquals(baseFile1.getFileName(), baseFile2.getFileName());
@@ -222,8 +228,20 @@ public class TestHoodieJavaClientRowLineageForTestFormat extends HoodieJavaClien
     Map<String, Pair<Long, Long>> expectedStored = new LinkedHashMap<>(rowLineage1);
     keys(newInserts).forEach(key -> expectedStored.put(key, NO_ROW_LINEAGE));
     assertEquals(expectedStored, readStoredRowLineage(storageConf, baseFile2));
-    assertNewRowLineage(basePath, baseFile2, deriveRowLineage(storageConf, basePath, baseFile2), keys(newInserts), rowLineage1.values());
+    Map<String, Pair<Long, Long>> rowLineage2 = deriveRowLineage(storageConf, basePath, baseFile2);
+    assertNewRowLineage(basePath, baseFile2, rowLineage2, keys(newInserts), rowLineage1.values());
     assertRowLineageChangesWithCommitSeqNo(storageConf, basePath, baseFile1, baseFile2, 10, 0);
+
+    // The second rewrite carries over records that store their row lineage in the base file and records that do not
+    List<HoodieRecord> newInserts2 = dataGen.generateInsertsForPartition("003", 3, PARTITION);
+    write(client, newInserts2, upsert);
+    HoodieBaseFile baseFile3 = getOnlyLatestBaseFile();
+    assertEquals(baseFile1.getFileId(), baseFile3.getFileId());
+    Map<String, Pair<Long, Long>> expectedStored3 = new LinkedHashMap<>(rowLineage2);
+    keys(newInserts2).forEach(key -> expectedStored3.put(key, NO_ROW_LINEAGE));
+    assertEquals(expectedStored3, readStoredRowLineage(storageConf, baseFile3));
+    assertNewRowLineage(basePath, baseFile3, deriveRowLineage(storageConf, basePath, baseFile3), keys(newInserts2), rowLineage2.values());
+    assertRowLineageChangesWithCommitSeqNo(storageConf, basePath, baseFile2, baseFile3, 15, 0);
   }
 
   /**
