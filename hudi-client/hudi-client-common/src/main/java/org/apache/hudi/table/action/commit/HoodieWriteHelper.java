@@ -86,6 +86,7 @@ public class HoodieWriteHelper<T, R> extends BaseWriteHelper<T, HoodieData<Hoodi
     // against the not-matched clauses on the insert path
     TypedProperties updateProps = TypedProperties.copy(props);
     updateProps.setProperty(HoodiePayloadProps.PAYLOAD_IS_UPDATE_RECORD_FOR_MOR, "true");
+    boolean keepReplacedRecords = HoodieIndexUtils.hasFormatMetaColumns(table);
     return taggedRecords
         // NOTE: the incoming record may hold an instance of [[InternalRow]] pointing into a
         //       shared, mutable buffer, so it has to be copied before the shuffle
@@ -99,6 +100,9 @@ public class HoodieWriteHelper<T, R> extends BaseWriteHelper<T, HoodieData<Hoodi
           }
           HoodieRecord<T> insertRecord = isExpressionPayload(record)
               ? evaluatedNewVersion(record, schema, updateProps) : record.newInstance(record.getKey());
+          if (insertRecord != null && keepReplacedRecords) {
+            HoodieIndexUtils.setReplacedRecord(insertRecord, record.getPartitionPath(), record.getCurrentLocation());
+          }
           HoodieRecord<T> deleteRecord = HoodieDeleteHelper.createDeleteRecord(config, record.getKey());
           deleteRecord.setIgnoreIndexUpdate(insertRecord != null);
           HoodieIndexUtils.tagRecord(deleteRecord, record.getCurrentLocation());
@@ -106,6 +110,12 @@ public class HoodieWriteHelper<T, R> extends BaseWriteHelper<T, HoodieData<Hoodi
               ? Collections.singletonList(deleteRecord).iterator()
               : Arrays.asList(deleteRecord, insertRecord).iterator();
         });
+  }
+
+  @Override
+  protected HoodieData<HoodieRecord<T>> resolveReplacedRecords(HoodieData<HoodieRecord<T>> taggedRecords,
+                                                              HoodieTable<T, HoodieData<HoodieRecord<T>>, HoodieData<HoodieKey>, HoodieData<WriteStatus>> table) {
+    return HoodieIndexUtils.resolveReplacedRecords(taggedRecords, table);
   }
 
   private static boolean isExpressionPayload(HoodieRecord<?> record) {

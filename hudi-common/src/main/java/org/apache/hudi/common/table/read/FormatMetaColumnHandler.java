@@ -32,8 +32,10 @@ import org.apache.hudi.common.util.collection.ClosableIterator;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -44,8 +46,9 @@ import java.util.stream.Collectors;
  * <p>A record carried over from the base file the way the file stores it gets the value the table format resolves
  * from the position of the record in the file and the value the file stores for it. A changed version of the last
  * record read from the base file gets the value on update of the column for the value resolved for that record, see
- * {@link FormatMetaColumn#valueOnUpdate}, and any other record the rewrite inserts or changes gets the value on write
- * of the column.
+ * {@link FormatMetaColumn#valueOnUpdate}, and so does a record that replaces a record of another file group for the
+ * value resolved for that record, see {@link #putReplacedValues}. Any other record the rewrite inserts or changes gets
+ * the value on write of the column.
  */
 public final class FormatMetaColumnHandler<T> {
   private final RecordContext<T> recordContext;
@@ -62,6 +65,8 @@ public final class FormatMetaColumnHandler<T> {
   private HoodieSchema lastBaseFileRecordSchema;
   private String lastBaseFileRecordKey;
   private Object[] lastBaseFileValues;
+  // Values resolved for the records of other file groups that records the rewrite writes replace, by record key
+  private Map<String, Object[]> replacedValuesByKey;
   // Positions of the columns in the schema of the records of the base file, resolved on the first record
   private int[] baseFileRecordPositions;
   // Positions of the columns in the schema of the last changed record, -1 for a column the schema does not have
@@ -166,25 +171,45 @@ public final class FormatMetaColumnHandler<T> {
   }
 
   /**
+   * Keeps the values of the format meta columns resolved for the record of another file group that the record with
+   * the given key replaces, see {@link org.apache.hudi.common.model.HoodieRecord#getReplacedRecord()}, so that the
+   * record gets the values on update for them.
+   *
+   * @param recordKey      key of the record
+   * @param replacedValues the values resolved for the replaced record, in the order of the columns
+   */
+  public void putReplacedValues(String recordKey, Object[] replacedValues) {
+    if (replacedValuesByKey == null) {
+      replacedValuesByKey = new HashMap<>();
+    }
+    replacedValuesByKey.put(recordKey, replacedValues);
+  }
+
+  /**
    * Returns the values of the format meta columns for a record written as new or changed: the values on update for
    * the values of the last record read from the base file if the record has its key, so is a changed version of it,
-   * and the values on write otherwise. A file group reader merges a record of the base file and returns the result
-   * before it reads the next one, so a record it returns as changed has the key of the last record read from the
-   * base file exactly when it replaces that record.
+   * the values on update for the values kept by {@link #putReplacedValues} for its key, and the values on write
+   * otherwise. A file group reader merges a record of the base file and returns the result before it reads the next
+   * one, so a record it returns as changed has the key of the last record read from the base file exactly when it
+   * replaces that record.
    */
   private Object[] valuesFor(String recordKey) {
-    if (lastBaseFileRecord == null) {
-      return valuesOnWrite;
+    if (lastBaseFileRecord != null) {
+      if (lastBaseFileRecordKey == null) {
+        lastBaseFileRecordKey = recordContext.getRecordKey(lastBaseFileRecord, lastBaseFileRecordSchema);
+      }
+      if (lastBaseFileRecordKey.equals(recordKey)) {
+        return valuesOnUpdate(lastBaseFileValues);
+      }
     }
-    if (lastBaseFileRecordKey == null) {
-      lastBaseFileRecordKey = recordContext.getRecordKey(lastBaseFileRecord, lastBaseFileRecordSchema);
-    }
-    if (!lastBaseFileRecordKey.equals(recordKey)) {
-      return valuesOnWrite;
-    }
+    Object[] replacedValues = replacedValuesByKey == null ? null : replacedValuesByKey.get(recordKey);
+    return replacedValues == null ? valuesOnWrite : valuesOnUpdate(replacedValues);
+  }
+
+  private Object[] valuesOnUpdate(Object[] replacedValues) {
     Object[] values = new Object[columns.size()];
     for (int i = 0; i < columns.size(); i++) {
-      values[i] = columns.get(i).valueOnUpdate(instantTime, lastBaseFileValues[i]);
+      values[i] = columns.get(i).valueOnUpdate(instantTime, replacedValues[i]);
     }
     return values;
   }
@@ -222,11 +247,28 @@ public final class FormatMetaColumnHandler<T> {
    * @return the record with the values set, which is the given record when it can be updated in place
    */
   public T setNonNullValuesOnWrite(String recordKey, T record, HoodieSchema schema) {
+    return setNonNullValues(record, schema, valuesFor(recordKey));
+  }
+
+  /**
+   * Sets the format meta columns of a record written as new or changed, which are null, to their non-null values on
+   * update for the given values of the record it replaces, or to their values on write without them.
+   *
+   * @param record         the record
+   * @param schema         schema of the record, which has the format meta columns
+   * @param replacedValues the values resolved for the record of another file group the record replaces, see
+   *                       {@link org.apache.hudi.common.model.HoodieRecord#getReplacedRecord()}, or null
+   * @return the record with the values set, which is the given record when it can be updated in place
+   */
+  public T setNonNullValuesOnUpdate(T record, HoodieSchema schema, Object[] replacedValues) {
+    return setNonNullValues(record, schema, replacedValues == null ? valuesOnWrite : valuesOnUpdate(replacedValues));
+  }
+
+  private T setNonNullValues(T record, HoodieSchema schema, Object[] values) {
     if (schema != writtenRecordSchema) {
       writtenRecordPositions = getPositions(schema);
       writtenRecordSchema = schema;
     }
-    Object[] values = valuesFor(recordKey);
     T result = record;
     for (int i = 0; i < columnNames.size(); i++) {
       if (values[i] != null) {

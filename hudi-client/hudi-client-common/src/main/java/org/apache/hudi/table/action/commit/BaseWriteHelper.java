@@ -51,6 +51,7 @@ import org.apache.hudi.exception.HoodieMultipleMatchesException;
 import org.apache.hudi.exception.HoodieNotSupportedException;
 import org.apache.hudi.exception.HoodieUpsertException;
 import org.apache.hudi.index.HoodieIndex;
+import org.apache.hudi.index.HoodieIndexUtils;
 import org.apache.hudi.index.bucket.HoodieBucketIndex;
 import org.apache.hudi.keygen.KeyGenUtils;
 import org.apache.hudi.table.HoodieTable;
@@ -93,6 +94,7 @@ public abstract class BaseWriteHelper<T, I, K, O, R> extends ParallelismHelper<I
         if (shouldWriteUpdatesAsDeletesAndInserts(table, operationType)) {
           taggedRecords = updatesAsDeletesAndInserts(taggedRecords, table, configuredShuffleParallelism);
         }
+        taggedRecords = resolveReplacedRecords(taggedRecords, table);
       }
 
       HoodieWriteMetadata<O> result = executor.execute(taggedRecords, Option.of(sourceReadAndIndexTimer));
@@ -232,6 +234,15 @@ public abstract class BaseWriteHelper<T, I, K, O, R> extends ParallelismHelper<I
             + "carry generated record keys, so an update or delete cannot locate the current version of a row and would "
             + "leave it next to the new one. Create the table with a primary key, or set "
             + HoodieWriteConfig.WRITE_UPDATES_AS_DELETES_AND_INSERTS.key() + " to false.");
+  }
+
+  /**
+   * Resolves the values of the format meta columns for the records that records of the write replace in other file
+   * groups, see {@link HoodieIndexUtils#resolveReplacedRecords}. Returns the records as they are for an engine that
+   * does not move records to other file groups.
+   */
+  protected I resolveReplacedRecords(I taggedRecords, HoodieTable<T, I, K, O> table) {
+    return taggedRecords;
   }
 
   /**

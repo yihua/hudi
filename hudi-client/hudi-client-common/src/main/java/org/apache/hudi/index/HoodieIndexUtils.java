@@ -18,6 +18,7 @@
 
 package org.apache.hudi.index;
 
+import org.apache.hudi.common.FormatMetaColumn;
 import org.apache.hudi.common.config.RecordMergeMode;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.data.HoodieData;
@@ -38,6 +39,7 @@ import org.apache.hudi.common.model.HoodieRecordGlobalLocation;
 import org.apache.hudi.common.model.HoodieRecordLocation;
 import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.model.MetadataValues;
+import org.apache.hudi.common.model.ReplacedRecord;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.schema.HoodieSchemaCache;
 import org.apache.hudi.common.schema.HoodieSchemaField;
@@ -63,6 +65,7 @@ import org.apache.hudi.common.util.HoodieTimer;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.ReflectionUtils;
 import org.apache.hudi.common.util.VisibleForTesting;
+import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.common.util.collection.CloseableMappingIterator;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.config.HoodieWriteConfig;
@@ -71,6 +74,7 @@ import org.apache.hudi.core.io.storage.HoodieIOFactory;
 import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.exception.HoodieIndexException;
 import org.apache.hudi.exception.HoodieMetadataIndexException;
+import org.apache.hudi.io.HoodieFormatMetaColumnFetchHandle;
 import org.apache.hudi.io.HoodieKeyLocationFetchHandle;
 import org.apache.hudi.keygen.BaseKeyGenerator;
 import org.apache.hudi.keygen.factory.HoodieAvroKeyGeneratorFactory;
@@ -87,6 +91,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -520,6 +525,7 @@ public class HoodieIndexUtils {
         hoodieTable.getMetaClient().getTableConfig().getPartialUpdateMode());
     String[] orderingFieldsArray = orderingFieldNames.toArray(new String[0]);
     DeleteContext deleteContext = DeleteContext.fromRecordSchema(properties, writerSchema);
+    boolean keepReplacedRecords = hasFormatMetaColumns(hoodieTable);
     HoodieData<HoodieRecord<R>> taggedUpdatingRecords = untaggedUpdatingRecords.mapToPair(r -> Pair.of(r.getRecordKey(), r))
         .leftOuterJoin(existingRecords.mapToPair(r -> Pair.of(r.getRecordKey(), r)))
         .values().flatMap(entry -> {
@@ -550,6 +556,9 @@ public class HoodieIndexUtils {
             // merged record has a different partition: issue a delete to the old partition and insert the merged record to the new partition
             HoodieRecord<R> deleteRecord = createDeleteRecord(updatedConfig, existing.getKey());
             deleteRecord.setIgnoreIndexUpdate(true);
+            if (keepReplacedRecords) {
+              setReplacedRecord(merged, existing.getPartitionPath(), existing.getCurrentLocation());
+            }
             return Arrays.asList(tagRecord(deleteRecord, existing.getCurrentLocation()), merged).iterator();
           } else {
             // merged record has a different partition path but shouldUpdatePartitionPath is false, treat as an update to the existing location
@@ -651,13 +660,7 @@ public class HoodieIndexUtils {
     if (baseFiles.isEmpty()) {
       return taggedRecords;
     }
-    Option<BaseKeyGenerator> keyGeneratorOpt;
-    try {
-      keyGeneratorOpt = config.populateMetaFields()
-          ? Option.empty() : Option.of((BaseKeyGenerator) HoodieAvroKeyGeneratorFactory.createKeyGenerator(config.getProps()));
-    } catch (IOException e) {
-      throw new HoodieIOException("Failed to create the key generator to read record keys", e);
-    }
+    Option<BaseKeyGenerator> keyGeneratorOpt = getKeyGeneratorToReadRecordKeys(config);
     HoodiePairData<Pair<HoodieKey, String>, Long> positions = table.getContext().parallelize(baseFiles, baseFiles.size())
         .flatMap(baseFile -> new HoodieKeyLocationFetchHandle(config, table, baseFile, keyGeneratorOpt).locations())
         .mapToPair(entry -> {
@@ -678,6 +681,134 @@ public class HoodieIndexUtils {
           return tagRecord(positionedRecord, new HoodieRecordLocation(location.getInstantTime(), location.getFileId(), position));
         });
     return taggedRecords.filter(record -> !isLocatedWithoutPosition(record)).union(positionedRecords);
+  }
+
+  /**
+   * Returns the key generator that gives the record keys of the records read from a base file, empty when the table
+   * populates the meta fields.
+   */
+  private static Option<BaseKeyGenerator> getKeyGeneratorToReadRecordKeys(HoodieWriteConfig config) {
+    try {
+      return config.populateMetaFields()
+          ? Option.empty() : Option.of((BaseKeyGenerator) HoodieAvroKeyGeneratorFactory.createKeyGenerator(config.getProps()));
+    } catch (IOException e) {
+      throw new HoodieIOException("Failed to create the key generator to read record keys", e);
+    }
+  }
+
+  /**
+   * Returns the format meta columns the table format declares, none for the metadata table.
+   */
+  private static List<FormatMetaColumn> getFormatMetaColumns(HoodieTable<?, ?, ?, ?> table) {
+    return table.isMetadataTable() ? Collections.emptyList() : table.getMetaClient().getTableFormat().getFormatMetaColumns();
+  }
+
+  /**
+   * Sets on the new version of a record, which a write moves to another file group than the one of its current
+   * version, the record it replaces, so that it can keep the values of the format meta columns of that record, see
+   * {@link FormatMetaColumn#valueOnUpdate}. Call it only for a table whose format declares format meta columns.
+   *
+   * @param newVersion    the new version of the record
+   * @param partitionPath partition path of the replaced record
+   * @param location      location of the replaced record
+   */
+  public static void setReplacedRecord(HoodieRecord<?> newVersion, String partitionPath, HoodieRecordLocation location) {
+    newVersion.setReplacedRecord(new ReplacedRecord(
+        new HoodieRecordGlobalLocation(partitionPath, location.getInstantTime(), location.getFileId(), location.getPosition())));
+  }
+
+  /**
+   * Whether the table format declares format meta columns, whose values the new version of a record moved to another
+   * file group can keep, see {@link #setReplacedRecord}.
+   */
+  public static boolean hasFormatMetaColumns(HoodieTable<?, ?, ?, ?> table) {
+    return !getFormatMetaColumns(table).isEmpty();
+  }
+
+  /**
+   * Resolves the values of the format meta columns for the records that records of the write replace in other file
+   * groups, see {@link HoodieRecord#getReplacedRecord()}, so that their new versions can keep them. One task per file
+   * group reads the records it holds from the latest base file of the file group, at their positions, which it reads
+   * by record key for a replaced record located without one. A replaced record that is not in that base file gets no
+   * values, so its new version gets the values on write. Returns the records as they are when the table format
+   * declares no format meta columns.
+   *
+   * @param records the records of the write, tagged with their locations
+   * @param table   the table
+   * @return the same records, with the values resolved for the records they replace
+   */
+  public static <R> HoodieData<HoodieRecord<R>> resolveReplacedRecords(HoodieData<HoodieRecord<R>> records, HoodieTable table) {
+    List<FormatMetaColumn> columns = getFormatMetaColumns(table);
+    if (columns.isEmpty()) {
+      return records;
+    }
+    HoodieWriteConfig config = table.getConfig();
+    Option<BaseKeyGenerator> keyGeneratorOpt = getKeyGeneratorToReadRecordKeys(config);
+    HoodieData<HoodieRecord<R>> replacingRecords = records.filter(record -> record.getReplacedRecord() != null);
+    HoodiePairData<HoodieKey, Object[]> replacedValues = replacingRecords
+        .mapToPair(record -> {
+          HoodieRecordGlobalLocation location = record.getReplacedRecord().getLocation();
+          return Pair.of(Pair.of(location.getPartitionPath(), location.getFileId()), Pair.of(record.getKey(), location.getPosition()));
+        })
+        .groupByKey()
+        .map(fileGroupAndRecords -> fetchReplacedValues(config, table, columns, keyGeneratorOpt,
+            fileGroupAndRecords.getLeft(), fileGroupAndRecords.getRight()))
+        .flatMap(List::iterator)
+        .mapToPair(keyAndValues -> keyAndValues);
+    HoodieData<HoodieRecord<R>> resolvedRecords = replacingRecords
+        .mapToPair(record -> Pair.of(record.getKey(), record))
+        .leftOuterJoin(replacedValues)
+        .values()
+        .map(recordAndValues -> {
+          HoodieRecord<R> record = recordAndValues.getLeft();
+          if (recordAndValues.getRight().isPresent()) {
+            record.setReplacedRecord(record.getReplacedRecord().withFormatMetaColumnValues(recordAndValues.getRight().get()));
+          }
+          return record;
+        });
+    return records.filter(record -> record.getReplacedRecord() == null).union(resolvedRecords);
+  }
+
+  /**
+   * Returns the values of the format meta columns for the replaced records of one file group, by the key of the
+   * record that replaces each of them.
+   */
+  private static List<Pair<HoodieKey, Object[]>> fetchReplacedValues(HoodieWriteConfig config, HoodieTable table, List<FormatMetaColumn> columns,
+                                                                     Option<BaseKeyGenerator> keyGeneratorOpt, Pair<String, String> fileGroup,
+                                                                     Iterable<Pair<HoodieKey, Long>> replacedRecords) {
+    Option<HoodieBaseFile> baseFile = table.getBaseFileOnlyView().getLatestBaseFile(fileGroup.getLeft(), fileGroup.getRight());
+    if (!baseFile.isPresent()) {
+      return Collections.emptyList();
+    }
+    Pair<String, HoodieBaseFile> partitionPathAndBaseFile = Pair.of(fileGroup.getLeft(), baseFile.get());
+    Map<Long, HoodieKey> keysByPosition = new HashMap<>();
+    Map<String, HoodieKey> keysWithoutPosition = new HashMap<>();
+    for (Pair<HoodieKey, Long> replacedRecord : replacedRecords) {
+      if (HoodieRecordLocation.isPositionValid(replacedRecord.getRight())) {
+        keysByPosition.put(replacedRecord.getRight(), replacedRecord.getLeft());
+      } else {
+        keysWithoutPosition.put(replacedRecord.getLeft().getRecordKey(), replacedRecord.getLeft());
+      }
+    }
+    if (!keysWithoutPosition.isEmpty()) {
+      try (ClosableIterator<Pair<HoodieKey, HoodieRecordLocation>> locations =
+               new HoodieKeyLocationFetchHandle(config, table, partitionPathAndBaseFile, keyGeneratorOpt).locations()) {
+        while (locations.hasNext()) {
+          Pair<HoodieKey, HoodieRecordLocation> location = locations.next();
+          HoodieKey key = keysWithoutPosition.get(location.getLeft().getRecordKey());
+          if (key != null) {
+            keysByPosition.put(location.getRight().getPosition(), key);
+          }
+        }
+      }
+    }
+    long[] positions = keysByPosition.keySet().stream().mapToLong(Long::longValue).sorted().toArray();
+    List<Object[]> values = new HoodieFormatMetaColumnFetchHandle(config, table, partitionPathAndBaseFile, columns).valuesAt(positions);
+    List<Pair<HoodieKey, Object[]>> keysAndValues = new ArrayList<>(positions.length);
+    for (int i = 0; i < positions.length; i++) {
+      keysAndValues.add(Pair.of(keysByPosition.get(positions[i]), values.get(i)));
+    }
+    return keysAndValues;
   }
 
   private static boolean isLocatedWithoutPosition(HoodieRecord<?> record) {
