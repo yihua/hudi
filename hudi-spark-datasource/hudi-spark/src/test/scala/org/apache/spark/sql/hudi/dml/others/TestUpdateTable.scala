@@ -721,4 +721,26 @@ class TestUpdateTable extends HoodieSparkSqlTestBase {
       }
     }
   }
+
+  test("Test Update And Delete Refuse Non-Deterministic Conditions") {
+    withTempDir { tmp =>
+      Seq("cow", "mor").foreach { tableType =>
+        val tableName = generateTableName
+        spark.sql(
+          s"""
+             |create table $tableName (
+             |  id int,
+             |  v int
+             |) using hudi
+             | location '${tmp.getCanonicalPath}/$tableName'
+             | tblproperties (primaryKey = 'id', type = '$tableType')
+           """.stripMargin)
+        spark.sql(s"insert into $tableName values (1, 10), (2, 20)")
+
+        checkExceptionContain(s"update $tableName set v = -1 where id = 1 and rand() > 0.5")("deterministic expression")
+        checkExceptionContain(s"delete from $tableName where id = 1 and rand() > 0.5")("deterministic expression")
+        checkAnswer(s"select id, v from $tableName order by id")(Seq(1, 10), Seq(2, 20))
+      }
+    }
+  }
 }
