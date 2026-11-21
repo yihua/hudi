@@ -26,7 +26,8 @@ import org.apache.spark.sql.{SaveMode, SparkSession}
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
 import org.apache.spark.sql.catalyst.catalog.{CatalogStorageFormat, CatalogTable, HoodieCatalogTable}
-import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSeq, Expression, GenericInternalRow}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSeq, Expression, GenericInternalRow, SubqueryExpression}
+import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
 import org.apache.spark.sql.catalyst.optimizer.ReplaceExpressions
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules.Rule
@@ -520,10 +521,16 @@ case class ResolveImplementations(sparkSession: SparkSession) extends Rule[Logic
             throw new HoodieAnalysisException(
               "WHEN NOT MATCHED BY SOURCE clause is not supported in MERGE INTO statement on a Hudi table")
           }
-          MergeIntoHoodieTableCommand(resolveAssignments(ReplaceExpressions(mit).asInstanceOf[MergeIntoTable]))
+          val mergeInto = mit.asInstanceOf[MergeIntoTable]
+          validateActionConditions(mergeInto)
+          if (hasNonDeterministicCondition(mergeInto)) {
+            mergeInto
+          } else {
+            MergeIntoHoodieTableCommand(resolveAssignments(ReplaceExpressions(mergeInto).asInstanceOf[MergeIntoTable]))
+          }
 
         // Convert to UpdateHoodieTableCommand
-        case ut@UpdateTable(plan@ResolvesToHudiTable(_), _, _) if ut.resolved =>
+        case ut@UpdateTable(plan@ResolvesToHudiTable(_), _, _) if ut.resolved && !ut.condition.exists(!_.deterministic) =>
           val resolvedUpdate = ut.copy(assignments =
             sparkAdapter.getCatalystPlanUtils.resolveRowLevelAssignments(ut.table.output, ut.assignments, isInsert = false))
           val inputPlan = UpdateHoodieTableCommand.inputPlan(sparkSession, resolvedUpdate)
@@ -531,7 +538,8 @@ case class ResolveImplementations(sparkSession: SparkSession) extends Rule[Logic
 
 
         // Convert to DeleteHoodieTableCommand
-        case dft@DeleteFromTable(ResolvesToHudiTable(table), _) if dft.resolved =>
+        case dft@DeleteFromTable(ResolvesToHudiTable(table), _)
+          if dft.resolved && Option(sparkAdapter.extractDeleteCondition(dft)).forall(_.deterministic) =>
           val catalogTable = new HoodieCatalogTable(sparkSession, table)
           val (plan, config) = DeleteHoodieTableCommand.inputPlan(sparkSession, dft, catalogTable)
           DeleteHoodieTableCommand(catalogTable, plan, config)
@@ -615,6 +623,38 @@ case class ResolveImplementations(sparkSession: SparkSession) extends Rule[Logic
     }
     ProcedureArgs(isNamedArgs, map, new GenericInternalRow(values))
   }
+
+  /**
+   * A statement with a non-deterministic condition is left as it is, for Spark's analysis check to
+   * reject it as it does on other tables: the write evaluates a condition more than once per record.
+   */
+  private def hasNonDeterministicCondition(mergeInto: MergeIntoTable): Boolean =
+    !mergeInto.mergeCondition.deterministic ||
+      (mergeInto.matchedActions ++ mergeInto.notMatchedActions).exists(_.condition.exists(!_.deterministic))
+
+  /**
+   * The write evaluates the condition of each action per record, where a subquery has no result
+   * and an aggregate has no group to aggregate.
+   */
+  private def validateActionConditions(mergeInto: MergeIntoTable): Unit =
+    (mergeInto.matchedActions ++ mergeInto.notMatchedActions).foreach { action =>
+      val actionName = action match {
+        case _: UpdateAction => "UPDATE"
+        case _: DeleteAction => "DELETE"
+        case _: InsertAction => "INSERT"
+        case _ => action.prettyName.toUpperCase
+      }
+      action.condition.foreach { condition =>
+        if (SubqueryExpression.hasSubquery(condition)) {
+          throw new HoodieAnalysisException(s"MERGE operation contains unsupported $actionName condition. " +
+            s"Subqueries are not allowed: ${condition.sql}")
+        }
+        if (condition.exists(_.isInstanceOf[AggregateExpression])) {
+          throw new HoodieAnalysisException(s"MERGE operation contains unsupported $actionName condition. " +
+            s"Aggregates are not allowed: ${condition.sql}")
+        }
+      }
+    }
 
   private def resolveAssignments(mergeInto: MergeIntoTable): MergeIntoTable = {
     val planUtils = sparkAdapter.getCatalystPlanUtils
