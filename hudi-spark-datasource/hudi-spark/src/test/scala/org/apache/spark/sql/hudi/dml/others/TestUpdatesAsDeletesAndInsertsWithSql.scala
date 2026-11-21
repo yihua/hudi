@@ -18,14 +18,14 @@
 
 package org.apache.spark.sql.hudi.dml.others
 
-import org.apache.hudi.DataSourceWriteOptions.SPARK_SQL_OPTIMIZED_WRITES
+import org.apache.hudi.DataSourceWriteOptions.{ENABLE_MERGE_INTO_PARTIAL_UPDATES, SPARK_SQL_OPTIMIZED_WRITES}
 import org.apache.hudi.common.model.HoodieRecord.HoodieRecordType
 import org.apache.hudi.common.table.TableSchemaResolver
 import org.apache.hudi.common.table.log.HoodieLogFormat
 import org.apache.hudi.common.table.log.block.HoodieDeleteBlock
 import org.apache.hudi.common.testutils.HoodieTestUtils
 import org.apache.hudi.common.util.ConfigUtils.DEFAULT_HUDI_CONFIG_FOR_READER
-import org.apache.hudi.config.HoodieWriteConfig
+import org.apache.hudi.config.{HoodieCompactionConfig, HoodieWriteConfig}
 import org.apache.hudi.core.io.storage.HoodieIOFactory
 import org.apache.hudi.storage.StoragePath
 import org.apache.hudi.table.action.commit.BaseWriteHelper
@@ -124,20 +124,131 @@ class TestUpdatesAsDeletesAndInsertsWithSql extends HoodieSparkSqlTestBase {
     }
   }
 
-  test("Test MERGE INTO with a partial update assignment writing updates as deletes and inserts") {
-    withTable { (tableName, tablePath) =>
-      // An insert into a base file must carry every column, which a partial update record does not
-      checkExceptionContain(
+  /**
+   * A MERGE INTO whose matched clauses need the target record, which the split of an update reads: the statement
+   * with its SQL confs, then the rows and the keys of the positional deletes it leaves.
+   */
+  private case class TargetRecordCase(name: String,
+                                      statement: String => String,
+                                      rows: Seq[Seq[Any]],
+                                      deletedKeys: Seq[String],
+                                      conf: Seq[(String, String)] = Seq.empty)
+
+  private val targetConditionCases = Seq(
+    // id 2 fails both conditions and id 6 has no match
+    TargetRecordCase("update and delete conditions on target fields with an insert",
+      tableName =>
         s"""
            |merge into $tableName t
-           |using (select 1 as id, 12.0 as price, 'p1' as dt) s
+           |using (select 1 as id, 'a1m' as name, 11.0 as price, 'p1' as dt union all select 2, 'a2m', 21.0, 'p1'
+           |  union all select 3, 'a3m', 31.0, 'p1' union all select 5, 'a5m', 51.0, 'p2' union all select 6, 'a6', 60.0, 'p2') s
+           |on t.id = s.id
+           |when matched and t.price < 20 then update set *
+           |when matched and t.price >= 30 then delete
+           |when not matched then insert *
+         """.stripMargin,
+      Seq(Seq(1, "a1m", 11.0, "p1"), Seq(2, "a2", 20.0, "p1"), Seq(4, "a4", 40.0, "p2"), Seq(6, "a6", 60.0, "p2")),
+      Seq("1", "3", "5")),
+    // id 2 fails the condition and id 9 has no match
+    TargetRecordCase("a delete condition on a target field without an update clause",
+      tableName =>
+        s"""
+           |merge into $tableName t
+           |using (select 2 as id, 'p1' as dt union all select 3, 'p1' union all select 9, 'p1') s
+           |on t.id = s.id
+           |when matched and t.price > 25 then delete
+         """.stripMargin,
+      Seq(Seq(1, "a1", 10.0, "p1"), Seq(2, "a2", 20.0, "p1"), Seq(4, "a4", 40.0, "p2"), Seq(5, "a5", 50.0, "p2")),
+      Seq("3")))
+
+  private val targetAssignmentCases = Seq(
+    TargetRecordCase("an update that leaves out columns",
+      tableName =>
+        s"""
+           |merge into $tableName t
+           |using (select 1 as id, 12.0 as price, 'p1' as dt union all select 4, 42.0, 'p2') s
            |on t.id = s.id
            |when matched then update set price = s.price
-         """.stripMargin)(HoodieWriteConfig.WRITE_PARTIAL_UPDATE_SCHEMA.key)
+         """.stripMargin,
+      Seq(Seq(1, "a1", 12.0, "p1"), Seq(2, "a2", 20.0, "p1"), Seq(3, "a3", 30.0, "p1"), Seq(4, "a4", 42.0, "p2"),
+        Seq(5, "a5", 50.0, "p2")),
+      Seq("1", "4")),
+    TargetRecordCase("an update that leaves out columns with partial updates off",
+      tableName =>
+        s"""
+           |merge into $tableName t
+           |using (select 2 as id, 'a2m' as name, 'p1' as dt union all select 5, 'a5m', 'p2') s
+           |on t.id = s.id
+           |when matched then update set id = s.id, name = s.name
+         """.stripMargin,
+      Seq(Seq(1, "a1", 10.0, "p1"), Seq(2, "a2m", 20.0, "p1"), Seq(3, "a3", 30.0, "p1"), Seq(4, "a4", 40.0, "p2"),
+        Seq(5, "a5m", 50.0, "p2")),
+      Seq("2", "5"),
+      Seq(ENABLE_MERGE_INTO_PARTIAL_UPDATES.key -> "false")),
+    TargetRecordCase("an update that assigns from target fields",
+      tableName =>
+        s"""
+           |merge into $tableName t
+           |using (select 3 as id, 1.5 as price, 'p1' as dt) s
+           |on t.id = s.id
+           |when matched then update set price = t.price + s.price, name = concat(t.name, '-', t.dt)
+         """.stripMargin,
+      Seq(Seq(1, "a1", 10.0, "p1"), Seq(2, "a2", 20.0, "p1"), Seq(3, "a3-p1", 31.5, "p1"), Seq(4, "a4", 40.0, "p2"),
+        Seq(5, "a5", 50.0, "p2")),
+      Seq("3")))
+
+  // A global index can merge a source record with the record it matches while it tags, which leaves a delete to the split
+  Seq(("SIMPLE", true, targetConditionCases ++ targetAssignmentCases),
+    ("SIMPLE", false, targetConditionCases ++ targetAssignmentCases.take(1)),
+    ("GLOBAL_SIMPLE", true, targetConditionCases.take(1))).foreach { case (indexType, partitioned, cases) =>
+    cases.foreach { mergeCase =>
+      test(s"Test MERGE INTO with ${mergeCase.name} writing updates as deletes and inserts with $indexType index"
+        + s" on a ${if (partitioned) "partitioned" else "non-partitioned"} table") {
+        withTable(indexType, partitioned) { (tableName, tablePath) =>
+          withSQLConf(mergeCase.conf: _*) {
+            spark.sql(mergeCase.statement(tableName))
+          }
+          checkAnswer(s"select id, name, price, dt from $tableName order by id")(mergeCase.rows: _*)
+          assertEquals(mergeCase.deletedKeys, positionalDeletes(tablePath, partitioned))
+
+          withSQLConf(HoodieCompactionConfig.INLINE_COMPACT_NUM_DELTA_COMMITS.key -> "1") {
+            spark.sql(s"call run_compaction(op => 'run', table => '$tableName')")
+          }
+          assertEquals(1, HoodieTestUtils.createMetaClient(HoodieTestUtils.getDefaultStorageConf, tablePath)
+            .getActiveTimeline.getCommitTimeline.filterCompletedInstants.countInstants)
+          checkAnswer(s"select id, name, price, dt from $tableName order by id")(mergeCase.rows: _*)
+        }
+      }
+    }
+  }
+
+  test("Test MERGE INTO of a deleted record writing updates as deletes and inserts") {
+    withTable { (tableName, tablePath) =>
+      spark.sql(s"delete from $tableName where id = 1")
+      // The index still locates the deleted copy of id 1 in its base file, which is no match
+      spark.sql(
+        s"""
+           |merge into $tableName t
+           |using (select 1 as id, 'a1m' as name, 11.0 as price, 'p1' as dt) s
+           |on t.id = s.id
+           |when matched then update set *
+         """.stripMargin)
       checkAnswer(s"select id, name, price, dt from $tableName order by id")(
-        Seq(1, "a1", 10.0, "p1"), Seq(2, "a2", 20.0, "p1"), Seq(3, "a3", 30.0, "p1"),
-        Seq(4, "a4", 40.0, "p2"), Seq(5, "a5", 50.0, "p2"))
-      assertEquals(Seq.empty, positionalDeletes(tablePath))
+        Seq(2, "a2", 20.0, "p1"), Seq(3, "a3", 30.0, "p1"), Seq(4, "a4", 40.0, "p2"), Seq(5, "a5", 50.0, "p2"))
+      assertEquals(Seq("1"), positionalDeletes(tablePath))
+
+      spark.sql(
+        s"""
+           |merge into $tableName t
+           |using (select 1 as id, 'a1n' as name, 12.0 as price, 'p1' as dt) s
+           |on t.id = s.id
+           |when matched then update set id = s.id, name = 'matched', price = s.price, dt = s.dt
+           |when not matched then insert *
+         """.stripMargin)
+      checkAnswer(s"select id, name, price, dt from $tableName order by id")(
+        Seq(1, "a1n", 12.0, "p1"), Seq(2, "a2", 20.0, "p1"), Seq(3, "a3", 30.0, "p1"), Seq(4, "a4", 40.0, "p2"),
+        Seq(5, "a5", 50.0, "p2"))
+      assertEquals(Seq("1"), positionalDeletes(tablePath))
     }
   }
 
@@ -205,12 +316,14 @@ class TestUpdatesAsDeletesAndInsertsWithSql extends HoodieSparkSqlTestBase {
   }
 
   /**
-   * Creates a partitioned merge-on-read table with the write mode enabled, holding ids 1 to 3 in
-   * partition p1 and ids 4 and 5 in partition p2.
+   * Creates a merge-on-read table with the write mode enabled, holding ids 1 to 3 with dt p1 and ids 4 and 5
+   * with dt p2, which are its partitions unless it is not partitioned.
    */
   private def withTable(f: (String, String) => Unit): Unit = withTable("SIMPLE")(f)
 
-  private def withTable(indexType: String)(f: (String, String) => Unit): Unit = {
+  private def withTable(indexType: String)(f: (String, String) => Unit): Unit = withTable(indexType, partitioned = true)(f)
+
+  private def withTable(indexType: String, partitioned: Boolean)(f: (String, String) => Unit): Unit = {
     withTempDir { tmp =>
       val tableName = generateTableName
       val tablePath = s"${tmp.getCanonicalPath}/$tableName"
@@ -223,7 +336,7 @@ class TestUpdatesAsDeletesAndInsertsWithSql extends HoodieSparkSqlTestBase {
              |  price double,
              |  dt string
              |) using hudi
-             | partitioned by (dt)
+             | ${if (partitioned) "partitioned by (dt)" else ""}
              | location '$tablePath'
              | tblproperties (
              |  type = 'mor',
@@ -242,12 +355,12 @@ class TestUpdatesAsDeletesAndInsertsWithSql extends HoodieSparkSqlTestBase {
    * Asserts that every log block of the latest file slices is a delete block whose positions point at
    * the rows of the deleted keys in the slice's base file, and returns the sorted deleted keys.
    */
-  private def positionalDeletes(tablePath: String): Seq[String] = {
+  private def positionalDeletes(tablePath: String, partitioned: Boolean = true): Seq[String] = {
     val (metaClient, fsView) = getMetaClientAndFileSystemView(tablePath)
     val schema = new TableSchemaResolver(metaClient).getTableSchema
     val deletedKeys = ArrayBuffer[String]()
     try {
-      Seq("dt=p1", "dt=p2").flatMap(fsView.getLatestFileSlices(_).iterator().asScala).filter(_.hasLogFiles).foreach { slice =>
+      (if (partitioned) Seq("dt=p1", "dt=p2") else Seq("")).flatMap(fsView.getLatestFileSlices(_).iterator().asScala).filter(_.hasLogFiles).foreach { slice =>
         assertTrue(slice.getBaseFile.isPresent, s"a file group with logs must have a base file: $slice")
         val baseFileKeys = ArrayBuffer[String]()
         val fileReader = HoodieIOFactory.getIOFactory(metaClient.getStorage)

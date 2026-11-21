@@ -597,7 +597,11 @@ object ProvidesHoodieConfig {
     }
   }
 
-  private def writesUpdatesAsDeletesAndInserts(sqlConf: SQLConf, catalogTable: HoodieCatalogTable): Boolean =
+  /**
+   * Whether a write to the table routes each update as a positional delete plus an insert, see
+   * [[HoodieWriteConfig.WRITE_UPDATES_AS_DELETES_AND_INSERTS]].
+   */
+  def writesUpdatesAsDeletesAndInserts(sqlConf: SQLConf, catalogTable: HoodieCatalogTable): Boolean =
     catalogTable.tableType == HoodieTableType.MERGE_ON_READ && java.lang.Boolean.parseBoolean(
       combineOptions(catalogTable, catalogTable.tableConfig, sqlConf, defaultOpts = Map.empty)
         .getOrElse(HoodieWriteConfig.WRITE_UPDATES_AS_DELETES_AND_INSERTS.key, "false"))
