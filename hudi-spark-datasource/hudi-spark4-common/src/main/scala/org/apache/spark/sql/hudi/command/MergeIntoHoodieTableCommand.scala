@@ -1002,6 +1002,26 @@ case class MergeIntoHoodieTableCommand(mergeInto: MergeIntoTable) extends Hoodie
     checkUpdatingActions(updatingActions, props)
     checkInsertingActions(insertingActions, props)
     checkDeletingActions(deletingActions)
+    checkMatchedConditions()
+  }
+
+  /**
+   * A write that evaluates the matched clauses on the source record alone cannot evaluate a condition on a field
+   * of the target table, which is left to a merge-on-read table without a record key: its source records are
+   * written with the locations the join with the table gives them, without the records they match.
+   */
+  private def checkMatchedConditions(): Unit = {
+    if (evaluatesMatchedClausesOnSourceOnly) {
+      val targetAttrs = mergeInto.matchedActions.flatMap(_.condition).flatMap(_.collect {
+        case attr: AttributeReference if mergeInto.targetTable.outputSet.contains(attr) => attr
+      })
+      if (targetAttrs.nonEmpty) {
+        throw new HoodieAnalysisException(
+          s"Target table's field(${targetAttrs.map(_.name).distinct.mkString(",")}) cannot be used in the condition of " +
+            "a WHEN MATCHED clause for MOR table without a record key, as the source records are written without the " +
+            "records they match. Join the target table in the source query and use the field from the source instead.")
+      }
+    }
   }
 
   private def checkDeletingActions(deletingActions: Seq[DeleteAction]): Unit = {
