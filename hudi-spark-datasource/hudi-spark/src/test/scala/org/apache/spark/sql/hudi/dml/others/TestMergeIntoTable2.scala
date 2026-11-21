@@ -1576,4 +1576,64 @@ class TestMergeIntoTable2 extends HoodieSparkSqlTestBase {
       }
     }
   }
+
+  test("Test MergeInto With A Source Key Of Another Integral Type") {
+    withTempDir { tmp =>
+      // a wider source key type relies on Spark 3.5 casting an inserted value with an ANSI cast
+      for (tableType <- Seq("cow", "mor"); keyProp <- Seq("primaryKey = 'id',", "") if gteqSpark3_5) {
+        val tableName = generateTableName
+        spark.sql(
+          s"""
+             |create table $tableName (
+             |  id int,
+             |  v int
+             |) using hudi
+             | location '${tmp.getCanonicalPath}/$tableName'
+             | tblproperties ($keyProp type = '$tableType')
+           """.stripMargin)
+        spark.sql(s"insert into $tableName values (1, 10), (2, 20)")
+
+        spark.sql(
+          s"""
+             |merge into $tableName t
+             |using (select 1L as id, 11 as v union all select 3L, 30) s
+             |on t.id = s.id
+             |when matched then update set *
+             |when not matched then insert *
+           """.stripMargin)
+        checkAnswer(s"select id, v from $tableName order by id")(Seq(1, 11), Seq(2, 20), Seq(3, 30))
+
+        // a source key out of the range of the target key type matches no record and cannot be inserted
+        checkExceptionContain(
+          s"""
+             |merge into $tableName t
+             |using (select 4294967297L as id, 40 as v) s
+             |on t.id = s.id
+             |when not matched then insert *
+           """.stripMargin)("overflow")
+        checkAnswer(s"select id, v from $tableName order by id")(Seq(1, 11), Seq(2, 20), Seq(3, 30))
+      }
+
+      val tableName = generateTableName
+      spark.sql(
+        s"""
+           |create table $tableName (
+           |  id bigint,
+           |  v int
+           |) using hudi
+           | location '${tmp.getCanonicalPath}/$tableName'
+           | tblproperties (primaryKey = 'id', type = 'cow')
+         """.stripMargin)
+      spark.sql(s"insert into $tableName values (1, 10)")
+      spark.sql(
+        s"""
+           |merge into $tableName t
+           |using (select 1 as id, 11 as v union all select 3, 30) s
+           |on t.id = s.id
+           |when matched then update set *
+           |when not matched then insert *
+         """.stripMargin)
+      checkAnswer(s"select id, v from $tableName order by id")(Seq(1L, 11), Seq(3L, 30))
+    }
+  }
 }

@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.hudi.command
 
-import org.apache.hudi.{DataSourceReadOptions, DataSourceWriteOptions, HoodieSchemaConversionUtils, HoodieSparkSqlWriter, SparkAdapterSupport}
+import org.apache.hudi.{DataSourceReadOptions, DataSourceWriteOptions, HoodieSchemaConversionUtils, HoodieSparkSqlWriter, HoodieSparkUtils, SparkAdapterSupport}
 import org.apache.hudi.DataSourceWriteOptions._
 import org.apache.hudi.HoodieSchemaConversionUtils.convertStructTypeToHoodieSchema
 import org.apache.hudi.HoodieSparkSqlWriter.CANONICALIZE_SCHEMA
@@ -41,7 +41,7 @@ import org.apache.spark.sql.HoodieCatalystExpressionUtils.{attributeEquals, Matc
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.analysis.Resolver
 import org.apache.spark.sql.catalyst.catalog.HoodieCatalogTable
-import org.apache.spark.sql.catalyst.expressions.{Alias, And, AssertTrue, Attribute, AttributeReference, BoundReference, CaseWhen, EqualNullSafe, EqualTo, Expression, IsNotNull, IsNull, Literal, NamedExpression, Not, Or, PredicateHelper}
+import org.apache.spark.sql.catalyst.expressions.{Alias, And, AssertTrue, Attribute, AttributeReference, BoundReference, CaseWhen, Cast, EqualNullSafe, EqualTo, Expression, IsNotNull, IsNull, Literal, NamedExpression, Not, Or, PredicateHelper}
 import org.apache.spark.sql.catalyst.expressions.BindReferences.bindReference
 import org.apache.spark.sql.catalyst.plans.LeftOuter
 import org.apache.spark.sql.catalyst.plans.logical._
@@ -54,7 +54,7 @@ import org.apache.spark.sql.hudi.command.PartialAssignmentMode.PartialAssignment
 import org.apache.spark.sql.hudi.command.exception.HoodieAnalysisException
 import org.apache.spark.sql.hudi.command.payload.ExpressionPayload
 import org.apache.spark.sql.hudi.command.payload.ExpressionPayload._
-import org.apache.spark.sql.types.{BooleanType, StructField, StructType}
+import org.apache.spark.sql.types.{BooleanType, ByteType, DataType, IntegerType, LongType, ShortType, StructField, StructType}
 
 import java.util.Base64
 
@@ -225,13 +225,16 @@ case class MergeIntoHoodieTableCommand(mergeInto: MergeIntoTable) extends Hoodie
     // In the latter case, there are further restrictions: since cast will be dropped on the
     // target table side (since we're gonna be matching against primary-key column as is) expression
     // on the opposite side of the comparison should be cast-able to the primary-key column's data-type
-    // t/h "up-cast" (ie w/o any loss in precision)
+    // t/h "up-cast" (ie w/o any loss in precision), or be of another integral type, cast so that a
+    // value out of the range of the column's type fails the statement
     cleanedConditions.collect {
       case EqualTo(CoercedAttributeReference(attr), expr) if targetAttrs.exists(f => attributeEquals(f, attr)) =>
         if (exprUtils.canUpCast(expr.dataType, attr.dataType)) {
           // NOTE: It's critical we reference output attribute here and not the one from condition
           val targetAttr = targetAttrs.find(f => attributeEquals(f, attr)).get
           targetAttr -> castIfNeeded(expr, attr.dataType)
+        } else if (isIntegralCast(expr.dataType, attr.dataType)) {
+          targetAttrs.find(f => attributeEquals(f, attr)).get -> Cast(expr, attr.dataType, ansiEnabled = true)
         } else {
           throw new HoodieAnalysisException(s"Invalid MERGE INTO matching condition: ${expr.sql}: "
             + s"can't cast ${expr.sql} (of ${expr.dataType}) to ${attr.dataType}")
@@ -242,6 +245,8 @@ case class MergeIntoHoodieTableCommand(mergeInto: MergeIntoTable) extends Hoodie
           // NOTE: It's critical we reference output attribute here and not the one from condition
           val targetAttr = targetAttrs.find(f => attributeEquals(f, attr)).get
           targetAttr -> castIfNeeded(expr, attr.dataType)
+        } else if (isIntegralCast(expr.dataType, attr.dataType)) {
+          targetAttrs.find(f => attributeEquals(f, attr)).get -> Cast(expr, attr.dataType, ansiEnabled = true)
         } else {
           throw new HoodieAnalysisException(s"Invalid MERGE INTO matching condition: ${expr.sql}: "
             + s"can't cast ${expr.sql} (of ${expr.dataType}) to ${attr.dataType}")
@@ -1084,7 +1089,9 @@ case class MergeIntoHoodieTableCommand(mergeInto: MergeIntoTable) extends Hoodie
           "primary key",
           assignments).toArray
       primaryAttributeAssociatedExpression.foreach { case (attr, expr) =>
-        validateDataTypes(attr, expr, "Primary key")
+        if (!isIntegralCast(expr.dataType, attr.dataType)) {
+          validateDataTypes(attr, expr, "Primary key")
+        }
       }
       if (isEventTimeOrdering(props)) {
         try {
@@ -1263,6 +1270,21 @@ object MergeIntoHoodieTableCommand {
       case _ => false
     }
   }
+
+  private val integralTypeSizes: Map[DataType, Int] = Map(ByteType -> 1, ShortType -> 2, IntegerType -> 4, LongType -> 8)
+
+  /**
+   * Whether a source key of type `from` can supply a target key of type `to`: both are integral
+   * types, whose values are the same in either type and render the same record key. A wider source
+   * type needs Spark 3.5 or later, whose resolution of the assignments casts an inserted value with
+   * an ANSI cast, so that a value the key column cannot hold fails instead of being stored narrowed
+   * under the record key of the wider value.
+   */
+  def isIntegralCast(from: DataType, to: DataType): Boolean =
+    (integralTypeSizes.get(from), integralTypeSizes.get(to)) match {
+      case (Some(fromSize), Some(toSize)) => fromSize <= toSize || HoodieSparkUtils.gteqSpark3_5
+      case _ => false
+    }
 
   def validateDataTypes(attr: Attribute, expr: Expression, columnType: String): Unit = {
     if (attr.dataType != expr.dataType) {
