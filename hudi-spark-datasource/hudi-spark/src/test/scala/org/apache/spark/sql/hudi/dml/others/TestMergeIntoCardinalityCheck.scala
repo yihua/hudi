@@ -20,8 +20,11 @@
 package org.apache.spark.sql.hudi.dml.others
 
 import org.apache.hudi.DataSourceWriteOptions.MERGE_INTO_CARDINALITY_CHECK
+import org.apache.hudi.HoodieSparkUtils
 import org.apache.hudi.config.HoodieWriteConfig
+import org.apache.hudi.exception.HoodieMultipleMatchesException
 
+import org.apache.spark.SparkRuntimeException
 import org.apache.spark.sql.hudi.common.HoodieSparkSqlTestBase
 
 /**
@@ -65,19 +68,19 @@ class TestMergeIntoCardinalityCheck extends HoodieSparkSqlTestBase {
 
           // Rows 1 and 2 of the source match target row 1
           val source = "select 1 as id, 'b1' as name, 1001 as ts union all select 1, 'c1', 1002 union all select 2, 'a2', 1000"
-          checkExceptionContain(
+          assertCardinalityViolation(
             s"""
                |merge into $tableName t using ($source) s on t.id = s.id
                |when matched then update set *
                |when not matched then insert *
-             """.stripMargin)(cardinalityError)
+             """.stripMargin)
           // A matched clause that does not apply to the target row does not lift the check
-          checkExceptionContain(
+          assertCardinalityViolation(
             s"""
                |merge into $tableName t using ($source) s on t.id = s.id
                |when matched and t.id = 6 then update set *
                |when not matched then insert *
-             """.stripMargin)(cardinalityError)
+             """.stripMargin)
           checkAnswer(s"select id, name, ts from $tableName order by id")(Seq(1, "a1", 1000), Seq(6, "a6", 1000))
 
           if (keyed) {
@@ -102,5 +105,23 @@ class TestMergeIntoCardinalityCheck extends HoodieSparkSqlTestBase {
         }
       }
     }
+  }
+
+  /**
+   * Asserts that the statement fails the way Spark fails a MERGE INTO on its own tables: with a
+   * MERGE_CARDINALITY_VIOLATION error from Spark 3.5 on, as the cause of the exception before Spark 4.
+   */
+  private def assertCardinalityViolation(sql: String): Unit = {
+    val e = intercept[Throwable](spark.sql(sql))
+    if (HoodieSparkUtils.gteqSpark3_5) {
+      val violation = if (HoodieSparkUtils.gteqSpark4_0) e else e.getCause
+      assert(violation.isInstanceOf[SparkRuntimeException], e)
+      assertResult("MERGE_CARDINALITY_VIOLATION")(violation.asInstanceOf[SparkRuntimeException].getErrorClass)
+      assert(violation.getMessage.contains(cardinalityError + "."), violation.getMessage)
+      assert(violation.getSuppressed.exists(_.isInstanceOf[HoodieMultipleMatchesException]), e)
+    } else {
+      assert(e.isInstanceOf[HoodieMultipleMatchesException], e)
+    }
+    assert(e.getMessage.contains(cardinalityError), e.getMessage)
   }
 }
