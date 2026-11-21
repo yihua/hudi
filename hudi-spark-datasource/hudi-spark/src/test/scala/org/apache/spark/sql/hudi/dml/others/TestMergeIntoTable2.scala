@@ -1095,6 +1095,40 @@ class TestMergeIntoTable2 extends HoodieSparkSqlTestBase {
     }
   }
 
+  test("Test MergeInto with a matched condition on a target field refused on mor table without record key") {
+    withTempDir { tmp =>
+      val tableName = generateTableName
+      spark.sql(
+        s"""
+           | create table $tableName (
+           |  id int,
+           |  name string,
+           |  price double
+           | ) using hudi
+           | tblproperties (
+           |  type = 'mor'
+           | )
+           | location '${tmp.getCanonicalPath}'
+         """.stripMargin)
+      spark.sql(s"insert into $tableName values (1, 'a1', 10.0), (2, 'a2', 20.0)")
+      // The source records are written with the locations the join with the table gives them, and their matched
+      // clauses are evaluated without the records they match, so the statements are refused before a commit starts
+      val instants = createMetaClient(spark, tmp.getCanonicalPath).getActiveTimeline.getInstants
+      Seq("update set *", "delete").foreach { action =>
+        checkExceptionContain(
+          s"""
+             | merge into $tableName t
+             | using (select 1 as id, 'a1m' as name, 11.0 as price union all select 2, 'a2m', 21.0) s
+             | on t.id = s.id
+             | when matched and t.price < 15 then $action
+           """.stripMargin)(
+          "Target table's field(price) cannot be used in the condition of a WHEN MATCHED clause for MOR table without a record key")
+      }
+      assertResult(instants)(createMetaClient(spark, tmp.getCanonicalPath).getActiveTimeline.getInstants)
+      checkAnswer(s"select id, name, price from $tableName order by id")(Seq(1, "a1", 10.0), Seq(2, "a2", 20.0))
+    }
+  }
+
   test("Test Merge into with RuntimeReplaceable func such as nvl") {
     withTempDir { tmp =>
       val tableName = generateTableName
