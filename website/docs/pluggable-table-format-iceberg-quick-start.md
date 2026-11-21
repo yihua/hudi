@@ -104,7 +104,7 @@ The SQL inside `spark.sql(...)` also runs as is in `spark-sql`.
 
 ### 2. Build the jars {#build-the-jars}
 
-**Source:** Hudi TBD, XTable TBD
+**Source:** [Hudi fork](https://github.com/yihua/hudi) and [XTable fork](https://github.com/yihua/onetable)
 
 Build Hudi first: XTable compiles against the Hudi snapshot in your local Maven repository.
 
@@ -113,13 +113,13 @@ export JARS_DIR=$HOME/hudi-iceberg-jars
 mkdir -p $JARS_DIR
 
 # Hudi, with JDK 11
-git clone https://github.com/apache/hudi.git && cd hudi
+git clone https://github.com/yihua/hudi.git && cd hudi
 mvn clean install -DskipTests -Dscala-2.12 -Dspark3.5 -pl packaging/hudi-spark-bundle -am
 cp packaging/hudi-spark-bundle/target/hudi-spark3.5-bundle_2.12-1.3.0-SNAPSHOT.jar $JARS_DIR/
 cd ..
 
 # XTable, with JDK 17
-git clone https://github.com/apache/incubator-xtable.git && cd incubator-xtable
+git clone https://github.com/yihua/onetable.git && cd onetable
 ./mvnw clean package -DskipTests -Dspark.version.prefix=3.5 -pl xtable-hudi-support/xtable-iceberg-pluggable-tf -am
 cp xtable-api/target/xtable-api-0.5.0-SNAPSHOT.jar \
    xtable-hudi-support/xtable-hudi-support-utils/target/xtable-hudi-support-utils-0.5.0-SNAPSHOT.jar \
