@@ -379,6 +379,12 @@ class HoodieSparkSqlWriterInternal {
           .set(timestampKeyGeneratorConfigs.asJava.asInstanceOf[java.util.Map[String, Object]])
           .setHiveStylePartitioningEnable(hoodieConfig.getBoolean(HIVE_STYLE_PARTITIONING))
           .setUrlEncodePartitioning(hoodieConfig.getBoolean(URL_ENCODE_PARTITIONING))
+          .setTimestampPartitionFractionalSeconds(
+            if (hoodieConfig.contains(HoodieTableConfig.TIMESTAMP_PARTITION_FRACTIONAL_SECONDS)) {
+              hoodieConfig.getBoolean(HoodieTableConfig.TIMESTAMP_PARTITION_FRACTIONAL_SECONDS)
+            } else {
+              null
+            })
           .setPartitionMetafileUseBaseFormat(useBaseFormatMetaFile)
           .setShouldDropPartitionColumns(hoodieConfig.getBooleanOrDefault(HoodieTableConfig.DROP_PARTITION_COLUMNS))
           .setCommitTimezone(timelineTimeZone)
@@ -409,6 +415,13 @@ class HoodieSparkSqlWriterInternal {
 
       var instantTime: String = null
       tableConfig = tableMetaClient.getTableConfig
+      // The key generator follows the layout the table records, including the one a new table was just given
+      val fractionalSecondsKey = HoodieTableConfig.TIMESTAMP_PARTITION_FRACTIONAL_SECONDS.key
+      if (!parameters.contains(fractionalSecondsKey) && tableConfig.contains(fractionalSecondsKey)) {
+        val fractionalSeconds = tableConfig.getString(HoodieTableConfig.TIMESTAMP_PARTITION_FRACTIONAL_SECONDS)
+        parameters = parameters ++ Map(fractionalSecondsKey -> fractionalSeconds)
+        hoodieConfig.setValue(fractionalSecondsKey, fractionalSeconds)
+      }
 
       val commitActionType = CommitUtils.getCommitActionType(operation, tableConfig.getTableType)
 
