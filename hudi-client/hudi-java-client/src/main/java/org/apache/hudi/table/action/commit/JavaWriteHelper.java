@@ -69,6 +69,7 @@ public class JavaWriteHelper<T,R> extends BaseWriteHelper<T, List<HoodieRecord<T
     TypedProperties props = config.getProps();
     final HoodieSchema schema = HoodieSchema.parse(config.getSchema());
     DeleteContext deleteContext = DeleteContext.fromRecordSchema(props, schema);
+    boolean keepReplacedRecords = HoodieIndexUtils.hasFormatMetaColumns(table);
     Map<HoodieKey, HoodieRecord<T>> latestByKey = new LinkedHashMap<>();
     taggedRecords.forEach(
         record -> latestByKey.merge(record.getKey(), record, JavaWriteHelper::latestLocation));
@@ -79,8 +80,18 @@ public class JavaWriteHelper<T,R> extends BaseWriteHelper<T, List<HoodieRecord<T
       HoodieRecord<T> deleteRecord = HoodieDeleteHelper.createDeleteRecord(config, record.getKey());
       deleteRecord.setIgnoreIndexUpdate(true);
       HoodieIndexUtils.tagRecord(deleteRecord, record.getCurrentLocation());
-      return Stream.of(deleteRecord, record.newInstance(record.getKey()));
+      HoodieRecord<T> insertRecord = record.newInstance(record.getKey());
+      if (keepReplacedRecords) {
+        HoodieIndexUtils.setReplacedRecord(insertRecord, record.getPartitionPath(), record.getCurrentLocation());
+      }
+      return Stream.of(deleteRecord, insertRecord);
     }).collect(Collectors.toList());
+  }
+
+  @Override
+  protected List<HoodieRecord<T>> resolveReplacedRecords(List<HoodieRecord<T>> taggedRecords,
+                                                         HoodieTable<T, List<HoodieRecord<T>>, List<HoodieKey>, List<WriteStatus>> table) {
+    return HoodieIndexUtils.resolveReplacedRecords(HoodieListData.eager(taggedRecords), table).collectAsList();
   }
 
   @Override

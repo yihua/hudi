@@ -238,6 +238,31 @@ class TestFormatMetaColumnHandler {
   }
 
   @Test
+  void testRecordReplacingARecordOfAnotherFileGroupGetsTheValuesOnUpdate() {
+    FormatMetaColumnHandler<IndexedRecord> withValuesOnUpdate = handlerWithValuesOnUpdate();
+    IndexedRecord moved = record("key3", null, null);
+    assertSame(moved, withValuesOnUpdate.setNonNullValuesOnUpdate(moved, SCHEMA, new Object[] {7L, 3L}));
+    assertEquals(record("key3", 7L, 42L), moved);
+    IndexedRecord inserted = record("key4", null, null);
+    withValuesOnUpdate.setNonNullValuesOnUpdate(inserted, SCHEMA, null);
+    assertEquals(record("key4", null, 42L), inserted);
+
+    // A merge of a base file gets the values kept for a key that is not the key of the last base file record
+    withValuesOnUpdate.putReplacedValues("key5", new Object[] {8L, 4L});
+    withValuesOnUpdate.resolveNextBaseFileRecord(record("key0", null, null), SCHEMA);
+    BufferedRecord<IndexedRecord> movedIn = new BufferedRecord<>("key5", 0, record("key5", null, null),
+        keyedRecordContext.encodeSchema(SCHEMA), HoodieOperation.INSERT);
+    withValuesOnUpdate.setValuesOnWriteIfChanged(movedIn);
+    assertEquals(record("key5", 8L, 42L), movedIn.getRecord());
+    IndexedRecord movedInWritten = record("key5", null, null);
+    withValuesOnUpdate.setNonNullValuesOnWrite("key5", movedInWritten, SCHEMA);
+    assertEquals(record("key5", 8L, 42L), movedInWritten);
+    IndexedRecord updated = record("key0", null, null);
+    withValuesOnUpdate.setNonNullValuesOnWrite("key0", updated, SCHEMA);
+    assertEquals(record("key0", 100L, 42L), updated);
+  }
+
+  @Test
   void testNullValueOfTheReplacedRecordIsKeptOnUpdate() {
     List<BaseFileColumnResolver> storedValues = Arrays.asList((rowPosition, storedValue) -> storedValue, (rowPosition, storedValue) -> storedValue);
     FormatMetaColumnHandler<IndexedRecord> keepingNull = new FormatMetaColumnHandler<>(keyedRecordContext,

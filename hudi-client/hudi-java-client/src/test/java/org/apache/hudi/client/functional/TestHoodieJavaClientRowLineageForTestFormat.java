@@ -165,8 +165,9 @@ public class TestHoodieJavaClientRowLineageForTestFormat extends HoodieJavaClien
     List<HoodieRecord> inserts = dataGen.generateInsertsForPartition("001", 20, PARTITION);
     write(client, inserts, false);
     HoodieBaseFile baseFile1 = getOnlyLatestBaseFile();
-    // A base file with new records only has no row lineage columns, so the table format derives the row lineage
-    assertFalse(hasRowLineageColumns(storageConf, baseFile1));
+    // A base file with new records only stores null row lineage, so the table format derives the row lineage
+    assertTrue(hasRowLineageColumns(storageConf, baseFile1));
+    assertTrue(readStoredRowLineage(storageConf, baseFile1).values().stream().allMatch(NO_ROW_LINEAGE::equals));
     Map<String, Pair<Long, Long>> rowLineage1 = deriveRowLineage(storageConf, basePath, baseFile1);
     assertEquals(keys(inserts), rowLineage1.keySet());
     assertEquals(20, new HashSet<>(rowLineage1.values()).size());
@@ -280,7 +281,8 @@ public class TestHoodieJavaClientRowLineageForTestFormat extends HoodieJavaClien
     List<HoodieRecord> inserts = dataGen.generateInsertsForPartition("001", 20, PARTITION);
     write(client, inserts, false);
     HoodieBaseFile baseFile1 = getOnlyLatestBaseFile();
-    assertFalse(hasRowLineageColumns(storageConf, baseFile1));
+    assertTrue(hasRowLineageColumns(storageConf, baseFile1));
+    assertTrue(readStoredRowLineage(storageConf, baseFile1).values().stream().allMatch(NO_ROW_LINEAGE::equals));
     Map<String, Pair<Long, Long>> rowLineage1 = deriveRowLineage(storageConf, basePath, baseFile1);
     assertEquals(keys(inserts), rowLineage1.keySet());
 

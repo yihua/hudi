@@ -49,6 +49,7 @@ import org.apache.hudi.exception.HoodieMultipleMatchesException;
 import org.apache.hudi.exception.HoodieNotSupportedException;
 import org.apache.hudi.exception.HoodieUpsertException;
 import org.apache.hudi.index.HoodieIndex;
+import org.apache.hudi.index.HoodieIndexUtils;
 import org.apache.hudi.index.bucket.HoodieBucketIndex;
 import org.apache.hudi.keygen.KeyGenUtils;
 import org.apache.hudi.table.HoodieTable;
@@ -94,6 +95,7 @@ public abstract class BaseWriteHelper<T, I, K, O, R> extends ParallelismHelper<I
             && table.getConfig().isSparkSqlMergeIntoReadingTarget()) {
           taggedRecords = mergeLocatedSqlMergeIntoRecords(taggedRecords, table, configuredShuffleParallelism);
         }
+        taggedRecords = resolveReplacedRecords(taggedRecords, table);
       }
 
       HoodieWriteMetadata<O> result = executor.execute(taggedRecords, Option.of(sourceReadAndIndexTimer));
@@ -241,6 +243,15 @@ public abstract class BaseWriteHelper<T, I, K, O, R> extends ParallelismHelper<I
   }
 
   /**
+   * Resolves the values of the format meta columns for the records that records of the write replace in other file
+   * groups, see {@link HoodieIndexUtils#resolveReplacedRecords}. Returns the records as they are for an engine that
+   * does not move records to other file groups.
+   */
+  protected I resolveReplacedRecords(I taggedRecords, HoodieTable<T, I, K, O> table) {
+    return taggedRecords;
+  }
+
+  /**
    * Rewrites each tagged update into a positional delete to the record's current file group plus an
    * untagged insert of the new version, so the insert partitioner routes the new version to a file
    * group chosen for inserts. See {@link HoodieWriteConfig#WRITE_UPDATES_AS_DELETES_AND_INSERTS}.
@@ -265,7 +276,7 @@ public abstract class BaseWriteHelper<T, I, K, O, R> extends ParallelismHelper<I
    * row it read, so the records are not reduced to one per record key first.
    */
   public I preppedUpdatesAsDeletesAndInserts(I preppedRecords, HoodieTable<T, I, K, O> table) {
-    return splitLocatedRecords(preppedRecords, table);
+    return resolveReplacedRecords(splitLocatedRecords(preppedRecords, table), table);
   }
 
   /**
