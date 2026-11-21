@@ -43,14 +43,14 @@ same rows.
 | Compaction | Rewrites files that have deletes | The deletion vectors go away |
 | Commit through a catalog | Commits to an Iceberg catalog | The table by name, for example `ice.db.trips_cat` |
 
-With format version 3, rows also keep their Iceberg row lineage: a row that Hudi carries over unchanged keeps its
-`_row_id`, through upserts and clustering.
+With format version 3, rows also keep their Iceberg row lineage, as in Iceberg: a row keeps its `_row_id` through
+updates, merges and clustering, and an updated row takes the sequence number of the commit that changed it.
 
 ## For Iceberg users
 
 | Topic | What to expect |
 |:------|:---------------|
-| Spec | A standard Iceberg table: metadata files, manifests and snapshots are written with the Iceberg library. Readers need no Hudi jars. |
+| Spec | A standard Iceberg table: metadata files, manifests and snapshots are written with the Iceberg library. The Iceberg schema holds only your table's columns. Readers need no Hudi jars. |
 | Format version | 3 by default, with deletion vectors (Puffin) for merge-on-read and row lineage (`_row_id`, `_last_updated_sequence_number`). Version 2 for readers that need it. |
 | Catalogs | Path-based, or any Iceberg catalog named by class: REST (`org.apache.iceberg.rest.RESTCatalog`), AWS Glue, JDBC, Hive. This guide uses JDBC; the [AWS page](pluggable-table-format-iceberg-aws-demo.md) uses Glue. |
 | Query engines | Any engine that reads Iceberg from the catalog or the path, for example Spark, Trino, Amazon Athena (format version 2) and Snowflake. See the [AWS page](pluggable-table-format-iceberg-aws-demo.md). |
@@ -265,20 +265,23 @@ and `rider-K` is new.
 
 ### 7. Row lineage {#row-lineage}
 
-With format version 3, every row has a `_row_id` and a `_last_updated_sequence_number`. Rows that Hudi carried over
-unchanged keep both. Updated and inserted rows get new ids: Hudi writes an update as a delete plus an insert, which
-the Iceberg spec allows.
+With format version 3, every row has a `_row_id` and a `_last_updated_sequence_number`, and Hudi maintains them as
+Iceberg does. Rows that were not changed keep both. Updated rows keep their `_row_id` and take the sequence number of
+the commit that changed them. New rows get new ids.
 
 ```scala
 spark.read.format("iceberg").load(base).
   select("rider", "fare", "_row_id", "_last_updated_sequence_number").orderBy("rider").show(false)
 
 val idsAfterMerge = lineage()
-check("lineage-kept", Seq("rider-A", "rider-E", "rider-G", "rider-I", "rider-J").forall(r => idsAfterMerge(r) == idsAtInsert(r)))
-check("lineage-new", Seq("rider-C", "rider-D", "rider-K").forall(r => idsAfterMerge(r)._1 >= 8))
+check("lineage-unchanged", Seq("rider-A", "rider-E", "rider-G", "rider-I", "rider-J").forall(r => idsAfterMerge(r) == idsAtInsert(r)))
+check("lineage-updated", Seq("rider-C", "rider-D").forall(r =>
+  idsAfterMerge(r)._1 == idsAtInsert(r)._1 && idsAfterMerge(r)._2 > idsAtInsert(r)._2))
+check("lineage-new", idsAfterMerge("rider-K")._1 >= 8)
 ```
 
-Expect `CHECK lineage-kept PASS` and `CHECK lineage-new PASS`. The insert gave ids 0 to 7, so new ids are 8 or more.
+Expect `CHECK lineage-unchanged PASS`, `CHECK lineage-updated PASS` and `CHECK lineage-new PASS`. The insert gave ids
+0 to 7, so the new row's id is 8 or more.
 
 ### 8. Time travel
 
@@ -473,7 +476,7 @@ the step 3 command with `-i quickstart.scala` appended. Then:
 grep '^CHECK' <spark-shell output>
 ```
 
-Expect 11 lines, all `PASS`.
+Expect 12 lines, all `PASS`.
 
 ## Iceberg format version {#iceberg-format-version}
 
@@ -512,17 +515,13 @@ These hold for the current snapshot builds.
   early stage; use the DataFrame writer or Hudi Streamer.
 - **In merge-on-read `MERGE INTO`, a `WHEN MATCHED` condition cannot reference target columns** (for example
   `WHEN MATCHED AND target.fare > 10`). Conditions on source columns work.
-- **Rollback can give restored rows new row ids.**
+- **Row ids on merge-on-read updates:** an updated row gets a new `_row_id`, because the update is written as a
+  delete plus an insert. Rollback can also give restored rows new row ids.
 - **SQL `VERSION AS OF` fails on Iceberg tables** in a session that loads Hudi's SQL extension. Use the DataFrame
   reader with the `snapshot-id` option instead.
-- **Arrays with null elements fail to insert** with Hudi's default Parquet list layout. Setting
-  `spark.hadoop.parquet.avro.write-old-list-structure=false` writes the standard layout, which both Hudi and
-  Iceberg read.
 - **Time travel** reaches back only as far as cleaning and archival allow, and not to a rolled-back commit.
 - **Every Hudi reader and writer of the table needs the plugin jars.** Hudi refuses to load a table whose table
   format plugin is missing. Iceberg readers do not need them.
-- **Iceberg readers see Hudi's meta columns** (`_hoodie_commit_time`, `_hoodie_commit_seqno`, `_hoodie_record_key`,
-  `_hoodie_partition_path`, `_hoodie_file_name`).
 - **Hudi's catalog sync (Hive, Glue) does not know about the table format.** To register the table, use the Iceberg
   catalog settings above.
 - **Unpartitioned merge-on-read tables** scan the whole Iceberg table on each delta commit to find the current
