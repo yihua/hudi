@@ -93,6 +93,9 @@ public abstract class BaseWriteHelper<T, I, K, O, R> extends ParallelismHelper<I
         }
         if (shouldWriteUpdatesAsDeletesAndInserts(table, operationType)) {
           taggedRecords = updatesAsDeletesAndInserts(taggedRecords, table, configuredShuffleParallelism);
+        } else if (table.getMetaClient().getTableType() == HoodieTableType.MERGE_ON_READ
+            && table.getConfig().isSparkSqlMergeIntoReadingTarget()) {
+          taggedRecords = mergeLocatedSqlMergeIntoRecords(taggedRecords, table, configuredShuffleParallelism);
         }
         taggedRecords = resolveReplacedRecords(taggedRecords, table);
       }
@@ -253,6 +256,16 @@ public abstract class BaseWriteHelper<T, I, K, O, R> extends ParallelismHelper<I
   protected I updatesAsDeletesAndInserts(I taggedRecords, HoodieTable<T, I, K, O> table, int configuredShuffleParallelism) {
     throw new HoodieNotSupportedException(
         HoodieWriteConfig.WRITE_UPDATES_AS_DELETES_AND_INSERTS.key() + " is not supported by " + this.getClass().getName());
+  }
+
+  /**
+   * Replaces each located record of a Spark SQL MERGE INTO with what its matched clauses make of the record it
+   * matches, for a write that appends updates to log files, which evaluates the clauses of a located record
+   * without that record. See {@link HoodieWriteConfig#SPARK_SQL_MERGE_INTO_READS_TARGET_KEY}.
+   */
+  protected I mergeLocatedSqlMergeIntoRecords(I taggedRecords, HoodieTable<T, I, K, O> table, int configuredShuffleParallelism) {
+    throw new HoodieNotSupportedException(
+        HoodieWriteConfig.SPARK_SQL_MERGE_INTO_READS_TARGET_KEY + " is not supported by " + this.getClass().getName());
   }
 
   /**

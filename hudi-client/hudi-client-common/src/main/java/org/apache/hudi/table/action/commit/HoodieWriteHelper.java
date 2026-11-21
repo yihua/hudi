@@ -84,7 +84,7 @@ public class HoodieWriteHelper<T, R> extends BaseWriteHelper<T, HoodieData<Hoodi
         .map(Pair::getRight);
     // A located Spark SQL MERGE INTO record is first replaced with what its matched clauses make of the record it
     // matches, so its new version is inserted as evaluated instead of taking the not-matched clauses on the insert path
-    return HoodieIndexUtils.mergeLocatedExpressionPayloadRecords(latestTaggedRecords, config, table, parallelism)
+    return HoodieIndexUtils.mergeLocatedExpressionPayloadRecords(latestTaggedRecords, config, table, parallelism, true)
         .flatMap(record -> {
           if (!record.isCurrentLocationKnown() || record.isDelete(deleteContext, props)) {
             return Collections.singletonList(record).iterator();
@@ -104,6 +104,16 @@ public class HoodieWriteHelper<T, R> extends BaseWriteHelper<T, HoodieData<Hoodi
   protected HoodieData<HoodieRecord<T>> resolveReplacedRecords(HoodieData<HoodieRecord<T>> taggedRecords,
                                                               HoodieTable<T, HoodieData<HoodieRecord<T>>, HoodieData<HoodieKey>, HoodieData<WriteStatus>> table) {
     return HoodieIndexUtils.resolveReplacedRecords(taggedRecords, table);
+  }
+
+  @Override
+  protected HoodieData<HoodieRecord<T>> mergeLocatedSqlMergeIntoRecords(HoodieData<HoodieRecord<T>> taggedRecords,
+                                                                        HoodieTable<T, HoodieData<HoodieRecord<T>>, HoodieData<HoodieKey>, HoodieData<WriteStatus>> table,
+                                                                        int configuredShuffleParallelism) {
+    // A key can still be located through a deleted copy in a base file. The record then keeps its location, as an
+    // insert into another file group would leave the key in two of them
+    return HoodieIndexUtils.mergeLocatedExpressionPayloadRecords(
+        taggedRecords, table.getConfig(), table, deduceShuffleParallelism(taggedRecords, configuredShuffleParallelism), false);
   }
 
   @Override
