@@ -41,7 +41,7 @@ import org.apache.spark.sql.HoodieCatalystExpressionUtils.{attributeEquals, Matc
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.analysis.Resolver
 import org.apache.spark.sql.catalyst.catalog.HoodieCatalogTable
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, BoundReference, EqualTo, Expression, IsNull, Literal, NamedExpression, Or, PredicateHelper}
+import org.apache.spark.sql.catalyst.expressions.{Alias, And, AssertTrue, Attribute, AttributeReference, BoundReference, CaseWhen, EqualNullSafe, EqualTo, Expression, IsNotNull, IsNull, Literal, NamedExpression, Not, Or, PredicateHelper}
 import org.apache.spark.sql.catalyst.expressions.BindReferences.bindReference
 import org.apache.spark.sql.catalyst.plans.LeftOuter
 import org.apache.spark.sql.catalyst.plans.logical._
@@ -405,7 +405,7 @@ case class MergeIntoHoodieTableCommand(mergeInto: MergeIntoTable) extends Hoodie
       val recordKeyCol = tableMetaCols.find(_.name == HoodieRecord.RECORD_KEY_METADATA_FIELD).get
       val joinData = sparkAdapter.getCatalystPlanUtils.createMITJoin(mergeInto.sourceTable, mergeInto.targetTable, LeftOuter, Some(mergeInto.mergeCondition), "NONE")
       val incomingDataCols = joinData.output.filterNot(mergeInto.targetTable.outputSet.contains)
-      val joined = Project(tableMetaCols ++ incomingDataCols, joinData)
+      val joined = Project(tableMetaCols ++ incomingDataCols, failOnPartitionChange(joinData, recordKeyCol))
       // Written as an insert, a source record that matches the table would be inserted again; with
       // no matched clause there is nothing it could do, so it is dropped here.
       if (mergeInto.matchedActions.isEmpty) {
@@ -470,6 +470,34 @@ case class MergeIntoHoodieTableCommand(mergeInto: MergeIntoTable) extends Hoodie
     val amendedPlan = Project(adjustedSourceTableOutput ++ additionalColumns, inputPlan)
 
     Dataset.ofRows(sparkSession, amendedPlan)
+  }
+
+  /**
+   * Fails the statement when a matched record takes an update clause that gives a partition column
+   * of a table without a record key another value. Such a record is written back to the file group
+   * it was read from, which would leave it in its old partition holding the new value. The update
+   * clauses are tried in the order [[ExpressionPayload]] tries them, against the joined target row.
+   */
+  private def failOnPartitionChange(joinData: LogicalPlan, recordKeyCol: Attribute): LogicalPlan = {
+    val resolver = sparkSession.sessionState.conf.resolver
+    val partitionAttrs = hoodieCatalogTable.partitionFields.toSeq.flatMap { field =>
+      mergeInto.targetTable.output.find(attr => resolver(attr.name, field))
+    }
+    val changesPartition = updatingActions.map { action =>
+      val changed = action.assignments.collect {
+        case Assignment(attr: Attribute, value) if partitionAttrs.exists(attributeEquals(_, attr)) =>
+          Not(EqualNullSafe(castIfNeeded(value, attr.dataType), attr))
+      }
+      (action.condition.getOrElse(Literal.TrueLiteral), changed.reduceOption[Expression](Or).getOrElse(Literal.FalseLiteral))
+    }
+    if (changesPartition.forall(_._2 == Literal.FalseLiteral)) {
+      joinData
+    } else {
+      val movesRecord = And(IsNotNull(recordKeyCol), CaseWhen(changesPartition, Literal.FalseLiteral))
+      val message = "MERGE INTO cannot change the partition field(s) " +
+        s"${partitionAttrs.map(a => s"`${a.name}`").mkString(", ")} of a matched record in a table without a record key"
+      Filter(IsNull(new AssertTrue(Not(movesRecord), Literal(message))), joinData)
+    }
   }
 
   /**
@@ -942,6 +970,36 @@ case class MergeIntoHoodieTableCommand(mergeInto: MergeIntoTable) extends Hoodie
     checkUpdatingActions(updatingActions, props)
     checkInsertingActions(insertingActions, props)
     checkDeletingActions(deletingActions)
+    checkPartitionAssignments(props)
+  }
+
+  /**
+   * Refuses an update clause that gives a partition column of a table with a record key another value
+   * than the source value its record is looked up under. A non-global index finds the record in that
+   * partition only and writes it back there, holding the new value.
+   */
+  private def checkPartitionAssignments(props: Map[String, String]): Unit = {
+    val hasGlobalOrCustomIndex = props.get(HoodieIndexConfig.INDEX_TYPE.key).exists(isGlobalIndexType) ||
+      !StringUtils.isNullOrEmpty(props.getOrElse(HoodieIndexConfig.INDEX_CLASS_NAME.key, ""))
+    if (hasPrimaryKey() && hoodieCatalogTable.partitionFields.nonEmpty && !hasGlobalOrCustomIndex) {
+      val lookupExpressions = recordKeyAttributeToConditionExpression ++ partitionFieldsAssociatedExpressions
+      updatingActions.flatMap(_.assignments).foreach {
+        case Assignment(attr: Attribute, value) =>
+          lookupExpressions.find { case (target, _) => attributeEquals(target, attr) }
+            .filter { case (_, lookup) =>
+              hoodieCatalogTable.partitionFields.exists(f => sparkSession.sessionState.conf.resolver(f, attr.name)) &&
+                !castIfNeeded(value, attr.dataType).semanticEquals(castIfNeeded(lookup, attr.dataType)) &&
+                !value.semanticEquals(attr)
+            }
+            .foreach { case (_, lookup) =>
+              throw new HoodieAnalysisException(s"Detected disallowed assignment clause in MERGE INTO statement for " +
+                s"partition field `${attr.name}` for table `${hoodieCatalogTable.table.qualifiedName}`: only `${lookup.sql}`, " +
+                "the value the record is looked up under, can be assigned, as the index of the table does not move " +
+                "records across partitions.")
+            }
+        case _ =>
+      }
+    }
   }
 
   private def checkDeletingActions(deletingActions: Seq[DeleteAction]): Unit = {
