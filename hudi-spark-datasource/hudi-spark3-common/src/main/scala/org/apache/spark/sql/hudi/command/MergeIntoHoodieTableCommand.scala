@@ -130,12 +130,34 @@ case class MergeIntoHoodieTableCommand(mergeInto: MergeIntoTable) extends Hoodie
   private lazy val targetTableType = hoodieCatalogTable.tableTypeName
 
   /**
-   * Whether the write evaluates the matched clauses on the source record alone, as the append to the log files of
-   * a merge-on-read table does. A copy-on-write merge has the target record, and so does a merge-on-read table
-   * that writes updates as deletes and inserts, which reads the target record to split the update.
+   * Whether the write appends the source records that match the table to the log files of a merge-on-read table,
+   * where the matched clauses of a record are evaluated without the record it matches.
    */
-  private lazy val evaluatesMatchedClausesOnSourceOnly: Boolean = targetTableType == MOR_TABLE_TYPE_OPT_VAL &&
+  private lazy val appendsUpdatesToLogFiles: Boolean = targetTableType == MOR_TABLE_TYPE_OPT_VAL &&
     !writesUpdatesAsDeletesAndInserts(sparkSession.sessionState.conf, hoodieCatalogTable)
+
+  /**
+   * Whether such a write first reads the records the source records match and evaluates the matched clauses on
+   * both, which a statement on a table with a record key asks for when a matched clause refers to a field of the
+   * target table in its condition or in an assigned value. See [[HoodieWriteConfig.SPARK_SQL_MERGE_INTO_READS_TARGET_KEY]].
+   */
+  private lazy val readsTargetRecordsOnWrite: Boolean = appendsUpdatesToLogFiles && hasPrimaryKey() &&
+    mergeInto.matchedActions.exists { action =>
+      val assignedValues = action match {
+        case update: UpdateAction => update.assignments.map(_.value)
+        case _ => Seq.empty
+      }
+      (action.condition.toSeq ++ assignedValues).exists(_.collect {
+        case attr: AttributeReference if mergeInto.targetTable.outputSet.contains(attr) => attr
+      }.nonEmpty)
+    }
+
+  /**
+   * Whether the write evaluates the matched clauses on the source record alone. A copy-on-write merge has the
+   * target record, and so does a merge-on-read table that writes updates as deletes and inserts, which reads the
+   * target record to split the update.
+   */
+  private lazy val evaluatesMatchedClausesOnSourceOnly: Boolean = appendsUpdatesToLogFiles && !readsTargetRecordsOnWrite
 
   /**
    * Mapping of the Merge-Into-Table (MIT) command's [[targetTable]] attribute into
@@ -969,6 +991,7 @@ case class MergeIntoHoodieTableCommand(mergeInto: MergeIntoTable) extends Hoodie
       HoodieSparkSqlWriter.SQL_MERGE_INTO_WRITES.key -> "true",
       // Only primary keyless table requires prepped keys and upsert
       HoodieWriteConfig.SPARK_SQL_MERGE_INTO_PREPPED_KEY -> isPrimaryKeylessTable.toString,
+      HoodieWriteConfig.SPARK_SQL_MERGE_INTO_READS_TARGET_KEY -> readsTargetRecordsOnWrite.toString,
       HoodieWriteConfig.COMBINE_BEFORE_UPSERT.key() -> (!StringUtils.isNullOrEmpty(orderingFieldsAsString)).toString
     )
 

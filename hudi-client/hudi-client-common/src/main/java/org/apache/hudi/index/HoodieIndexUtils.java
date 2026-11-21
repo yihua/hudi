@@ -643,12 +643,14 @@ public class HoodieIndexUtils {
    * table. A record the clauses update is replaced with its new version and a record they delete with a delete
    * record, both at the location and row position the index tagged, and a record none of them accepts is dropped.
    * A record whose location holds no live record with its key, as a deleted copy there got it tagged, loses its
-   * location and takes the not-matched clauses. The records of any other write are returned as they are.
+   * location and takes the not-matched clauses if {@code insertRecordsWithoutMatch} is set, and is returned as it
+   * is otherwise. The records of any other write are returned as they are.
    */
   public static <R> HoodieData<HoodieRecord<R>> mergeLocatedExpressionPayloadRecords(HoodieData<HoodieRecord<R>> taggedRecords,
                                                                                      HoodieWriteConfig config,
                                                                                      HoodieTable hoodieTable,
-                                                                                     int parallelism) {
+                                                                                     int parallelism,
+                                                                                     boolean insertRecordsWithoutMatch) {
     if (!EXPRESSION_PAYLOAD_CLASS_NAME.equals(config.getPayloadClass())) {
       return taggedRecords;
     }
@@ -664,11 +666,11 @@ public class HoodieIndexUtils {
         .leftOuterJoin(merger.getExistingRecords(locations, hoodieTable).mapToPair(record -> Pair.of(fileIdAndRecordKey(record), record)))
         .values()
         // a file slice can hold a record key more than once, and the located record is resolved once
-        .distinctWithKey(entry -> entry.getLeft().getKey(), parallelism)
+        .distinctWithKey(entry -> Pair.of(entry.getLeft().getCurrentLocation().getFileId(), entry.getLeft().getKey()), parallelism)
         .flatMap(entry -> {
           HoodieRecord<R> incoming = entry.getLeft();
           if (!entry.getRight().isPresent()) {
-            return Collections.singletonList(incoming.newInstance(incoming.getKey())).iterator();
+            return Collections.singletonList(insertRecordsWithoutMatch ? incoming.newInstance(incoming.getKey()) : incoming).iterator();
           }
           Option<HoodieRecord<R>> mergedOpt = merger.merge(incoming, entry.getRight().get());
           if (mergedOpt.isPresent() && mergedOpt.get().getData().equals(HoodieRecord.SENTINEL)) {
