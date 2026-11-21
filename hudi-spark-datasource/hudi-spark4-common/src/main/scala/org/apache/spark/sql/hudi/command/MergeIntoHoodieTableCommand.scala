@@ -636,10 +636,10 @@ case class MergeIntoHoodieTableCommand(mergeInto: MergeIntoTable) extends Hoodie
         schemaFromCatalog = Option.apply(schema))
     } catch {
       case e: Exception => throw findMultipleMatchesException(e).map { multipleMatches =>
-        new HoodieMultipleMatchesException(multipleMatches.getRecordKey,
+        sparkAdapter.mergeCardinalityViolation(new HoodieMultipleMatchesException(multipleMatches.getRecordKey,
           "MERGE statement matched a single row from the target table with multiple rows of the source table, "
             + s"for record key ${multipleMatches.getRecordKey}. Set ${MERGE_INTO_CARDINALITY_CHECK.key} "
-            + "to false to combine those source rows into one update instead.", e)
+            + "to false to combine those source rows into one update instead.", e))
       }.getOrElse(e)
     }
     if (!success) {
