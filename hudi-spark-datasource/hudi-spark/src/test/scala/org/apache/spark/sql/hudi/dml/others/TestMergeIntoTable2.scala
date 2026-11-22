@@ -21,8 +21,8 @@ package org.apache.spark.sql.hudi.dml.others
 
 import org.apache.hudi.{DataSourceWriteOptions, HoodieSparkUtils}
 import org.apache.hudi.HoodieSparkUtils.gteqSpark3_5
-import org.apache.hudi.common.config.RecordMergeMode
-import org.apache.hudi.config.HoodieCompactionConfig
+import org.apache.hudi.common.config.{HoodieMetadataConfig, RecordMergeMode}
+import org.apache.hudi.config.{HoodieCompactionConfig, HoodieIndexConfig}
 import org.apache.hudi.config.HoodieWriteConfig.{MERGE_SMALL_FILE_GROUP_CANDIDATES_LIMIT, WRITE_UPDATES_AS_DELETES_AND_INSERTS}
 import org.apache.hudi.testutils.HoodieClientTestUtils.createMetaClient
 
@@ -1945,6 +1945,106 @@ class TestMergeIntoTable2 extends HoodieSparkSqlTestBase {
            |when not matched then insert *
          """.stripMargin)
       checkAnswer(s"select id, v from $tableName order by id")(Seq(1L, 11), Seq(3L, 30))
+    }
+  }
+
+  test("Test MergeInto and Update move a record across partitions of a pluggable-format table with a record key") {
+    withTempDir { tmp =>
+      Seq("cow", "mor").foreach { tableType =>
+        val tableName = generateTableName
+        val tablePath = s"${tmp.getCanonicalPath}/$tableName"
+        spark.sql(
+          s"""
+             | create table $tableName (id int, name string, dep string) using hudi
+             | tblproperties (type = '$tableType', primaryKey = 'id', 'hoodie.table.format' = 'test-format',
+             |   'hoodie.table.format.test.metadata.table.enabled' = 'true', 'hoodie.index.type' = 'GLOBAL_SIMPLE')
+             | partitioned by (dep)
+             | location '$tablePath'
+           """.stripMargin)
+        spark.sql(s"insert into $tableName values (1, 'a1', 'd1'), (2, 'a2', 'd1'), (3, 'a3', 'd2'), (4, 'a4', 'd2')")
+
+        // id 1 takes the partition the source names, id 2 one other than the source value it is looked up under
+        spark.sql(
+          s"""
+             | merge into $tableName t
+             | using (select 1 as id, 'a1m' as name, 'd2' as dep, 'd2' as new_dep
+             |   union all select 2, 'a2m', 'd1', 'd3' union all select 4, 'a4m', 'd2', 'd2') s
+             | on t.id = s.id
+             | when matched and s.id = 1 then update set *
+             | when matched and s.id = 2 then update set id = s.id, name = s.name, dep = s.new_dep
+             | when matched and s.id = 4 then update set id = s.id, name = s.name, dep = s.new_dep
+           """.stripMargin)
+        spark.sql(s"update $tableName set dep = 'd1', name = 'a3u' where id = 3")
+        checkPartitionedRows(tableName, "dep")(
+          Seq(1, "a1m", "d2"), Seq(2, "a2m", "d3"), Seq(3, "a3u", "d1"), Seq(4, "a4m", "d2"))
+        if (tableType == "mor") {
+          compactAndCheck(tableName)
+          checkPartitionedRows(tableName, "dep")(
+            Seq(1, "a1m", "d2"), Seq(2, "a2m", "d3"), Seq(3, "a3u", "d1"), Seq(4, "a4m", "d2"))
+        }
+      }
+    }
+  }
+
+  test("Test MergeInto finds a record that Update moves across partitions through the record index") {
+    withSQLConf("hoodie.index.type" -> "RECORD_INDEX", HoodieMetadataConfig.GLOBAL_RECORD_LEVEL_INDEX_ENABLE_PROP.key -> "true",
+      HoodieIndexConfig.RECORD_INDEX_UPDATE_PARTITION_PATH_ENABLE.key -> "true") {
+      withTempDir { tmp =>
+        Seq("cow", "mor").foreach { tableType =>
+          val tableName = generateTableName
+          spark.sql(
+            s"""
+               | create table $tableName (id int, name string, dep string) using hudi
+               | tblproperties (type = '$tableType', primaryKey = 'id')
+               | partitioned by (dep)
+               | location '${tmp.getCanonicalPath}/$tableName'
+             """.stripMargin)
+          spark.sql(s"insert into $tableName values (1, 'a1', 'd1'), (2, 'a2', 'd1')")
+          spark.sql(s"update $tableName set dep = 'd2' where id = 1")
+          checkPartitionedRows(tableName, "dep")(Seq(1, "a1", "d2"), Seq(2, "a2", "d1"))
+
+          // The source names the partition id 1 was moved from, and one id 2 moves to
+          spark.sql(
+            s"""
+               | merge into $tableName t
+               | using (select 1 as id, 'a1m' as name, 'd1' as dep union all select 2, 'a2m', 'd3') s
+               | on t.id = s.id
+               | when matched and s.id = 1 then update set id = s.id, name = s.name, dep = t.dep
+               | when matched and s.id = 2 then update set *
+               | when not matched then insert *
+             """.stripMargin)
+          checkPartitionedRows(tableName, "dep")(Seq(1, "a1m", "d2"), Seq(2, "a2m", "d3"))
+        }
+      }
+    }
+  }
+
+  test("Test MergeInto and Update refuse to move a record of a pluggable-format table with a non-global index") {
+    withTempDir { tmp =>
+      Seq("cow", "mor").foreach { tableType =>
+        val tableName = generateTableName
+        val tablePath = s"${tmp.getCanonicalPath}/$tableName"
+        spark.sql(
+          s"""
+             | create table $tableName (id int, name string, dep string) using hudi
+             | tblproperties (type = '$tableType', primaryKey = 'id', 'hoodie.table.format' = 'test-format',
+             |   'hoodie.table.format.test.metadata.table.enabled' = 'true', 'hoodie.index.type' = 'SIMPLE')
+             | partitioned by (dep)
+             | location '$tablePath'
+           """.stripMargin)
+        spark.sql(s"insert into $tableName values (1, 'a1', 'd1')")
+        checkExceptionContain(
+          s"""
+             | merge into $tableName t
+             | using (select 1 as id, 'a1m' as name, 'd1' as dep, 'd9' as new_dep) s
+             | on t.id = s.id
+             | when matched then update set id = s.id, name = s.name, dep = s.new_dep
+           """.stripMargin)(
+          "Detected disallowed assignment clause in MERGE INTO statement for partition field `dep`")
+        checkExceptionContain(s"update $tableName set dep = 'd9' where id = 1")(
+          "Detected disallowed assignment clause in UPDATE statement for partition field `dep`")
+        checkPartitionedRows(tableName, "dep")(Seq(1, "a1", "d1"))
+      }
     }
   }
 
