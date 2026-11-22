@@ -332,11 +332,12 @@ class TestDeleteTable extends HoodieSparkSqlTestBase {
   }
 
   test("Test Delete Table removes every row of a duplicate key") {
-    // An insert keeps rows that share a record key, in the same base file and across file groups
+    // An insert with the none duplicate policy keeps rows that share a record key, in the same base file and across file groups
     Seq(("cow", false), ("mor", false), ("mor", true)).foreach { case (tableType, updatesAsDeletesAndInserts) =>
       withTempDir { tmp =>
         val tableName = generateTableName
-        withSQLConf(HoodieWriteConfig.WRITE_UPDATES_AS_DELETES_AND_INSERTS.key() -> updatesAsDeletesAndInserts.toString) {
+        withSQLConf(HoodieWriteConfig.WRITE_UPDATES_AS_DELETES_AND_INSERTS.key() -> updatesAsDeletesAndInserts.toString,
+          "hoodie.datasource.insert.dup.policy" -> "none") {
           spark.sql(
             s"""
                |create table $tableName (

@@ -17,7 +17,7 @@
 
 package org.apache.hudi
 
-import org.apache.hudi.AutoRecordKeyGenerationUtils.mayBeValidateParamsForAutoGenerationOfRecordKeys
+import org.apache.hudi.AutoRecordKeyGenerationUtils.{mayBeValidateParamsForAutoGenerationOfRecordKeys, shouldAutoGenerateRecordKeys}
 import org.apache.hudi.DataSourceOptionsHelper.fetchMissingWriteConfigsFromTableConfig
 import org.apache.hudi.DataSourceUtils.SparkDataSourceWriteStatusValidator
 import org.apache.hudi.DataSourceWriteOptions._
@@ -1379,6 +1379,12 @@ object HoodieSparkSqlWriterInternal {
       shouldDropDuplicatesForInserts(hoodieConfig)
   }
 
+  // An insert into a table with a record key that sets no duplicate policy fails on duplicate record keys.
+  def failsOnDuplicatesByDefault(hoodieConfig: HoodieConfig): Boolean = {
+    !hoodieConfig.contains(INSERT_DUP_POLICY) &&
+      !shouldAutoGenerateRecordKeys(hoodieConfig.getProps.asScala.toMap)
+  }
+
   // Check if deduplication is needed.
   def isDeduplicationNeeded(operation: WriteOperationType): Boolean = {
     operation == WriteOperationType.INSERT
@@ -1388,10 +1394,9 @@ object HoodieSparkSqlWriterInternal {
                              hoodieConfig: HoodieConfig,
                              operation: WriteOperationType,
                              client: SparkRDDWriteClient[_]): JavaRDD[HoodieRecord[_]] = {
-    // If no deduplication is needed, return the incoming records as is
-    if (!isDeduplicationRequired(hoodieConfig) || !isDeduplicationNeeded(operation)) {
+    if (!isDeduplicationNeeded(operation)) {
       incomingRecords
-    } else {
+    } else if (isDeduplicationRequired(hoodieConfig)) {
       // Resolve duplicates on the committing client's engine context and config rather than a throwaway
       // context. The record index lookup this triggers collects its counters into a registry owned by the
       // context that ran the lookup, and postCommit drains the client's context; a separate context would
@@ -1399,6 +1404,11 @@ object HoodieSparkSqlWriterInternal {
       DataSourceUtils.handleDuplicates(
         client.getEngineContext.asInstanceOf[HoodieSparkEngineContext], incomingRecords,
         client.getConfig, shouldFailWhenDuplicatesFound(hoodieConfig))
+    } else if (failsOnDuplicatesByDefault(hoodieConfig)) {
+      DataSourceUtils.failOnDuplicatesByDefault(
+        client.getEngineContext.asInstanceOf[HoodieSparkEngineContext], incomingRecords, client.getConfig)
+    } else {
+      incomingRecords
     }
   }
 }
