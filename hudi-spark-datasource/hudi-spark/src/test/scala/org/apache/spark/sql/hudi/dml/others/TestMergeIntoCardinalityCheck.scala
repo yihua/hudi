@@ -74,11 +74,13 @@ class TestMergeIntoCardinalityCheck extends HoodieSparkSqlTestBase {
                |when matched then update set *
                |when not matched then insert *
              """.stripMargin)
-          // A matched clause that does not apply to the target row does not lift the check
+          // A matched clause that does not apply to the target row does not lift the check. A merge-on-read
+          // table without a record key refuses a target field in a matched condition, so it takes the source field
+          val matchedCondition = if (tableType == "mor" && !keyed && !updatesAsDeletesAndInserts) "s.id = 6" else "t.id = 6"
           assertCardinalityViolation(
             s"""
                |merge into $tableName t using ($source) s on t.id = s.id
-               |when matched and t.id = 6 then update set *
+               |when matched and $matchedCondition then update set *
                |when not matched then insert *
              """.stripMargin)
           checkAnswer(s"select id, name, ts from $tableName order by id")(Seq(1, "a1", 1000), Seq(6, "a6", 1000))
