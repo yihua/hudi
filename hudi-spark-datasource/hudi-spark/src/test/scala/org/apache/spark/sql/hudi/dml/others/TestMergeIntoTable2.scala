@@ -1696,11 +1696,17 @@ class TestMergeIntoTable2 extends HoodieSparkSqlTestBase {
         val source = "(select 1 as id, -1 as v union all select 3, -3)"
 
         checkExceptionContain(
+          s"merge into $tableName t using $source s on t.id = s.id and rand() > 0.5 when matched then delete")(
+          "MERGE operation contains unsupported SEARCH condition. Non-deterministic expressions are not allowed")
+        checkExceptionContain(
           s"merge into $tableName t using $source s on t.id = s.id when matched and rand() > 0.5 then delete")(
-          "deterministic expression")
+          "MERGE operation contains unsupported DELETE condition. Non-deterministic expressions are not allowed")
         checkExceptionContain(
           s"merge into $tableName t using $source s on t.id = s.id when not matched and rand() > 0.5 then insert *")(
-          "deterministic expression")
+          "MERGE operation contains unsupported INSERT condition. Non-deterministic expressions are not allowed")
+        checkExceptionContain(
+          s"merge into $tableName t using $source s on t.id = s.id and max(t.id) = 1 when matched then delete")(
+          "MERGE operation contains unsupported SEARCH condition. Aggregates are not allowed")
         checkExceptionContain(
           s"""
              |merge into $tableName t using $source s on t.id = s.id
@@ -1715,6 +1721,17 @@ class TestMergeIntoTable2 extends HoodieSparkSqlTestBase {
           s"merge into $tableName t using $source s on t.id = s.id when matched and sum(t.id) < 1 then delete")(
           "MERGE operation contains unsupported DELETE condition. Aggregates are not allowed")
         checkAnswer(s"select id, v from $tableName order by id")(Seq(1, 10), Seq(2, 20))
+
+        if (keyProp.isEmpty) {
+          // the merge condition of a table without a record key is a join condition, which evaluates a subquery
+          spark.sql(
+            s"""
+               |merge into $tableName t using $source s on t.id = s.id and t.id < (select max(id) from $source)
+               |when matched then update set v = s.v
+               |when not matched then insert *
+             """.stripMargin)
+          checkAnswer(s"select id, v from $tableName order by id")(Seq(1, -1), Seq(2, 20), Seq(3, -3))
+        }
       }
     }
   }

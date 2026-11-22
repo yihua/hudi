@@ -522,12 +522,8 @@ case class ResolveImplementations(sparkSession: SparkSession) extends Rule[Logic
               "WHEN NOT MATCHED BY SOURCE clause is not supported in MERGE INTO statement on a Hudi table")
           }
           val mergeInto = mit.asInstanceOf[MergeIntoTable]
-          validateActionConditions(mergeInto)
-          if (hasNonDeterministicCondition(mergeInto)) {
-            mergeInto
-          } else {
-            MergeIntoHoodieTableCommand(resolveAssignments(ReplaceExpressions(mergeInto).asInstanceOf[MergeIntoTable]))
-          }
+          validateMergeConditions(mergeInto)
+          MergeIntoHoodieTableCommand(resolveAssignments(ReplaceExpressions(mergeInto).asInstanceOf[MergeIntoTable]))
 
         // Convert to UpdateHoodieTableCommand
         case ut@UpdateTable(plan@ResolvesToHudiTable(_), _, _) if ut.resolved && !ut.condition.exists(!_.deterministic) =>
@@ -625,18 +621,13 @@ case class ResolveImplementations(sparkSession: SparkSession) extends Rule[Logic
   }
 
   /**
-   * A statement with a non-deterministic condition is left as it is, for Spark's analysis check to
-   * reject it as it does on other tables: the write evaluates a condition more than once per record.
+   * Refuses the conditions Spark refuses in a MERGE INTO, with its message. The write evaluates the
+   * condition of each action per record, where a subquery has no result and an aggregate has no group
+   * to aggregate. The merge condition of a table without a record key is a join condition, which
+   * evaluates a subquery.
    */
-  private def hasNonDeterministicCondition(mergeInto: MergeIntoTable): Boolean =
-    !mergeInto.mergeCondition.deterministic ||
-      (mergeInto.matchedActions ++ mergeInto.notMatchedActions).exists(_.condition.exists(!_.deterministic))
-
-  /**
-   * The write evaluates the condition of each action per record, where a subquery has no result
-   * and an aggregate has no group to aggregate.
-   */
-  private def validateActionConditions(mergeInto: MergeIntoTable): Unit =
+  private def validateMergeConditions(mergeInto: MergeIntoTable): Unit = {
+    validateMergeCondition("SEARCH", mergeInto.mergeCondition, allowSubquery = true)
     (mergeInto.matchedActions ++ mergeInto.notMatchedActions).foreach { action =>
       val actionName = action match {
         case _: UpdateAction => "UPDATE"
@@ -644,17 +635,23 @@ case class ResolveImplementations(sparkSession: SparkSession) extends Rule[Logic
         case _: InsertAction => "INSERT"
         case _ => action.prettyName.toUpperCase
       }
-      action.condition.foreach { condition =>
-        if (SubqueryExpression.hasSubquery(condition)) {
-          throw new HoodieAnalysisException(s"MERGE operation contains unsupported $actionName condition. " +
-            s"Subqueries are not allowed: ${condition.sql}")
-        }
-        if (condition.exists(_.isInstanceOf[AggregateExpression])) {
-          throw new HoodieAnalysisException(s"MERGE operation contains unsupported $actionName condition. " +
-            s"Aggregates are not allowed: ${condition.sql}")
-        }
-      }
+      action.condition.foreach(validateMergeCondition(actionName, _, allowSubquery = false))
     }
+  }
+
+  private def validateMergeCondition(conditionName: String, condition: Expression, allowSubquery: Boolean): Unit = {
+    def refuse(reason: String): Unit = throw new HoodieAnalysisException(
+      s"MERGE operation contains unsupported $conditionName condition. $reason: ${condition.sql}")
+    if (!condition.deterministic) {
+      refuse("Non-deterministic expressions are not allowed")
+    }
+    if (!allowSubquery && SubqueryExpression.hasSubquery(condition)) {
+      refuse("Subqueries are not allowed")
+    }
+    if (condition.exists(_.isInstanceOf[AggregateExpression])) {
+      refuse("Aggregates are not allowed")
+    }
+  }
 
   private def resolveAssignments(mergeInto: MergeIntoTable): MergeIntoTable = {
     val planUtils = sparkAdapter.getCatalystPlanUtils
