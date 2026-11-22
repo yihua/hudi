@@ -118,14 +118,13 @@ public class TestSparkWriteHelper extends TestWriterHelperBase<HoodieData<Hoodie
         inserts.get(2), updates.get(2));
     List<HoodieRecord> kept = ((HoodieData<HoodieRecord>) writeHelper.failOnMultipleMatches(
         getInputRecords(tagged, 2), false, table)).collectAsList();
-    assertEquals(6, kept.size());
+    assertEquals(tagged.stream().map(TestSparkWriteHelper::recordAndRow).sorted().collect(Collectors.toList()),
+        kept.stream().map(TestSparkWriteHelper::recordAndRow).sorted().collect(Collectors.toList()));
     // The two records of the key the table does not hold are combined into one
     List<HoodieRecord> combined = ((HoodieData<HoodieRecord>) writeHelper.failOnMultipleMatches(
         getInputRecords(tagged, 2), true, table)).collectAsList();
-    assertEquals(5, combined.size());
-    assertEquals(1, combined.stream().filter(r -> !r.isCurrentLocationKnown()).count());
-    assertEquals(4, combined.stream().filter(HoodieRecord::isCurrentLocationKnown)
-        .map(r -> r.getRecordKey() + r.getCurrentLocation().getFileId() + r.getCurrentPosition()).collect(Collectors.toSet()).size());
+    assertEquals(tagged.subList(0, 5).stream().map(TestSparkWriteHelper::recordAndRow).sorted().collect(Collectors.toList()),
+        combined.stream().map(TestSparkWriteHelper::recordAndRow).sorted().collect(Collectors.toList()));
 
     // Two records located at the same row
     for (long position : new long[] {-1L, 3L}) {
@@ -135,6 +134,11 @@ public class TestSparkWriteHelper extends TestWriterHelperBase<HoodieData<Hoodie
           getInputRecords(multipleMatches, 2), true, table)).collectAsList());
       assertTrue(ExceptionUtil.isCausedBy(e, HoodieMultipleMatchesException.class), e::toString);
     }
+  }
+
+  private static String recordAndRow(HoodieRecord record) {
+    return record.getRecordKey() + "/" + record.getPartitionPath()
+        + (record.isCurrentLocationKnown() ? "@" + record.getCurrentLocation().getFileId() + ":" + record.getCurrentPosition() : "");
   }
 
   private static HoodieRecord located(HoodieRecord record, String fileId, long position) {

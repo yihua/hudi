@@ -180,7 +180,7 @@ public class HoodieWriteHelper<T, R> extends BaseWriteHelper<T, HoodieData<Hoodi
       if (record.isCurrentLocationKnown()) {
         HoodieRecordLocation location = record.getCurrentLocation();
         if (!matchedRows.add(Pair.of(location.getFileId(), location.getPosition()))) {
-          throw multipleMatchesException(record.getKey(), location);
+          throw multipleMatchesException(record.getRecordKey(), record.getPartitionPath(), location.getFileId());
         }
         result.add(record);
       } else if (newKeyCombiner.isPresent()) {
