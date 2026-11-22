@@ -18,6 +18,7 @@
 package org.apache.spark.sql.execution.datasources.parquet
 
 import org.apache.hudi.{HoodieFileIndex, HoodieSchemaConversionUtils, HoodieSparkUtils, HoodieTableSchema, SparkAdapterSupport, SparkFileFormatInternalRowReaderContext}
+import org.apache.hudi.HoodieConversionUtils.toScalaOption
 import org.apache.hudi.client.common.HoodieSparkEngineContext
 import org.apache.hudi.client.utils.SparkInternalSchemaConverter
 import org.apache.hudi.common.config.{HoodieMemoryConfig, TypedProperties}
@@ -29,6 +30,7 @@ import org.apache.hudi.common.schema.internal.InternalSchema
 import org.apache.hudi.common.table.{HoodieTableConfig, HoodieTableMetaClient}
 import org.apache.hudi.common.table.log.InstantRange
 import org.apache.hudi.common.table.read.{HoodieFileGroupReader, TableState}
+import org.apache.hudi.common.table.timeline.HoodieTimeline
 import org.apache.hudi.common.util.{Option => HOption}
 import org.apache.hudi.exception.HoodieNotSupportedException
 import org.apache.hudi.io.MergeUtils
@@ -388,7 +390,8 @@ class HoodieFileGroupReaderBasedFileFormat(tablePath: String,
     // through schema versions; base files resolve their schema-on-read versions in the parquet reader.
     val tableState = TableState.snapshotOf(metaClient, isMOR, isMOR && internalSchemaOpt.isPresent)
     val queryTimestamp = specifiedQueryTimestamp.getOrElse(
-      metaClient.getCommitsAndCompactionTimeline.filterCompletedInstants.lastInstant.get.requestedTime)
+      toScalaOption(metaClient.getCommitsAndCompactionTimeline.filterCompletedInstants.lastInstant)
+        .map(_.requestedTime).getOrElse(HoodieTimeline.INIT_INSTANT_TS))
     val readerProps = TypedProperties.copy(metaClient.getTableConfig.getProps)
     options.foreach(kv => readerProps.setProperty(kv._1, kv._2))
     readerProps.put(HoodieMemoryConfig.MAX_MEMORY_FOR_MERGE.key(), String.valueOf(maxMemoryPerCompaction))
