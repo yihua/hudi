@@ -64,6 +64,11 @@ public class SparkUpsertDeltaCommitPartitioner<T> extends UpsertPartitioner<T> {
       // packs inserts into a small base file would evaluate them as source records of the statement once more
       return Collections.emptyList();
     }
+    if (config.shouldWritePartialUpdates() && !table.getIndex().canIndexLogFiles()) {
+      // The merge that packs inserts into a small base file takes every record of its file group, and would take
+      // the partial updates of the records the file holds for full records
+      return Collections.emptyList();
+    }
     // Init here since this class (and member variables) might not have been initialized
     HoodieTimeline commitTimeline = table.getCompletedCommitsTimeline();
 
