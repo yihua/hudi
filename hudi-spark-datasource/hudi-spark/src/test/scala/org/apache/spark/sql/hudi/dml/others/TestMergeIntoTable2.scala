@@ -1626,9 +1626,6 @@ class TestMergeIntoTable2 extends HoodieSparkSqlTestBase {
 
         if (!gteqSpark3_5) {
           checkExceptionContain(mergeNested)("Assigning a nested field requires Spark 3.5 or later")
-        } else if (tableType == "mor") {
-          // the update of a nested field reads the other fields of the struct from the stored record
-          checkExceptionContain(mergeNested)("cannot be the right-value of the update clause for MOR table")
         } else {
           spark.sql(mergeNested)
           checkAnswer(s"select id, s from $tableName order by id")(
