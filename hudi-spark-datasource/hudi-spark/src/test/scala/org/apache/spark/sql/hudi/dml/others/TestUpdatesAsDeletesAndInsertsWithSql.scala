@@ -109,6 +109,28 @@ class TestUpdatesAsDeletesAndInsertsWithSql extends HoodieSparkSqlTestBase {
     }
   }
 
+  test("Test MERGE INTO and UPDATE moving records across partitions writing updates as deletes and inserts "
+    + "on a table without a primary key") {
+    withTable("SIMPLE", partitioned = true, keyed = false) { (tableName, tablePath) =>
+      // id 1 takes the partition the source names, id 2 one its clause assigns, and id 3 stays
+      spark.sql(
+        s"""
+           |merge into $tableName t
+           |using (select 1 as id, 'a1m' as name, 11.0 as price, 'p2' as dt
+           |  union all select 2, 'a2m', 21.0, 'p1' union all select 3, 'a3m', 31.0, 'p1') s
+           |on t.id = s.id
+           |when matched and s.id = 2 then update set name = s.name, price = s.price, dt = 'p2'
+           |when matched then update set *
+         """.stripMargin)
+      spark.sql(s"update $tableName set dt = 'p1' where id = 4")
+      checkAnswer(s"select id, name, price, dt, _hoodie_partition_path from $tableName order by id")(
+        Seq(1, "a1m", 11.0, "p2", "dt=p2"), Seq(2, "a2m", 21.0, "p2", "dt=p2"), Seq(3, "a3m", 31.0, "p1", "dt=p1"),
+        Seq(4, "a4", 40.0, "p1", "dt=p1"), Seq(5, "a5", 50.0, "p2", "dt=p2"))
+      checkAnswer(s"select id from $tableName where dt = 'p1' order by id")(Seq(3), Seq(4))
+      assertEquals(Seq(1, 2, 3, 4), positionallyDeletedIds(tablePath))
+    }
+  }
+
   test("Test MERGE INTO without an update clause writing updates as deletes and inserts") {
     withTable { (tableName, tablePath) =>
       // Delete only: id 2 fails the condition and id 9 has no match
