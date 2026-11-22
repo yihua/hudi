@@ -27,7 +27,6 @@ import org.apache.hudi.common.function.SerializableBiFunction;
 import org.apache.hudi.common.function.SerializableFunctionUnchecked;
 import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieRecord;
-import org.apache.hudi.common.model.HoodieRecordLocation;
 import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.schema.HoodieSchema;
@@ -146,9 +145,9 @@ public abstract class BaseWriteHelper<T, I, K, O, R> extends ParallelismHelper<I
   /**
    * The exception for more than one incoming record matching the existing record with the given key and location.
    */
-  protected static HoodieMultipleMatchesException multipleMatchesException(HoodieKey key, HoodieRecordLocation location) {
-    return new HoodieMultipleMatchesException(key.getRecordKey(), "More than one incoming record matches the existing record with key "
-        + key.getRecordKey() + " in partition " + key.getPartitionPath() + " and file group " + location.getFileId()
+  public static HoodieMultipleMatchesException multipleMatchesException(String recordKey, String partitionPath, String fileId) {
+    return new HoodieMultipleMatchesException(recordKey, "More than one incoming record matches the existing record with key "
+        + recordKey + " in partition " + partitionPath + " and file group " + fileId
         + ", so the upsert cannot apply them as one update. Set " + HoodieWriteConfig.UPSERT_FAIL_ON_MULTIPLE_MATCHES.key()
         + " to false to combine them instead.");
   }

@@ -35,20 +35,24 @@ class TestMergeIntoCardinalityCheck extends HoodieSparkSqlTestBase {
   private val cardinalityError =
     "MERGE statement matched a single row from the target table with multiple rows of the source table"
 
-  // (table type, update-as-delete-insert write mode, primary key, ordering field)
+  // (table type, update-as-delete-insert write mode, primary key, ordering field, index type)
   Seq(
-    ("cow", false, true, false),
-    ("cow", false, true, true),
-    ("mor", false, true, false),
-    ("mor", false, true, true),
-    ("mor", true, true, false),
-    ("cow", false, false, false),
-    ("mor", false, false, false)).foreach { case (tableType, updatesAsDeletesAndInserts, keyed, ordered) =>
+    ("cow", false, true, false, "SIMPLE"),
+    ("cow", false, true, true, "SIMPLE"),
+    ("mor", false, true, false, "SIMPLE"),
+    ("mor", false, true, true, "SIMPLE"),
+    ("mor", true, true, false, "SIMPLE"),
+    ("cow", false, true, false, "GLOBAL_SIMPLE"),
+    ("mor", false, true, true, "GLOBAL_SIMPLE"),
+    ("mor", true, true, false, "GLOBAL_SIMPLE"),
+    ("cow", false, false, false, "SIMPLE"),
+    ("mor", false, false, false, "SIMPLE")).foreach { case (tableType, updatesAsDeletesAndInserts, keyed, ordered, indexType) =>
     test(s"Test MERGE INTO with more than one source row for a target row ($tableType, "
-      + s"update-as-delete-insert $updatesAsDeletesAndInserts, primary key $keyed, ordering field $ordered)") {
+      + s"update-as-delete-insert $updatesAsDeletesAndInserts, primary key $keyed, ordering field $ordered, $indexType index)") {
       withTempDir { tmp =>
         val tableName = generateTableName
-        withSQLConf(HoodieWriteConfig.WRITE_UPDATES_AS_DELETES_AND_INSERTS.key() -> updatesAsDeletesAndInserts.toString) {
+        withSQLConf("hoodie.index.type" -> indexType,
+          HoodieWriteConfig.WRITE_UPDATES_AS_DELETES_AND_INSERTS.key() -> updatesAsDeletesAndInserts.toString) {
           val keyProperties = (if (keyed) Seq("primaryKey = 'id'") else Seq.empty) ++
             (if (ordered) Seq("preCombineField = 'ts'") else Seq("'hoodie.record.merge.mode' = 'COMMIT_TIME_ORDERING'"))
           spark.sql(
@@ -74,36 +78,52 @@ class TestMergeIntoCardinalityCheck extends HoodieSparkSqlTestBase {
                |when matched then update set *
                |when not matched then insert *
              """.stripMargin)
-          // A matched clause that does not apply to the target row does not lift the check. A merge-on-read
-          // table without a record key refuses a target field in a matched condition, so it takes the source field
-          val matchedCondition = if (tableType == "mor" && !keyed && !updatesAsDeletesAndInserts) "s.id = 6" else "t.id = 6"
+          // A matched clause that does not apply to the target row does not lift the check
           assertCardinalityViolation(
             s"""
                |merge into $tableName t using ($source) s on t.id = s.id
-               |when matched and $matchedCondition then update set *
+               |when matched and s.id = 6 then update set *
                |when not matched then insert *
              """.stripMargin)
           checkAnswer(s"select id, name, ts from $tableName order by id")(Seq(1, "a1", 1000), Seq(6, "a6", 1000))
 
-          if (keyed) {
-            // Not-matched clauses only, or a single unconditional delete, have no cardinality check
-            spark.sql(s"merge into $tableName t using ($source) s on t.id = s.id when not matched then insert *")
-            checkAnswer(s"select id, name, ts from $tableName order by id")(
-              Seq(1, "a1", 1000), Seq(2, "a2", 1000), Seq(6, "a6", 1000))
-            spark.sql(s"merge into $tableName t using ($source) s on t.id = s.id when matched then delete")
-            checkAnswer(s"select id, name, ts from $tableName order by id")(Seq(6, "a6", 1000))
-          }
+          // On a merge-on-read table with a global index this covers the violation that the merged lookup of the
+          // index raises
+          if (!(tableType == "mor" && indexType == "GLOBAL_SIMPLE")) {
+            if (keyed) {
+              // Not-matched clauses only, or a single unconditional delete, have no cardinality check
+              spark.sql(s"merge into $tableName t using ($source) s on t.id = s.id when not matched then insert *")
+              spark.sql(s"merge into $tableName t using ($source) s on t.id = s.id when matched then delete")
 
-          // Without the check, the source rows are combined into one update
-          withSQLConf(MERGE_INTO_CARDINALITY_CHECK.key -> "false") {
-            spark.sql(
-              s"""
-                 |merge into $tableName t
-                 |using (select 6 as id, 'b6' as name, 1001 as ts union all select 6, 'b6', 1001) s on t.id = s.id
-                 |when matched then update set *
-               """.stripMargin)
+              // Source rows of a key the table does not hold are combined into one insert, by the ordering field if any
+              spark.sql(
+                s"""
+                   |merge into $tableName t
+                   |using (select 6 as id, 'b6' as name, 1001 as ts union all select 7, 'a7', 1001
+                   |  union all select 7, 'b7', 1000) s
+                   |on t.id = s.id
+                   |when matched then update set *
+                   |when not matched then insert *
+                 """.stripMargin)
+              checkAnswer(s"select id, name, ts from $tableName where id = 6")(Seq(6, "b6", 1001))
+              checkAnswer(s"select count(1) from $tableName where id = 7")(Seq(1))
+              if (ordered) {
+                checkAnswer(s"select id, name, ts from $tableName where id = 7")(Seq(7, "a7", 1001))
+              }
+            }
+
+            // Without the check, the source rows are combined into one update, by the ordering field if any
+            val (secondName, secondTs) = if (ordered) ("d6", 1000) else ("c6", 1002)
+            withSQLConf(MERGE_INTO_CARDINALITY_CHECK.key -> "false") {
+              spark.sql(
+                s"""
+                   |merge into $tableName t
+                   |using (select 6 as id, 'c6' as name, 1002 as ts union all select 6, '$secondName', $secondTs) s on t.id = s.id
+                   |when matched then update set *
+                 """.stripMargin)
+            }
+            checkAnswer(s"select id, name, ts from $tableName where id = 6")(Seq(6, "c6", 1002))
           }
-          checkAnswer(s"select id, name, ts from $tableName where id = 6")(Seq(6, "b6", 1001))
         }
       }
     }
