@@ -18,7 +18,7 @@
 
 package org.apache.spark.sql.hudi.dml.others
 
-import org.apache.hudi.DataSourceWriteOptions.{ENABLE_MERGE_INTO_PARTIAL_UPDATES, OPERATION, SPARK_SQL_INSERT_INTO_OPERATION, SPARK_SQL_OPTIMIZED_WRITES, UPSERT_OPERATION_OPT_VAL}
+import org.apache.hudi.DataSourceWriteOptions.{ENABLE_MERGE_INTO_PARTIAL_UPDATES, MERGE_INTO_CARDINALITY_CHECK, OPERATION, SPARK_SQL_INSERT_INTO_OPERATION, SPARK_SQL_OPTIMIZED_WRITES, UPSERT_OPERATION_OPT_VAL}
 import org.apache.hudi.common.config.HoodieMetadataConfig
 import org.apache.hudi.common.model.HoodieRecord.HoodieRecordType
 import org.apache.hudi.common.table.TableSchemaResolver
@@ -436,6 +436,14 @@ class TestUpdatesAsDeletesAndInsertsWithSql extends HoodieSparkSqlTestBase {
           "MERGE statement matched a single row from the target table with multiple rows of the source table")
         checkAnswer(s"select id, name, price, ts, dt from $tableName order by id")(
           Seq(1, "a1", 10.0, 100, "p1"), Seq(2, "a2", 20.0, 100, "p1"))
+
+        // Without the check the source rows are combined into one update, which stays located at the row of id 1
+        withSQLConf(MERGE_INTO_CARDINALITY_CHECK.key -> "false") {
+          spark.sql(statement)
+        }
+        checkAnswer(s"select id, name, price, ts, dt from $tableName order by id")(
+          Seq(1, "a1m", 11.0, 200, "p1"), Seq(2, "a2", 20.0, 100, "p1"), Seq(3, "a3", 30.0, 100, "p1"))
+        checkAnswer(s"select count(distinct _hoodie_record_key) from $tableName")(Seq(3))
       }
     }
   }
