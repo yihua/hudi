@@ -25,7 +25,6 @@ import org.apache.hudi.common.engine.HoodieReaderContext;
 import org.apache.hudi.common.engine.RecordContext;
 import org.apache.hudi.common.function.SerializableBiFunction;
 import org.apache.hudi.common.function.SerializableFunctionUnchecked;
-import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.model.WriteOperationType;
@@ -393,9 +392,14 @@ public abstract class BaseWriteHelper<T, I, K, O, R> extends ParallelismHelper<I
       // NOTE: For merge mode based merging, it returns non-null.
       //       For mergers / payloads based merging, it may return null.
       HoodieRecord<T> reducedRecord = merged.map(bufferedRecord -> recordContext.constructHoodieRecord(bufferedRecord, next.getPartitionPath())).orElse(previous);
-      boolean choosePrevious = merged.isEmpty();
-      HoodieKey reducedKey = choosePrevious ? previous.getKey() : next.getKey();
-      return reducedRecord.newInstance(reducedKey);
+      HoodieRecord<T> chosenRecord = merged.isEmpty() ? previous : next;
+      HoodieRecord<T> result = reducedRecord.newInstance(chosenRecord.getKey());
+      if (chosenRecord.isCurrentLocationKnown()) {
+        // A record the writer located before the write, as a Spark SQL MERGE INTO does on a table without a record
+        // key, shares its record key and location with the records it is combined with
+        result.setCurrentLocation(chosenRecord.getCurrentLocation());
+      }
+      return result;
     } catch (IOException e) {
       throw new HoodieException(String.format("Error to merge two records, %s, %s", previous, next), e);
     }
