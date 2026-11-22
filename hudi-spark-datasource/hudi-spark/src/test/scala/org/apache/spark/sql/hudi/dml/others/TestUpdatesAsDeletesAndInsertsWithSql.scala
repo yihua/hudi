@@ -19,6 +19,7 @@
 package org.apache.spark.sql.hudi.dml.others
 
 import org.apache.hudi.DataSourceWriteOptions.{ENABLE_MERGE_INTO_PARTIAL_UPDATES, SPARK_SQL_OPTIMIZED_WRITES}
+import org.apache.hudi.common.config.HoodieMetadataConfig
 import org.apache.hudi.common.model.HoodieRecord.HoodieRecordType
 import org.apache.hudi.common.table.TableSchemaResolver
 import org.apache.hudi.common.table.log.HoodieLogFormat
@@ -43,7 +44,7 @@ import scala.collection.mutable.ArrayBuffer
  */
 class TestUpdatesAsDeletesAndInsertsWithSql extends HoodieSparkSqlTestBase {
 
-  Seq("SIMPLE", "GLOBAL_SIMPLE").foreach { indexType =>
+  Seq("SIMPLE", "GLOBAL_SIMPLE", "RECORD_INDEX").foreach { indexType =>
     test(s"Test MERGE INTO writing updates as deletes and inserts with $indexType index") {
       withTable(indexType) { (tableName, tablePath) =>
         // Every source row matches and there is no not-matched clause
@@ -200,7 +201,8 @@ class TestUpdatesAsDeletesAndInsertsWithSql extends HoodieSparkSqlTestBase {
   // A global index can merge a source record with the record it matches while it tags, which leaves a delete to the split
   Seq(("SIMPLE", true, targetConditionCases ++ targetAssignmentCases),
     ("SIMPLE", false, targetConditionCases ++ targetAssignmentCases.take(1)),
-    ("GLOBAL_SIMPLE", true, targetConditionCases.take(1))).foreach { case (indexType, partitioned, cases) =>
+    ("GLOBAL_SIMPLE", true, targetConditionCases.take(1)),
+    ("RECORD_INDEX", true, targetConditionCases.take(1))).foreach { case (indexType, partitioned, cases) =>
     cases.foreach { mergeCase =>
       test(s"Test MERGE INTO with ${mergeCase.name} writing updates as deletes and inserts with $indexType index"
         + s" on a ${if (partitioned) "partitioned" else "non-partitioned"} table") {
@@ -272,6 +274,53 @@ class TestUpdatesAsDeletesAndInsertsWithSql extends HoodieSparkSqlTestBase {
     }
   }
 
+  test("Test UPDATE, MERGE INTO and DELETE writing updates as deletes and inserts with the record index across a compaction") {
+    val rows = Seq(Seq(2, "a2m", 21.0, "p1"), Seq(4, "a4", 80.0, "p2"), Seq(5, "a5", 50.0, "p2"))
+    withTable("RECORD_INDEX") { (tableName, tablePath) =>
+      // Inline compaction stays off until the explicit one, so the log files keep every positional delete
+      withSQLConf(HoodieCompactionConfig.INLINE_COMPACT.key -> "false") {
+        spark.sql(s"update $tableName set price = price * 2 where id in (1, 4)")
+        assertEquals(Seq("1", "4"), positionalDeletes(tablePath))
+
+        // The record index locates only the current copy of id 1, so its tombstoned copy is not deleted again
+        spark.sql(s"update $tableName set name = 'a1u' where id = 1")
+        checkAnswer(s"select id, name, price, dt from $tableName order by id")(
+          Seq(1, "a1u", 20.0, "p1"), Seq(2, "a2", 20.0, "p1"), Seq(3, "a3", 30.0, "p1"),
+          Seq(4, "a4", 80.0, "p2"), Seq(5, "a5", 50.0, "p2"))
+        assertEquals(Seq("1", "1", "4"), positionalDeletes(tablePath))
+
+        spark.sql(
+          s"""
+             |merge into $tableName t
+             |using (select 1 as id, 'x' as name, 0.0 as price, 'p1' as dt, 'none' as op
+             |  union all select 2, 'a2m', 21.0, 'p1', 'upd'
+             |  union all select 3, 'x', 0.0, 'p1', 'del'
+             |  union all select 6, 'a6', 60.0, 'p2', 'ins') s
+             |on t.id = s.id
+             |when matched and s.op = 'del' then delete
+             |when matched and s.op = 'upd' then update set id = s.id, name = s.name, price = s.price, dt = s.dt
+             |when not matched and s.op = 'ins' then insert (id, name, price, dt) values (s.id, s.name, s.price, s.dt)
+           """.stripMargin)
+        spark.sql(s"delete from $tableName where id in (1, 6)")
+        checkAnswer(s"select id, name, price, dt from $tableName order by id")(rows: _*)
+        assertEquals(Seq("1", "1", "1", "2", "3", "4", "6"), positionalDeletes(tablePath))
+      }
+
+      withSQLConf(HoodieCompactionConfig.INLINE_COMPACT_NUM_DELTA_COMMITS.key -> "1") {
+        spark.sql(s"call run_compaction(op => 'run', table => '$tableName')")
+      }
+      checkAnswer(s"select id, name, price, dt from $tableName order by id")(rows: _*)
+      assertEquals(Seq.empty, positionalDeletes(tablePath))
+
+      // The compacted file groups keep their ids, so the record index still locates every key
+      spark.sql(s"update $tableName set price = 99.0 where id = 2")
+      spark.sql(s"delete from $tableName where id = 4")
+      checkAnswer(s"select id, name, price, dt from $tableName order by id")(
+        Seq(2, "a2m", 99.0, "p1"), Seq(5, "a5", 50.0, "p2"))
+      assertEquals(Seq("2", "4"), positionalDeletes(tablePath))
+    }
+  }
+
   test("Test UPDATE, DELETE and MERGE INTO refused on a table without a primary key writing updates as deletes and inserts") {
     withTempDir { tmp =>
       val tableName = generateTableName
@@ -327,7 +376,8 @@ class TestUpdatesAsDeletesAndInsertsWithSql extends HoodieSparkSqlTestBase {
     withTempDir { tmp =>
       val tableName = generateTableName
       val tablePath = s"${tmp.getCanonicalPath}/$tableName"
-      withSQLConf(HoodieWriteConfig.WRITE_UPDATES_AS_DELETES_AND_INSERTS.key() -> "true", "hoodie.index.type" -> indexType) {
+      withSQLConf(HoodieWriteConfig.WRITE_UPDATES_AS_DELETES_AND_INSERTS.key() -> "true", "hoodie.index.type" -> indexType,
+        HoodieMetadataConfig.GLOBAL_RECORD_LEVEL_INDEX_ENABLE_PROP.key -> String.valueOf(indexType == "RECORD_INDEX")) {
         spark.sql(
           s"""
              |create table $tableName (
