@@ -279,11 +279,12 @@ class TestKeyBasedFileGroupRecordBuffer extends BaseTestFileGroupRecordBuffer {
     KeyBasedFileGroupRecordBuffer<IndexedRecord> fileGroupRecordBuffer = buildKeyBasedFileGroupRecordBuffer(readerContext, tableConfig, readStats, null,
         mergeMode, orderingFields, Option.of(Pair.of("counter", "3")));
 
-    // Two base records share key 2 and two share key 3
+    // Three base records share key 2, one of them ordered after the delete, and two share key 3
+    IndexedRecord testRecord2Later = createTestRecord("2", 5, 5L);
     IndexedRecord testRecord2Copy = createTestRecord("2", 4, 1L);
     IndexedRecord testRecord3Copy = createTestRecord("3", 4, 1L);
     fileGroupRecordBuffer.setBaseFileIterator(ClosableIterator.wrap(
-        Arrays.asList(testRecord2, testRecord1, testRecord3, testRecord2Copy, testRecord3Copy).iterator()));
+        Arrays.asList(testRecord2, testRecord1, testRecord3, testRecord2Later, testRecord2Copy, testRecord3Copy).iterator()));
 
     HoodieDeleteBlock deleteBlock = mock(HoodieDeleteBlock.class);
     mockDeleteRecords(deleteBlock, DeleteRecord.create("2", "", 3L));
@@ -293,11 +294,15 @@ class TestKeyBasedFileGroupRecordBuffer extends BaseTestFileGroupRecordBuffer {
     fileGroupRecordBuffer.processDeleteBlock(deleteBlock);
     fileGroupRecordBuffer.processDataBlock(dataBlock, Option.empty());
 
-    // An update of a duplicate key still replaces only the first base record with the key
+    // Under event-time ordering the base record ordered after the delete is kept, and the delete still applies to
+    // the next copy. An update of a duplicate key still replaces only the first base record with the key
+    boolean eventTime = mergeMode == RecordMergeMode.EVENT_TIME_ORDERING;
     List<IndexedRecord> actualRecords = getActualRecords(fileGroupRecordBuffer);
-    assertEquals(Arrays.asList(testRecord1, testRecord3Update, testRecord3Copy), actualRecords);
+    assertEquals(eventTime
+        ? Arrays.asList(testRecord1, testRecord3Update, testRecord2Later, testRecord3Copy)
+        : Arrays.asList(testRecord1, testRecord3Update, testRecord3Copy), actualRecords);
     assertEquals(0, readStats.getNumInserts());
-    assertEquals(2, readStats.getNumDeletes());
+    assertEquals(eventTime ? 2 : 3, readStats.getNumDeletes());
     assertEquals(1, readStats.getNumUpdates());
   }
 
