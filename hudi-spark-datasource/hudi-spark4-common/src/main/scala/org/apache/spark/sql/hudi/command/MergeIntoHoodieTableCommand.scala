@@ -679,7 +679,13 @@ case class MergeIntoHoodieTableCommand(mergeInto: MergeIntoTable) extends Hoodie
       PAYLOAD_ORIGINAL_AVRO_PAYLOAD -> hoodieCatalogTable.tableConfig.getPayloadClass
     )
 
-    writeParams += HoodieWriteConfig.UPSERT_FAIL_ON_MULTIPLE_MATCHES.key -> shouldCheckCardinality(parameters).toString
+    val checksCardinality = shouldCheckCardinality(parameters)
+    writeParams += HoodieWriteConfig.UPSERT_FAIL_ON_MULTIPLE_MATCHES.key -> checksCardinality.toString
+    if (checksCardinality) {
+      // The check keeps one insert per key the table does not hold only with this on, which a table without
+      // ordering fields leaves off
+      writeParams += HoodieWriteConfig.COMBINE_BEFORE_UPSERT.key -> "true"
+    }
 
     val (structName, namespace) = HoodieSchemaConversionUtils.getRecordNameAndNamespace(hoodieCatalogTable.tableName)
     val schema = convertStructTypeToHoodieSchema(hoodieCatalogTable.tableSchema, structName, namespace)
