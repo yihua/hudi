@@ -304,6 +304,7 @@ class TestCOWDataSource extends HoodieSparkClientTestBase with ScalaAssertionSup
       "hoodie.insert.shuffle.parallelism" -> "4",
       "hoodie.upsert.shuffle.parallelism" -> "4",
       DataSourceWriteOptions.RECORDKEY_FIELD.key -> "_row_key",
+      DataSourceWriteOptions.INSERT_DUP_POLICY.key -> DataSourceWriteOptions.NONE_INSERT_DUP_POLICY,
       HoodieWriteConfig.TBL_NAME.key -> "hoodie_test"
     ) ++ writeOpts
 
@@ -501,6 +502,7 @@ class TestCOWDataSource extends HoodieSparkClientTestBase with ScalaAssertionSup
     df.write.format("hudi")
       .options(opts)
       .option(DataSourceWriteOptions.OPERATION.key, operation)
+      .option(DataSourceWriteOptions.INSERT_DUP_POLICY.key, DataSourceWriteOptions.NONE_INSERT_DUP_POLICY)
       .mode(SaveMode.Append)
       .save(basePath)
   }
