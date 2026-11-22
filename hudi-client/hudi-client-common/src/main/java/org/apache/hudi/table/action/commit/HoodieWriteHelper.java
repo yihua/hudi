@@ -70,10 +70,6 @@ public class HoodieWriteHelper<T, R> extends BaseWriteHelper<T, HoodieData<Hoodi
   protected HoodieData<HoodieRecord<T>> updatesAsDeletesAndInserts(HoodieData<HoodieRecord<T>> taggedRecords,
                                                                    HoodieTable<T, HoodieData<HoodieRecord<T>>, HoodieData<HoodieKey>, HoodieData<WriteStatus>> table,
                                                                    int configuredShuffleParallelism) {
-    HoodieWriteConfig config = table.getConfig();
-    TypedProperties props = config.getProps();
-    final HoodieSchema schema = HoodieSchema.parse(config.getSchema());
-    DeleteContext deleteContext = DeleteContext.fromRecordSchema(props, schema);
     int parallelism = deduceShuffleParallelism(taggedRecords, configuredShuffleParallelism);
     HoodieData<HoodieRecord<T>> latestTaggedRecords = taggedRecords
         // NOTE: the incoming record may hold an instance of [[InternalRow]] pointing into a
@@ -83,17 +79,27 @@ public class HoodieWriteHelper<T, R> extends BaseWriteHelper<T, HoodieData<Hoodi
         .map(Pair::getRight);
     // A located Spark SQL MERGE INTO record is first replaced with what its matched clauses make of the record it
     // matches, so its new version is inserted as evaluated instead of taking the not-matched clauses on the insert path
-    return HoodieIndexUtils.mergeLocatedExpressionPayloadRecords(latestTaggedRecords, config, table, parallelism, true)
-        .flatMap(record -> {
-          if (!record.isCurrentLocationKnown() || record.isDelete(deleteContext, props)) {
-            return Collections.singletonList(record).iterator();
-          }
-          HoodieRecord<T> deleteRecord = HoodieDeleteHelper.createDeleteRecord(config, record.getKey());
-          deleteRecord.setIgnoreIndexUpdate(true);
-          HoodieIndexUtils.tagRecord(deleteRecord, record.getCurrentLocation());
-          HoodieRecord<T> insertRecord = record.newInstance(record.getKey());
-          return Arrays.asList(deleteRecord, insertRecord).iterator();
-        });
+    return splitLocatedRecords(
+        HoodieIndexUtils.mergeLocatedExpressionPayloadRecords(latestTaggedRecords, table.getConfig(), table, parallelism, true), table);
+  }
+
+  @Override
+  protected HoodieData<HoodieRecord<T>> splitLocatedRecords(HoodieData<HoodieRecord<T>> locatedRecords,
+                                                            HoodieTable<T, HoodieData<HoodieRecord<T>>, HoodieData<HoodieKey>, HoodieData<WriteStatus>> table) {
+    HoodieWriteConfig config = table.getConfig();
+    TypedProperties props = config.getProps();
+    final HoodieSchema schema = HoodieSchema.parse(config.getSchema());
+    DeleteContext deleteContext = DeleteContext.fromRecordSchema(props, schema);
+    return locatedRecords.flatMap(record -> {
+      if (!record.isCurrentLocationKnown() || record.isDelete(deleteContext, props)) {
+        return Collections.singletonList(record).iterator();
+      }
+      HoodieRecord<T> deleteRecord = HoodieDeleteHelper.createDeleteRecord(config, record.getKey());
+      deleteRecord.setIgnoreIndexUpdate(true);
+      HoodieIndexUtils.tagRecord(deleteRecord, record.getCurrentLocation());
+      HoodieRecord<T> insertRecord = record.newInstance(record.getKey());
+      return Arrays.asList(deleteRecord, insertRecord).iterator();
+    });
   }
 
   @Override
