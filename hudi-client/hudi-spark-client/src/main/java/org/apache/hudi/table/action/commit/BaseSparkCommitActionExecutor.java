@@ -49,6 +49,7 @@ import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieUpsertException;
 import org.apache.hudi.execution.SparkLazyInsertIterable;
 import org.apache.hudi.index.HoodieIndex;
+import org.apache.hudi.index.HoodieIndexUtils;
 import org.apache.hudi.index.HoodieSparkIndexClient;
 import org.apache.hudi.io.CreateHandleFactory;
 import org.apache.hudi.io.HoodieMergeHandle;
@@ -230,8 +231,10 @@ public abstract class BaseSparkCommitActionExecutor<T> extends
       log.info("RDD PreppedRecords was persisted at: {}", inputRDD.getStorageLevel());
     }
 
+    HoodieData<HoodieRecord<T>> positionedRecords = HoodieIndexUtils.tagMissingRecordPositionsIfNeeded(inputRecords, operationType, config, table);
+
     // Handle records update with clustering
-    HoodieData<HoodieRecord<T>> inputRecordsWithClusteringUpdate = clusteringHandleUpdate(inputRecords);
+    HoodieData<HoodieRecord<T>> inputRecordsWithClusteringUpdate = clusteringHandleUpdate(positionedRecords);
     log.info("Num spark partitions for inputRecords before triggering workload profile {}", inputRecordsWithClusteringUpdate.getNumPartitions());
 
     WorkloadProfile workloadProfile = prepareWorkloadProfile(inputRecordsWithClusteringUpdate);

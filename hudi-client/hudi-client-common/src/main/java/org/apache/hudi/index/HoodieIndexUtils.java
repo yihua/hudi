@@ -31,6 +31,7 @@ import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieAvroIndexedRecord;
 import org.apache.hudi.common.model.HoodieBaseFile;
+import org.apache.hudi.common.model.HoodieFileFormat;
 import org.apache.hudi.common.model.HoodieIndexDefinition;
 import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieRecord;
@@ -41,6 +42,7 @@ import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.model.MetadataValues;
 import org.apache.hudi.common.model.ReplacedRecord;
+import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.schema.HoodieSchemaCache;
 import org.apache.hudi.common.schema.HoodieSchemaField;
@@ -98,6 +100,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import static java.util.stream.Collectors.toList;
 import static org.apache.hudi.common.config.HoodieMetadataConfig.GLOBAL_RECORD_LEVEL_INDEX_ENABLE_PROP;
@@ -730,29 +733,62 @@ public class HoodieIndexUtils {
             return Pair.of(incomingRecord, Option.empty());
           }
         });
-    HoodieData<HoodieRecord<R>> taggedRecords = requiresMergingWithOlderRecordVersion
+    return requiresMergingWithOlderRecordVersion
         ? mergeForPartitionUpdatesAndDeletionsIfNeeded(incomingRecordsAndLocations, shouldUpdatePartitionPath, config, table, readerContext, writerSchema)
         : incomingRecordsAndLocations.map(Pair::getLeft);
-    return config.shouldWriteUpdatesAsDeletesAndInserts() && table.getMetaClient().getTableType() == HoodieTableType.MERGE_ON_READ
-        ? tagMissingRecordPositions(taggedRecords, config, table)
-        : taggedRecords;
+  }
+
+  /**
+   * Whether a write to the table writes the row position of each updated or deleted record in the base file of its
+   * file group to the log blocks, as {@link org.apache.hudi.io.HoodieAppendHandle} does.
+   */
+  public static boolean writesRecordPositions(HoodieWriteConfig config, HoodieTable table) {
+    return table.getMetaClient().getTableType() == HoodieTableType.MERGE_ON_READ
+        && !table.isMetadataTable()
+        && config.shouldWriteRecordPositions()
+        && config.getWriteVersion().greaterThanOrEquals(HoodieTableVersion.EIGHT);
+  }
+
+  /**
+   * Sets the row position of each located record of an update or delete that has none, when the write records
+   * positions (see {@link #writesRecordPositions}). Only the indexes that read the keys of base files to locate
+   * records tag their positions, so this reads them for the records any other index, or a prepped write, located.
+   * A log block keeps record positions only when every record in it has one.
+   */
+  public static <R> HoodieData<HoodieRecord<R>> tagMissingRecordPositionsIfNeeded(HoodieData<HoodieRecord<R>> taggedRecords,
+                                                                                  WriteOperationType operationType,
+                                                                                  HoodieWriteConfig config,
+                                                                                  HoodieTable table) {
+    boolean updatesOrDeletes = operationType == WriteOperationType.UPSERT || operationType == WriteOperationType.UPSERT_PREPPED
+        || operationType == WriteOperationType.DELETE || operationType == WriteOperationType.DELETE_PREPPED;
+    return updatesOrDeletes && writesRecordPositions(config, table) ? tagMissingRecordPositions(taggedRecords, config, table) : taggedRecords;
   }
 
   /**
    * Sets the row position of each tagged record whose location has none, read from the latest base
    * file of the located file group the way the simple index reads it. The update-as-delete-insert write
-   * mode writes the delete of a located record to the log as a positional delete against that base file.
+   * mode writes the delete of a located record to the log as a positional delete against that base file,
+   * so there a located record without a position fails the write. Otherwise a record stays without a
+   * position when its file group has no base file with row positions, or its key is not in the base file,
+   * as for a new key the bucket index routes to the existing file group of its bucket.
    */
   private static <R> HoodieData<HoodieRecord<R>> tagMissingRecordPositions(HoodieData<HoodieRecord<R>> taggedRecords,
                                                                            HoodieWriteConfig config,
                                                                            HoodieTable table) {
+    boolean positionsRequired = config.shouldWriteUpdatesAsDeletesAndInserts();
     List<Pair<String, HoodieBaseFile>> baseFiles = taggedRecords.filter(HoodieIndexUtils::isLocatedWithoutPosition)
         .map(record -> Pair.of(record.getPartitionPath(), record.getCurrentLocation().getFileId()))
         .distinct()
         .collectAsList().stream()
-        .map(fileGroup -> Pair.of(fileGroup.getLeft(), (HoodieBaseFile) table.getBaseFileOnlyView()
-            .getLatestBaseFile(fileGroup.getLeft(), fileGroup.getRight())
-            .orElseThrow(() -> new HoodieIndexException("No base file to read record positions from in file group " + fileGroup))))
+        .flatMap(fileGroup -> {
+          Option<HoodieBaseFile> baseFile = table.getBaseFileOnlyView().getLatestBaseFile(fileGroup.getLeft(), fileGroup.getRight());
+          if (positionsRequired) {
+            return Stream.of(Pair.of(fileGroup.getLeft(), baseFile.orElseThrow(
+                () -> new HoodieIndexException("No base file to read record positions from in file group " + fileGroup))));
+          }
+          return baseFile.isPresent() && !baseFile.get().getFileName().endsWith(HoodieFileFormat.HFILE.getFileExtension())
+              ? Stream.of(Pair.of(fileGroup.getLeft(), baseFile.get())) : Stream.empty();
+        })
         .collect(toList());
     if (baseFiles.isEmpty()) {
       return taggedRecords;
@@ -765,14 +801,21 @@ public class HoodieIndexUtils {
           return Pair.of(Pair.of(keyAndLocation.getLeft(), keyAndLocation.getRight().getFileId()), keyAndLocation.getRight().getPosition());
         });
     HoodieData<HoodieRecord<R>> positionedRecords = taggedRecords.filter(HoodieIndexUtils::isLocatedWithoutPosition)
-        .mapToPair(record -> Pair.of(Pair.of(record.getKey(), record.getCurrentLocation().getFileId()), record))
+        // NOTE: the record may hold an instance of [[InternalRow]] pointing into a shared, mutable buffer,
+        //       so it has to be copied before the shuffle
+        .mapToPair(record -> Pair.of(Pair.of(record.getKey(), record.getCurrentLocation().getFileId()), record.copy()))
         .leftOuterJoin(positions)
         .values()
         .map(recordAndPosition -> {
           HoodieRecord<R> record = recordAndPosition.getLeft();
           HoodieRecordLocation location = record.getCurrentLocation();
-          long position = recordAndPosition.getRight().orElseThrow(() -> new HoodieIndexException(
-              "Record key " + record.getKey() + " is not in the base file of file group " + location.getFileId()));
+          if (!recordAndPosition.getRight().isPresent()) {
+            if (positionsRequired) {
+              throw new HoodieIndexException("Record key " + record.getKey() + " is not in the base file of file group " + location.getFileId());
+            }
+            return record;
+          }
+          long position = recordAndPosition.getRight().get();
           HoodieRecord<R> positionedRecord = record.newInstance(record.getKey());
           positionedRecord.setIgnoreIndexUpdate(record.getIgnoreIndexUpdate());
           return tagRecord(positionedRecord, new HoodieRecordLocation(location.getInstantTime(), location.getFileId(), position));
