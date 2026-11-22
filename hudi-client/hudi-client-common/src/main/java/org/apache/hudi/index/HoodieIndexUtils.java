@@ -34,6 +34,7 @@ import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.model.HoodieFileFormat;
 import org.apache.hudi.common.model.HoodieIndexDefinition;
 import org.apache.hudi.common.model.HoodieKey;
+import org.apache.hudi.common.model.HoodiePayloadProps;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecord.HoodieRecordType;
 import org.apache.hudi.common.model.HoodieRecordGlobalLocation;
@@ -90,6 +91,7 @@ import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.table.action.commit.BaseWriteHelper;
 
 import lombok.extern.slf4j.Slf4j;
+import org.apache.avro.generic.IndexedRecord;
 
 import java.io.IOException;
 import java.io.Serializable;
@@ -656,9 +658,11 @@ public class HoodieIndexUtils {
    * latest merged file slice of the located file group, so that its matched clauses see the fields of the target
    * table. A record the clauses update is replaced with its new version and a record they delete with a delete
    * record, both at the location and row position the index tagged, and a record none of them accepts is dropped.
-   * A record whose location holds no live record with its key, as a deleted copy there got it tagged, loses its
-   * location and takes the not-matched clauses if {@code insertRecordsWithoutMatch} is set, and is returned as it
-   * is otherwise. The records of any other write are returned as they are.
+   * A record whose location holds no live record with its key, as a deleted copy in a base file or the bucket of a
+   * bucket index can get it tagged, loses its location and takes the not-matched clauses on insert if
+   * {@code insertRecordsWithoutMatch} is set. Otherwise it is replaced with what its not-matched clauses make of it
+   * at the same location, and dropped when none of them accepts it. The records of any other write are returned as
+   * they are.
    */
   public static <R> HoodieData<HoodieRecord<R>> mergeLocatedExpressionPayloadRecords(HoodieData<HoodieRecord<R>> taggedRecords,
                                                                                      HoodieWriteConfig config,
@@ -671,7 +675,10 @@ public class HoodieIndexUtils {
     HoodieReaderContext<R> readerContext = ((ReaderContextFactory<R>) hoodieTable.getContext()
         .getReaderContextFactoryForWrite(hoodieTable.getMetaClient(), config.getRecordMerger().getRecordType(), config.getProps())).getContext();
     readerContext.initRecordMergerForIngestion(config.getProps());
-    ExistingRecordMerger<R> merger = new ExistingRecordMerger<>(config, hoodieTable, readerContext, HoodieSchema.parse(config.getWriteSchema()));
+    HoodieSchema writerSchema = HoodieSchema.parse(config.getWriteSchema());
+    ExistingRecordMerger<R> merger = new ExistingRecordMerger<>(config, hoodieTable, readerContext, writerSchema);
+    TypedProperties notMatchedProps = TypedProperties.copy(config.getProps());
+    notMatchedProps.setProperty(HoodiePayloadProps.PAYLOAD_IS_UPDATE_RECORD_FOR_MOR, "false");
     HoodieData<HoodieRecord<R>> locatedRecords = taggedRecords.filter(HoodieIndexUtils::isLocatedExpressionPayloadRecord);
     HoodieData<Pair<String, String>> locations = locatedRecords
         .map(record -> Pair.of(record.getPartitionPath(), record.getCurrentLocation().getFileId()))
@@ -684,7 +691,15 @@ public class HoodieIndexUtils {
         .flatMap(entry -> {
           HoodieRecord<R> incoming = entry.getLeft();
           if (!entry.getRight().isPresent()) {
-            return Collections.singletonList(insertRecordsWithoutMatch ? incoming.newInstance(incoming.getKey()) : incoming).iterator();
+            if (insertRecordsWithoutMatch) {
+              return Collections.singletonList(incoming.newInstance(incoming.getKey())).iterator();
+            }
+            Option<IndexedRecord> inserted = ((HoodieRecordPayload<?>) incoming.getData()).getInsertValue(writerSchema.toAvroSchema(), notMatchedProps);
+            if (!inserted.isPresent() || inserted.get().equals(HoodieRecord.SENTINEL)) {
+              return Collections.emptyIterator();
+            }
+            HoodieRecord<R> insertRecord = (HoodieRecord<R>) new HoodieAvroIndexedRecord(incoming.getKey(), inserted.get());
+            return Collections.singletonList(tagRecord(insertRecord, incoming.getCurrentLocation())).iterator();
           }
           Option<HoodieRecord<R>> mergedOpt = merger.merge(incoming, entry.getRight().get());
           if (mergedOpt.isPresent() && mergedOpt.get().getData().equals(HoodieRecord.SENTINEL)) {

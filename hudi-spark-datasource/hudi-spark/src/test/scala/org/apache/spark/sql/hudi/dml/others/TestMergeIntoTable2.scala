@@ -1054,12 +1054,13 @@ class TestMergeIntoTable2 extends HoodieSparkSqlTestBase {
         Seq(5, "a5", 50.0, "p2"))))
 
   Seq(("SIMPLE", true, targetFieldCases), ("SIMPLE", false, targetFieldCases.slice(2, 3)),
-    ("GLOBAL_SIMPLE", true, targetFieldCases), ("RECORD_INDEX", true, targetFieldCases)).foreach { case (indexType, partitioned, cases) =>
+    ("GLOBAL_SIMPLE", true, targetFieldCases), ("RECORD_INDEX", true, targetFieldCases),
+    ("BUCKET", true, targetFieldCases.slice(2, 3))).foreach { case (indexType, partitioned, cases) =>
     cases.foreach { case (name, clauses, rows) =>
       test(s"Test MergeInto with target fields in $name on mor table with $indexType index"
         + s" on a ${if (partitioned) "partitioned" else "non-partitioned"} table") {
         withTempDir { tmp =>
-          withSQLConf("hoodie.index.type" -> indexType,
+          withSQLConf("hoodie.index.type" -> indexType, "hoodie.bucket.index.num.buckets" -> "2",
             "hoodie.metadata.global.record.level.index.enable" -> (indexType == "RECORD_INDEX").toString) {
             val tableName = generateTableName
             spark.sql(
@@ -1092,6 +1093,37 @@ class TestMergeIntoTable2 extends HoodieSparkSqlTestBase {
           }
         }
       }
+    }
+  }
+
+  test("Test MergeInto with target fields in a condition on mor table after a delete in the log") {
+    withTempDir { tmp =>
+      val tableName = generateTableName
+      spark.sql(
+        s"""
+           | create table $tableName (
+           |  id int,
+           |  name string,
+           |  price double
+           | ) using hudi
+           | tblproperties (
+           |  type = 'mor',
+           |  primaryKey = 'id'
+           | )
+           | location '${tmp.getCanonicalPath}'
+         """.stripMargin)
+      spark.sql(s"insert into $tableName values (1, 'a1', 10.0), (2, 'a2', 20.0)")
+      // The delete goes to a log file, so the index still locates id 1 through the base file
+      spark.sql(s"delete from $tableName where id = 1")
+      spark.sql(
+        s"""
+           | merge into $tableName t
+           | using (select 1 as id, 'a1n' as name, 11.0 as price union all select 2, 'a2n', 21.0) s
+           | on t.id = s.id
+           | when matched and t.price < 25 then update set *
+           | when not matched then insert *
+         """.stripMargin)
+      checkAnswer(s"select id, name, price from $tableName order by id")(Seq(1, "a1n", 11.0), Seq(2, "a2n", 21.0))
     }
   }
 
