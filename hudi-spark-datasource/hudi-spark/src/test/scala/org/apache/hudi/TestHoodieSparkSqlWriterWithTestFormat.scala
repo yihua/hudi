@@ -290,6 +290,42 @@ class TestHoodieSparkSqlWriterWithTestFormat extends HoodieSparkWriterTestBase {
   }
 
   /**
+   * Test case for an upsert that gives records another partition: the index of a partitioned table of a non-native
+   * format with a record key defaults to a global one, which moves them, unless an index type is set.
+   */
+  @ParameterizedTest
+  @ValueSource(booleans = Array(true, false))
+  def testUpsertMovesRecordsAcrossPartitions(defaultIndex: Boolean): Unit = {
+    // The test format keeps the completed instants by base path, which a read qualifies
+    val tablePath = s"file:$tempBasePath"
+    val tableOpts = commonTableModifier
+      .updated("path", tablePath)
+      .updated(DataSourceWriteOptions.OPERATION.key, DataSourceWriteOptions.UPSERT_OPERATION_OPT_VAL)
+      .updated(HoodieTableConfig.TABLE_FORMAT.key, "test-format")
+      .updated(TestTableFormat.METADATA_TABLE_ENABLED, "true") ++
+      (if (defaultIndex) Map.empty else Map(HoodieIndexConfig.INDEX_TYPE.key -> "SIMPLE"))
+
+    val structType = HoodieSchemaConversionUtils.convertHoodieSchemaToStructType(DataSourceTestUtils.getStructTypeExampleSchema)
+    val df = spark.createDataFrame(sc.parallelize(convertRowListToSeq(DataSourceTestUtils.generateRandomRows(30))), structType)
+      .dropDuplicates("_row_key")
+    HoodieSparkSqlWriter.write(sqlContext, SaveMode.Append, tableOpts, df)
+    val recordCount = df.count()
+    val stayingCount = df.where(s"partition = '${HoodieTestDataGenerator.DEFAULT_FIRST_PARTITION_PATH}'").count()
+    assertTrue(stayingCount < recordCount)
+
+    val movedDf = df.withColumn("partition", org.apache.spark.sql.functions.lit(HoodieTestDataGenerator.DEFAULT_FIRST_PARTITION_PATH))
+    HoodieSparkSqlWriter.write(sqlContext, SaveMode.Append, tableOpts, movedDf)
+
+    val partitionPaths = spark.read.format("hudi").load(tablePath).select("_hoodie_partition_path").collect().map(_.getString(0))
+    if (defaultIndex) {
+      assertEquals(recordCount, partitionPaths.length)
+      assertEquals(Set(HoodieTestDataGenerator.DEFAULT_FIRST_PARTITION_PATH), partitionPaths.toSet)
+    } else {
+      assertEquals(2 * recordCount - stayingCount, partitionPaths.length)
+    }
+  }
+
+  /**
    * Test case for insert dataset without partitioning field
    */
   @Test
