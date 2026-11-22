@@ -579,17 +579,20 @@ object ProvidesHoodieConfig {
 
   /**
    * Whether Spark SQL UPDATE and DELETE write prepped records located through their meta fields. A merge-on-read
-   * table writing updates as deletes and inserts needs the row position of each located record in its base file,
-   * which only the index lookup of a non-prepped write provides.
+   * table writing updates as deletes and inserts looks the records of a table with a primary key up through the
+   * index instead, and always writes prepped records for a table without one, whose rows only their meta fields
+   * locate.
    */
   def isSparkSqlOptimizedWrite(sqlConf: SQLConf, catalogTable: HoodieCatalogTable): Boolean =
-    sqlConf.getConfString(SPARK_SQL_OPTIMIZED_WRITES.key(), SPARK_SQL_OPTIMIZED_WRITES.defaultValue()) == "true" &&
-      !writesUpdatesAsDeletesAndInserts(sqlConf, catalogTable)
+    if (writesUpdatesAsDeletesAndInserts(sqlConf, catalogTable)) {
+      !BaseWriteHelper.hasRecordKeyFields(catalogTable.tableConfig)
+    } else {
+      sqlConf.getConfString(SPARK_SQL_OPTIMIZED_WRITES.key(), SPARK_SQL_OPTIMIZED_WRITES.defaultValue()) == "true"
+    }
 
   /**
-   * Refuses a statement that updates or deletes rows of a merge-on-read table without a primary key in the
-   * update-as-delete-insert write mode before it does any work, as the write client would. See
-   * [[BaseWriteHelper.keylessTableNotSupported]].
+   * Refuses a statement that upserts into a merge-on-read table without a primary key in the update-as-delete-insert
+   * write mode before it does any work, as the write client would. See [[BaseWriteHelper.keylessTableNotSupported]].
    */
   def validateUpdatesAsDeletesAndInserts(sqlConf: SQLConf, catalogTable: HoodieCatalogTable): Unit = {
     if (writesUpdatesAsDeletesAndInserts(sqlConf, catalogTable) && !BaseWriteHelper.hasRecordKeyFields(catalogTable.tableConfig)) {

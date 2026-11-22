@@ -57,11 +57,11 @@ import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.IndexedRecord;
 import org.apache.spark.api.java.JavaRDD;
 import org.junit.jupiter.api.Tag;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -258,14 +258,17 @@ public class TestSparkUpdatesAsDeletesAndInserts extends SparkClientFunctionalTe
 
   /**
    * A prepped upsert and a prepped delete, which locate records by file group without a position the way the
-   * meta fields of a Spark SQL update or delete do, write the base file position of each record to the log.
+   * meta fields of a Spark SQL update or delete do, write the base file position of each record to the log. The
+   * update-as-delete-insert write mode splits each prepped update into a positional delete and an insert.
    */
-  @Test
-  void testPreppedUpdatesAndDeletesCarryRecordPositions() throws IOException {
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void testPreppedUpdatesAndDeletesCarryRecordPositions(boolean updatesAsDeletesAndInserts) throws IOException {
     Properties tableProperties = new Properties();
     tableProperties.setProperty(HoodieTableConfig.PARTITION_FIELDS.key(), "partition_path");
     HoodieTableMetaClient metaClient = getHoodieMetaClient(HoodieTableType.MERGE_ON_READ, tableProperties);
-    HoodieWriteConfig config = getConfigBuilder(true, HoodieIndex.IndexType.SIMPLE).withProperties(keyGenProps()).build();
+    HoodieWriteConfig config = getConfigBuilder(true, HoodieIndex.IndexType.SIMPLE).withProperties(keyGenProps())
+        .withWriteUpdatesAsDeletesAndInserts(updatesAsDeletesAndInserts).build();
     HoodieTestDataGenerator dataGen = new HoodieTestDataGenerator();
     try (SparkRDDWriteClient client = getHoodieWriteClient(config)) {
       String insertTime = client.startCommit();
@@ -286,7 +289,10 @@ public class TestSparkUpdatesAsDeletesAndInserts extends SparkClientFunctionalTe
       String upsertTime = client.startCommit();
       List<HoodieRecord> updates = dataGen.generateUpdates(upsertTime, inserts.subList(10, 40)).stream()
           .map(record -> HoodieIndexUtils.tagRecord(record, locations.get(record.getRecordKey()))).collect(Collectors.toList());
-      writeAndCommit(client, upsertTime, client.upsertPreppedRecords(jsc().parallelize(updates, 1), upsertTime));
+      List<WriteStatus> upsertStatuses = writeAndCommit(client, upsertTime, client.upsertPreppedRecords(jsc().parallelize(updates, 1), upsertTime));
+      if (updatesAsDeletesAndInserts) {
+        assertDeletesAndInserts(30, 30, upsertStatuses);
+      }
 
       String deleteTime = client.startCommit();
       List<HoodieRecord> deletes = dataGen.generateDeletesFromExistingRecords(inserts.subList(0, 10)).stream()
@@ -294,8 +300,13 @@ public class TestSparkUpdatesAsDeletesAndInserts extends SparkClientFunctionalTe
       writeAndCommit(client, deleteTime, client.deletePrepped(jsc().parallelize(deletes, 1), deleteTime));
 
       long[] deletesAndDataRecords = assertLogRecordsCarryPositions(config, HoodieTableMetaClient.reload(metaClient));
-      assertEquals(10, deletesAndDataRecords[0]);
-      assertEquals(30, deletesAndDataRecords[1]);
+      assertEquals(updatesAsDeletesAndInserts ? 40 : 10, deletesAndDataRecords[0]);
+      assertEquals(updatesAsDeletesAndInserts ? 0 : 30, deletesAndDataRecords[1]);
+      Map<String, GenericRecord> records = GenericRecordValidationTestUtils.getRecordsMap(config, storageConf(), dataGen);
+      assertEquals(inserts.subList(10, 100).stream().map(HoodieRecord::getRecordKey).collect(Collectors.toSet()), records.keySet());
+      assertEquals(updates.stream().map(HoodieRecord::getRecordKey).collect(Collectors.toSet()),
+          records.values().stream().filter(record -> upsertTime.equals(record.get(HoodieRecord.COMMIT_TIME_METADATA_FIELD).toString()))
+              .map(record -> record.get(HoodieRecord.RECORD_KEY_METADATA_FIELD).toString()).collect(Collectors.toSet()));
     }
   }
 

@@ -837,7 +837,8 @@ object DataSourceWriteOptions {
     .markAdvanced()
     .sinceVersion("0.14.0")
     .withDocumentation("Controls whether spark sql prepped update and delete are enabled. Merge-on-read tables "
-      + "with hoodie.write.updates.as.deletes.and.inserts enabled do not use prepped update and delete.")
+      + "with hoodie.write.updates.as.deletes.and.inserts enabled do not use prepped update and delete when they "
+      + "have a primary key, and always use them when they have none.")
 
   val OVERWRITE_MODE: ConfigProperty[String] = ConfigProperty
     .key("hoodie.datasource.overwrite.mode")

@@ -59,6 +59,7 @@ import org.apache.hudi.storage.HoodieStorage
 import org.apache.hudi.sync.common.HoodieSyncConfig
 import org.apache.hudi.sync.common.util.SyncUtilHelpers
 import org.apache.hudi.sync.common.util.SyncUtilHelpers.getHoodieMetaSyncException
+import org.apache.hudi.table.action.commit.BaseWriteHelper
 import org.apache.hudi.util.{SparkConfigUtils, SparkKeyGenUtils}
 import org.apache.hudi.util.SparkConfigUtils.getStringWithAltKeys
 
@@ -304,6 +305,12 @@ class HoodieSparkSqlWriterInternal {
     val preppedSparkSqlMergeInto = parameters.getOrElse(SPARK_SQL_MERGE_INTO_PREPPED_KEY, "false").toBoolean
     val preppedSparkSqlWrites = parameters.getOrElse(SPARK_SQL_WRITES_PREPPED_KEY, "false").toBoolean
     val preppedWriteOperation = canDoPreppedWrites(hoodieConfig, parameters, operation, sourceDf)
+    if (preppedWriteOperation && tableType == HoodieTableType.MERGE_ON_READ
+      && hoodieConfig.getBooleanOrDefault(HoodieWriteConfig.WRITE_UPDATES_AS_DELETES_AND_INSERTS)) {
+      // The frame can hold a row more than once, or a row another write has replaced since the frame was read, and
+      // each of its records would be split into a delete of that row and an insert
+      throw BaseWriteHelper.keylessTableNotSupported()
+    }
 
     val jsc = new JavaSparkContext(sparkContext)
     if (streamingWritesParamsOpt.map(_.asyncCompactionTriggerFn.isDefined).orElse(Some(false)).get) {

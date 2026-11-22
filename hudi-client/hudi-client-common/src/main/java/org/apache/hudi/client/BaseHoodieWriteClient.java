@@ -591,15 +591,16 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
    */
   public void preWrite(String instantTime, WriteOperationType writeOperationType,
                        HoodieTableMetaClient metaClient, Option<HoodieData<HoodieRecord<T>>> recordsOpt) {
-    if ((writeOperationType == WriteOperationType.UPSERT_PREPPED || writeOperationType == WriteOperationType.INSERT_PREPPED
-        || writeOperationType == WriteOperationType.DELETE_PREPPED) && config.shouldWriteUpdatesAsDeletesAndInserts()
+    boolean preppedWrite = writeOperationType == WriteOperationType.UPSERT_PREPPED || writeOperationType == WriteOperationType.INSERT_PREPPED
+        || writeOperationType == WriteOperationType.DELETE_PREPPED;
+    if (preppedWrite && !writesPreppedRecordsAsDeletesAndInserts(writeOperationType) && config.shouldWriteUpdatesAsDeletesAndInserts()
         && metaClient.getTableType() == HoodieTableType.MERGE_ON_READ) {
       // Prepped records skip the index and the write helper that splits updates, so they reach the log
       // writer with the caller's locations: updates land in logs as data blocks and deletes lack positions
       throw new HoodieNotSupportedException("Prepped writes (" + writeOperationType + ") are not supported on "
           + "merge-on-read tables when " + HoodieWriteConfig.WRITE_UPDATES_AS_DELETES_AND_INSERTS.key() + " is enabled");
     }
-    if ((writeOperationType == WriteOperationType.UPSERT || writeOperationType == WriteOperationType.INSERT
+    if ((preppedWrite || writeOperationType == WriteOperationType.UPSERT || writeOperationType == WriteOperationType.INSERT
         || writeOperationType == WriteOperationType.DELETE) && config.shouldWriteUpdatesAsDeletesAndInserts()
         && metaClient.getTableType() == HoodieTableType.MERGE_ON_READ) {
       BaseWriteHelper.validateUpdatesAsDeletesAndInserts(config, metaClient, writeOperationType);
@@ -616,6 +617,15 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
     tableServiceClient.startAsyncArchiveService(this);
 
     runPreWriteValidators(instantTime, writeOperationType, metaClient, recordsOpt);
+  }
+
+  /**
+   * Whether this client writes the located records of the given prepped operation the way
+   * {@link HoodieWriteConfig#WRITE_UPDATES_AS_DELETES_AND_INSERTS} asks for on a merge-on-read table: an update as a
+   * positional delete plus an insert, and a delete with its record position.
+   */
+  protected boolean writesPreppedRecordsAsDeletesAndInserts(WriteOperationType writeOperationType) {
+    return false;
   }
 
   /**
