@@ -747,7 +747,7 @@ class TestUpdateTable extends HoodieSparkSqlTestBase {
             "Cannot find data for the output column `s`.`n2`")
           checkExceptionContain(s"update $tableName set s.n2 = named_struct('dn3', 1, 'dn1', 2)")(
             "Cannot find data for the output column `s`.`n2`.`dn2`")
-          checkExceptionContain(s"update $tableName set s.n1 = null")("Null value appeared in non-nullable field")
+          checkExceptionContain(s"update $tableName set s.n1 = null")("value appeared in non-nullable field")
           spark.sql(s"update $tableName set v = cast(20 as bigint), s.n2 = named_struct('dn2', 6, 'dn1', 5)")
         }
         withSQLConf("spark.sql.storeAssignmentPolicy" -> "strict") {

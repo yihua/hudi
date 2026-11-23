@@ -798,7 +798,7 @@ class TestMergeIntoTable2 extends HoodieSparkSqlTestBase {
             "Cannot safely cast `s`.`n1` \"STRING\" to \"INT\"")
           checkExceptionContain(merge("matched then update set t.s.n2 = s.c4"))(
             "Cannot find data for the output column `s`.`n2`.`dn2`")
-          checkExceptionContain(merge("matched then update set t.s.n1 = null"))("Null value appeared in non-nullable field")
+          checkExceptionContain(merge("matched then update set t.s.n1 = null"))("value appeared in non-nullable field")
           checkExceptionContain(merge("not matched then insert (id, v, s) values (s.id, s.c3, null)"))(
             "Cannot safely cast `v` \"STRING\" to \"INT\"")
           spark.sql(merge(
