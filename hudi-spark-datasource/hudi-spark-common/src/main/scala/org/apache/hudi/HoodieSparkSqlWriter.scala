@@ -1274,7 +1274,8 @@ class HoodieSparkSqlWriterInternal {
           translatedOptsWithMappedTableConfig += (key -> value)
         }
     }
-    val mergedParams = mutable.Map.empty ++ HoodieWriterUtils.parametersWithWriteDefaults(translatedOptsWithMappedTableConfig.toMap)
+    val mergedParams = mutable.Map.empty ++ HoodieWriterUtils.withDefaultIndexOfTableFormat(
+      HoodieWriterUtils.parametersWithWriteDefaults(translatedOptsWithMappedTableConfig.toMap))
     if (!mergedParams.contains(HoodieTableConfig.TYPE.key) && mergedParams.contains(TABLE_TYPE.key)) {
       mergedParams(HoodieTableConfig.TYPE.key) = mergedParams(TABLE_TYPE.key)
     }

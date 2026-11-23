@@ -1957,7 +1957,7 @@ class TestMergeIntoTable2 extends HoodieSparkSqlTestBase {
           s"""
              | create table $tableName (id int, name string, dep string) using hudi
              | tblproperties (type = '$tableType', primaryKey = 'id', 'hoodie.table.format' = 'test-format',
-             |   'hoodie.table.format.test.metadata.table.enabled' = 'true', 'hoodie.index.type' = 'GLOBAL_SIMPLE')
+             |   'hoodie.table.format.test.metadata.table.enabled' = 'true')
              | partitioned by (dep)
              | location '$tablePath'
            """.stripMargin)

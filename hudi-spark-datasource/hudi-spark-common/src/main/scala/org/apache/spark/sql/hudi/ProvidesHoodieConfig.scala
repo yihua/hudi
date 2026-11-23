@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.hudi
 
-import org.apache.hudi.{DataSourceWriteOptions, HoodieFileIndex}
+import org.apache.hudi.{DataSourceWriteOptions, HoodieFileIndex, HoodieWriterUtils}
 import org.apache.hudi.AutoRecordKeyGenerationUtils.shouldAutoGenerateRecordKeys
 import org.apache.hudi.DataSourceWriteOptions._
 import org.apache.hudi.HoodieConversionUtils.toProperties
@@ -525,7 +525,7 @@ object ProvidesHoodieConfig {
     //          5. Global DFS properties
     //          6. (Feature-specific) Default values
     val allConfs = sqlConf.getAllConfs
-    filterNullValues(defaultOpts) ++
+    HoodieWriterUtils.withDefaultIndexOfTableFormat(filterNullValues(defaultOpts) ++
       DFSPropertiesConfiguration.getGlobalProps.asScala.toMap ++
       // NOTE: Catalog table provided t/h `TBLPROPERTIES` clause might contain Spark SQL specific
       //       properties that need to be mapped into Hudi's conventional ones
@@ -533,7 +533,7 @@ object ProvidesHoodieConfig {
       tableConfig.getProps.asScala.toMap ++
       extractSparkPrefixedHoodieConfigs(allConfs) ++
       filterHoodieConfigs(allConfs) ++
-      filterNullValues(overridingOpts)
+      filterNullValues(overridingOpts))
   }
 
   /**
