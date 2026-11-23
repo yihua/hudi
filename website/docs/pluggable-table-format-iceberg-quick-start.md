@@ -377,6 +377,7 @@ writeMor(Seq(
   (1695159649087L, "334e26e9-8355-45cc-97c6-c31daf0df330", "rider-A", "driver-K", 19.10, "san_francisco"),
   (1695091554788L, "e96c4396-3fad-413a-a942-4cb36106d721", "rider-C", "driver-M", 27.70, "san_francisco"),
   (1695516137016L, "e3cf430c-889d-4015-bc98-59bdce1e530c", "rider-F", "driver-P", 34.15, "sao_paulo"),
+  (1695376420876L, "7a84095f-737f-40bc-b62f-6b69664712d2", "rider-G", "driver-Q", 43.40, "sao_paulo"),
   (1695115999911L, "c8abbe79-8d89-47ea-b4ce-4d224bae5bfa", "rider-J", "driver-T", 17.85, "chennai")), "insert")
 writeMor(Seq(
   (1695091554788L, "e96c4396-3fad-413a-a942-4cb36106d721", "rider-C", "driver-M", 31.40, "san_francisco"),
@@ -387,7 +388,7 @@ writeMor(Seq(
 val deleteFiles = spark.read.format("iceberg").load(s"$morPath#delete_files")
 deleteFiles.selectExpr("file_format", "substring_index(referenced_data_file, '/', -2) AS data_file", "record_count").show(false)
 
-val morRows = Map("rider-A" -> 19.1, "rider-C" -> 31.4, "rider-J" -> 17.85, "rider-K" -> 12.25)
+val morRows = Map("rider-A" -> 19.1, "rider-C" -> 31.4, "rider-G" -> 43.4, "rider-J" -> 17.85, "rider-K" -> 12.25)
 check("mor", sameRows(morPath) && fares(morPath) == morRows && ops(morPath) == Seq("append", "overwrite", "delete") &&
   deleteFiles.count == 2 && deleteFiles.filter("file_format = 'PUFFIN'").count == 2)
 ```
@@ -397,7 +398,7 @@ Expect `CHECK mor PASS`: two deletion vectors, one for the old version of `rider
 vector, so it is a `delete`.
 
 `hoodie.write.updates.as.deletes.and.inserts=true` turns on the write mode. Hudi's defaults do the rest: the
-`SIMPLE` index locates each record's row position, and with no ordering field the latest write wins.
+index locates each record's row position, and with no ordering field the latest write wins.
 
 #### Compaction
 
@@ -411,7 +412,7 @@ check("compaction", sameRows(morPath) && fares(morPath) == morRows &&
   spark.read.format("iceberg").load(s"$morPath#delete_files").count == 0)
 ```
 
-Expect `CHECK compaction PASS`: no deletion vectors left, same four rows.
+Expect `CHECK compaction PASS`: no deletion vectors left, same five rows.
 
 ### 12. Commit through an Iceberg catalog {#commit-through-an-iceberg-catalog}
 
