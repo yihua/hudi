@@ -41,7 +41,7 @@ import org.apache.spark.sql.HoodieCatalystExpressionUtils.{attributeEquals, Matc
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.analysis.Resolver
 import org.apache.spark.sql.catalyst.catalog.HoodieCatalogTable
-import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeReference, BoundReference, Cast, EqualTo, Expression, IsNull, Literal, NamedExpression, Or, PredicateHelper}
+import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeReference, BoundReference, CaseWhen, Cast, EqualTo, Expression, IsNull, Literal, NamedExpression, Or, PredicateHelper}
 import org.apache.spark.sql.catalyst.expressions.BindReferences.bindReference
 import org.apache.spark.sql.catalyst.plans.LeftOuter
 import org.apache.spark.sql.catalyst.plans.logical._
@@ -353,19 +353,53 @@ case class MergeIntoHoodieTableCommand(mergeInto: MergeIntoTable) extends Hoodie
 
   override def run(sparkSession: SparkSession): Seq[Row] = {
     this.sparkSession = sparkSession
-    // TODO move to analysis phase
-    // Create the write parameters
-    validateUpdatesAsDeletesAndInserts(sparkSession.sessionState.conf, hoodieCatalogTable)
-    val props = buildMergeIntoConfig(hoodieCatalogTable)
-    validate(props)
+    if (hasPrimaryKey() && matchesNoRecord) {
+      insertSourceRecords()
+    } else {
+      // TODO move to analysis phase
+      // Create the write parameters
+      validateUpdatesAsDeletesAndInserts(sparkSession.sessionState.conf, hoodieCatalogTable)
+      val props = buildMergeIntoConfig(hoodieCatalogTable)
+      validate(props)
 
-    val processedInputDf: DataFrame = getProcessedInputDf(props)
-    // Do the upsert
-    executeUpsert(processedInputDf, props)
-    // Refresh the table in the catalog
-    sparkSession.catalog.refreshTable(hoodieCatalogTable.table.qualifiedName)
+      val processedInputDf: DataFrame = getProcessedInputDf(props)
+      // Do the upsert
+      executeUpsert(processedInputDf, props)
+      // Refresh the table in the catalog
+      sparkSession.catalog.refreshTable(hoodieCatalogTable.table.qualifiedName)
+    }
 
     Seq.empty[Row]
+  }
+
+  /**
+   * Whether the merge condition is always false, so that no source record matches a record of the table.
+   */
+  private lazy val matchesNoRecord: Boolean = mergeInto.mergeCondition.foldable &&
+    Try(mergeInto.mergeCondition.eval()).toOption.contains(java.lang.Boolean.FALSE)
+
+  /**
+   * Runs a statement whose merge condition matches no record as the INSERT INTO it comes to: the first
+   * not-matched clause that accepts a source record inserts it, and the matched clauses apply to no record.
+   * This is how a table with a record key takes such a statement, as its merge condition is otherwise an
+   * equality on the record key.
+   */
+  private def insertSourceRecords(): Unit = {
+    if (insertingActions.nonEmpty) {
+      val conditions = insertingActions.map(_.condition.getOrElse(Literal.TrueLiteral))
+      val values = insertingActions.map(action =>
+        alignAssignments(action.assignments, Some(PartialAssignmentMode.NULL_VALUE), keepUpdatedFieldsOnly = false).map(_.value))
+      val output = mergeInto.targetTable.output.filterNot(attr => isMetaField(attr.name)).zip(values.transpose).map {
+        case (attr, clauseValues) =>
+          Alias(CaseWhen(conditions.zip(clauseValues.map(castIfNeeded(_, attr.dataType)))), attr.name)()
+      }
+      val query = InsertIntoHoodieTableCommand.alignQueryOutput(
+        Project(output, Filter(conditions.reduce(Or), mergeInto.sourceTable)),
+        hoodieCatalogTable, Map.empty, sparkSession.sessionState.conf)
+      InsertIntoHoodieTableCommand.run(sparkSession.asInstanceOf[org.apache.spark.sql.classic.SparkSession], hoodieCatalogTable.table,
+        sparkAdapter.getUnsafeUtils.createDataFrameFrom(sparkSession, query).queryExecution.executedPlan,
+        Map.empty, overwrite = false, metrics = metrics)
+    }
   }
 
   private val updatingActions: Seq[UpdateAction] = mergeInto.matchedActions.collect { case u: UpdateAction => u}
