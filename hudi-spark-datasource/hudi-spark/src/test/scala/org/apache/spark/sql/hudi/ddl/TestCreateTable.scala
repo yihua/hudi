@@ -887,7 +887,9 @@ class TestCreateTable extends HoodieSparkSqlTestBase with ExtendedParserTestHelp
            | location '$parentPath/$tableName1'
      """.stripMargin)
       spark.sql(s"insert into $tableName1 values (1, 'a1', 1000)")
-      spark.sql(s"insert into $tableName1 values (1, 'a2', 1100)")
+      withSQLConf("hoodie.datasource.insert.dup.policy" -> "none") {
+        spark.sql(s"insert into $tableName1 values (1, 'a2', 1100)")
+      }
 
       val roTableName1 = tableName1 + "_ro"
       checkExceptionContain(
@@ -2187,7 +2189,9 @@ class TestCreateTable extends HoodieSparkSqlTestBase with ExtendedParserTestHelp
            | location '$parentPath/$tableName1'
      """.stripMargin)
       spark.sql(s"insert into $tableName1 values (1, 'a1', 1000)")
-      spark.sql(s"insert into $tableName1 values (1, 'a2', 1100)")
+      withSQLConf("hoodie.datasource.insert.dup.policy" -> "none") {
+        spark.sql(s"insert into $tableName1 values (1, 'a2', 1100)")
+      }
       spark.sql(s"drop table $tableName1")
 
       checkExceptionContain(
