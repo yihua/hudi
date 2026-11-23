@@ -340,6 +340,8 @@ class TestHoodieTableMetaClient extends HoodieCommonTestHarness {
     configs.put("hoodie.table.keygenerator.type", "SIMPLE");
     configs.put("hoodie.meta.fields.mode", "ALL");
     configs.put("hoodie.datasource.write.drop.partition.columns", "false");
+    configs.put("hoodie.datasource.write.partitionpath.timestamp.fractional.seconds",
+        String.valueOf(version.greaterThanOrEquals(HoodieTableVersion.TEN)));
     configs.put("hoodie.archivelog.folder", "archived");
     configs.put("hoodie.timeline.path", "timeline");
     configs.put("hoodie.timeline.history.path", "history");

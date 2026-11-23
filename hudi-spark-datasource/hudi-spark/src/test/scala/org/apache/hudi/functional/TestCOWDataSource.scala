@@ -180,6 +180,8 @@ class TestCOWDataSource extends HoodieSparkClientTestBase with ScalaAssertionSup
       "hoodie.datasource.write.drop.partition.columns" -> "false",
       "hoodie.datasource.write.hive_style_partitioning" -> "false",
       "hoodie.datasource.write.partitionpath.urlencode" -> "false",
+      "hoodie.datasource.write.partitionpath.timestamp.fractional.seconds" ->
+        tableVersion.greaterThanOrEquals(HoodieTableVersion.TEN).toString,
       "hoodie.archivelog.folder" -> "history",
       "hoodie.timeline.path" -> "timeline",
       "hoodie.timeline.history.path" -> "history")
