@@ -21,7 +21,7 @@ package org.apache.spark.sql.hudi.dml.others
 
 import org.apache.hudi.DataSourceWriteOptions.SPARK_SQL_OPTIMIZED_WRITES
 import org.apache.hudi.HoodieCLIUtils
-import org.apache.hudi.HoodieSparkUtils.gteqSpark3_4
+import org.apache.hudi.HoodieSparkUtils.{gteqSpark3_4, gteqSpark3_5}
 import org.apache.hudi.common.model.HoodieTableType
 import org.apache.hudi.common.table.timeline.HoodieInstant
 import org.apache.hudi.common.util.{Option => HOption}
@@ -676,6 +676,49 @@ class TestUpdateTable extends HoodieSparkSqlTestBase {
       checkAnswer(s"select id, payload from $tableName")(
         Seq(1L, Row("OUT_OF_LINE", null, Row("blobs/updated", 10L, 100L, true)))
       )
+    }
+  }
+
+  test("Test Update Table With Nested Field Assignments") {
+    withTempDir { tmp =>
+      Seq(("cow", "primaryKey = 'id',"), ("mor", "primaryKey = 'id',"), ("cow", "")).foreach { case (tableType, keyProp) =>
+        val tableName = generateTableName
+        spark.sql(
+          s"""
+             |create table $tableName (
+             |  id int,
+             |  s struct<c1:int, c2:struct<a:array<int>, m:map<string, string>>>
+             |) using hudi
+             | location '${tmp.getCanonicalPath}/$tableName'
+             | tblproperties ($keyProp type = '$tableType')
+           """.stripMargin)
+        spark.sql(s"insert into $tableName select 1, named_struct('c1', 2, 'c2', named_struct('a', array(1, 2), 'm', map('a', 'b')))")
+        spark.sql(s"insert into $tableName select 2, null")
+
+        if (gteqSpark3_5) {
+          spark.sql(s"update $tableName set s.c1 = -2, s.c2.a = array(-1, -2), s.c2.m = map('k', 'v') where id = 1")
+          spark.sql(s"update $tableName set s.c1 = 5 where id = 2")
+          checkAnswer(s"select id, s from $tableName order by id")(
+            Seq(1, Row(-2, Row(Seq(-1, -2), Map("k" -> "v")))),
+            Seq(2, Row(5, null)))
+
+          spark.sql(s"update $tableName set s.c1 = null, s.c2 = null where id = 1")
+          checkAnswer(s"select id, s from $tableName order by id")(
+            Seq(1, Row(null, null)),
+            Seq(2, Row(5, null)))
+
+          checkExceptionContain(s"update $tableName set id = 3, s.c1 = 1, id = 4")("Multiple assignments for 'id'")
+          checkExceptionContain(
+            s"update $tableName set s.c1 = 1, s = named_struct('c1', 1, 'c2', null)")("Conflicting assignments for 's'")
+
+          // a struct without the field names of the column is assigned by position
+          spark.sql(s"update $tableName set s = struct(7, named_struct('a', array(7), 'm', map('x', 'y'))) where id = 2")
+          checkAnswer(s"select id, s from $tableName where id = 2")(Seq(2, Row(7, Row(Seq(7), Map("x" -> "y")))))
+        } else {
+          checkExceptionContain(s"update $tableName set s.c1 = 5 where id = 2")(
+            "Assigning a nested field requires Spark 3.5 or later")
+        }
+      }
     }
   }
 }

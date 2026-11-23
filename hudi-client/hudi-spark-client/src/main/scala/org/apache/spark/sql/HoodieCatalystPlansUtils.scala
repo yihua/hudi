@@ -86,6 +86,19 @@ trait HoodieCatalystPlansUtils {
   def hasNotMatchedBySourceActions(plan: LogicalPlan): Boolean
 
   /**
+   * Resolves the assignments of an {@code UPDATE}, or of an action of a {@code MERGE INTO}, against
+   * the target table the way Spark aligns them for a table supporting row-level operations: an
+   * assignment to a nested field becomes an assignment of its rebuilt top-level struct, and
+   * repeated or conflicting assignments of a field fail the analysis.
+   *
+   * @param attrs       output attributes of the target table
+   * @param assignments assignments of the statement or the action
+   * @param isInsert    whether the assignments belong to an insert action
+   * @return one assignment for each top-level attribute that the assignments set
+   */
+  def resolveRowLevelAssignments(attrs: Seq[Attribute], assignments: Seq[Assignment], isInsert: Boolean): Seq[Assignment]
+
+  /**
    * Decomposes [[MatchCreateIndex]] into its arguments with accommodation.
    */
   def unapplyCreateIndex(plan: LogicalPlan): Option[(LogicalPlan, String, String, Boolean, Seq[(Seq[String], Map[String, String])], Map[String, String])]
