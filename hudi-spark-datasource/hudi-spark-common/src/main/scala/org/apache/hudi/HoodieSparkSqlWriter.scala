@@ -622,9 +622,9 @@ class HoodieSparkSqlWriterInternal {
               case Failure(e) => throw new HoodieRecordCreationException("Failed to create Hoodie Spark Record", e)
             }
 
-            // Remove duplicates from incoming records based on existing keys from storage.
-            val dedupedHoodieRecords = handleInsertDuplicates(hoodieRecords, hoodieConfig, operation, client)
             try {
+              // Remove duplicates from incoming records based on existing keys from storage.
+              val dedupedHoodieRecords = handleInsertDuplicates(hoodieRecords, hoodieConfig, operation, client, instantTime)
               val writeResult = DataSourceUtils.doWriteOperation(client, dedupedHoodieRecords, instantTime, operation,
                 preppedSparkSqlWrites || preppedWriteOperation)
               (writeResult, client)
@@ -1386,20 +1386,23 @@ object HoodieSparkSqlWriterInternal {
   def handleInsertDuplicates(incomingRecords: JavaRDD[HoodieRecord[_]],
                              hoodieConfig: HoodieConfig,
                              operation: WriteOperationType,
-                             client: SparkRDDWriteClient[_]): JavaRDD[HoodieRecord[_]] = {
+                             client: SparkRDDWriteClient[_],
+                             instantTime: String): JavaRDD[HoodieRecord[_]] = {
+    // Resolve duplicates on the committing client's engine context and config rather than a throwaway
+    // context. The record index lookup this triggers collects its counters into a registry owned by the
+    // context that ran the lookup, and postCommit drains the client's context; a separate context would
+    // strand those counters and the INSERT would publish none. See RecordIndexLookupMetrics.
+    lazy val engineContext = client.getEngineContext.asInstanceOf[HoodieSparkEngineContext]
     if (!isDeduplicationNeeded(operation)) {
       incomingRecords
+    } else if (shouldFailWhenDuplicatesFound(hoodieConfig)) {
+      DataSourceUtils.failOnDuplicates(engineContext, incomingRecords, client.getConfig, instantTime, true)
+      incomingRecords
     } else if (isDeduplicationRequired(hoodieConfig)) {
-      // Resolve duplicates on the committing client's engine context and config rather than a throwaway
-      // context. The record index lookup this triggers collects its counters into a registry owned by the
-      // context that ran the lookup, and postCommit drains the client's context; a separate context would
-      // strand those counters and the INSERT would publish none. See RecordIndexLookupMetrics.
-      DataSourceUtils.handleDuplicates(
-        client.getEngineContext.asInstanceOf[HoodieSparkEngineContext], incomingRecords,
-        client.getConfig, shouldFailWhenDuplicatesFound(hoodieConfig))
+      DataSourceUtils.handleDuplicates(engineContext, incomingRecords, client.getConfig, false)
     } else if (failsOnDuplicatesByDefault(hoodieConfig)) {
-      DataSourceUtils.failOnDuplicatesByDefault(
-        client.getEngineContext.asInstanceOf[HoodieSparkEngineContext], incomingRecords, client.getConfig)
+      DataSourceUtils.failOnDuplicatesByDefault(engineContext, incomingRecords, client.getConfig, instantTime)
+      incomingRecords
     } else {
       incomingRecords
     }
