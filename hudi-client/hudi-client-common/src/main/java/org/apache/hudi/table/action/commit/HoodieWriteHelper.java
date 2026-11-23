@@ -24,10 +24,12 @@ import org.apache.hudi.common.data.HoodieData;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.engine.HoodieReaderContext;
 import org.apache.hudi.common.engine.RecordContext;
+import org.apache.hudi.common.function.SerializableBiFunction;
 import org.apache.hudi.common.model.HoodieAvroIndexedRecord;
 import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodiePayloadProps;
 import org.apache.hudi.common.model.HoodieRecord;
+import org.apache.hudi.common.model.HoodieRecordLocation;
 import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.table.read.BufferedRecordMerger;
@@ -42,8 +44,12 @@ import org.apache.hudi.table.HoodieTable;
 import org.apache.avro.generic.IndexedRecord;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 public class HoodieWriteHelper<T, R> extends BaseWriteHelper<T, HoodieData<HoodieRecord<T>>,
     HoodieData<HoodieKey>, HoodieData<WriteStatus>, R> {
@@ -142,5 +148,50 @@ public class HoodieWriteHelper<T, R> extends BaseWriteHelper<T, HoodieData<Hoodi
     }).reduceByKey(
         (previous, next) -> reduceRecords(props, recordMerger, orderingFieldNames, previous, next, schema, recordContext, deleteContext),
         parallelism).map(Pair::getRight);
+  }
+
+  @Override
+  protected HoodieData<HoodieRecord<T>> failOnMultipleMatches(HoodieData<HoodieRecord<T>> taggedRecords, boolean combineNewKeys,
+                                                              HoodieTable<T, HoodieData<HoodieRecord<T>>, HoodieData<HoodieKey>, HoodieData<WriteStatus>> table) {
+    boolean isIndexingGlobal = table.getIndex().isGlobal();
+    Option<SerializableBiFunction<HoodieRecord<T>, HoodieRecord<T>, HoodieRecord<T>>> newKeyCombiner =
+        combineNewKeys ? Option.of(recordCombiner(table)) : Option.empty();
+    return taggedRecords
+        // NOTE: the incoming record may hold an instance of [[InternalRow]] pointing into a
+        //       shared, mutable buffer, so it has to be copied before the shuffle
+        .mapToPair(record -> Pair.of(isIndexingGlobal ? record.getRecordKey() : record.getKey(), record.copy()))
+        .groupByKey()
+        .values()
+        .flatMap(records -> failOnMultipleMatches(records, newKeyCombiner).iterator());
+  }
+
+  /**
+   * Fails when two of the records with one key are located at the same row, and combines the ones that are not
+   * located with the given combiner, if any. One record can be located at more than one row: a key the
+   * update-as-delete-insert write mode moved keeps a tombstoned copy in its older file group, and a base file can
+   * hold rows with the same key.
+   */
+  private static <T> List<HoodieRecord<T>> failOnMultipleMatches(
+      Iterable<HoodieRecord<T>> records, Option<SerializableBiFunction<HoodieRecord<T>, HoodieRecord<T>, HoodieRecord<T>>> newKeyCombiner) {
+    List<HoodieRecord<T>> result = new ArrayList<>();
+    Set<Pair<String, Long>> matchedRows = new HashSet<>();
+    HoodieRecord<T> combinedNewKeyRecord = null;
+    for (HoodieRecord<T> record : records) {
+      if (record.isCurrentLocationKnown()) {
+        HoodieRecordLocation location = record.getCurrentLocation();
+        if (!matchedRows.add(Pair.of(location.getFileId(), location.getPosition()))) {
+          throw multipleMatchesException(record.getRecordKey(), record.getPartitionPath(), location.getFileId());
+        }
+        result.add(record);
+      } else if (newKeyCombiner.isPresent()) {
+        combinedNewKeyRecord = combinedNewKeyRecord == null ? record : newKeyCombiner.get().apply(combinedNewKeyRecord, record);
+      } else {
+        result.add(record);
+      }
+    }
+    if (combinedNewKeyRecord != null) {
+      result.add(combinedNewKeyRecord);
+    }
+    return result;
   }
 }
