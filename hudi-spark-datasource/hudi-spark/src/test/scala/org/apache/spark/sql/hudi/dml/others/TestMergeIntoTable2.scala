@@ -1747,6 +1747,63 @@ class TestMergeIntoTable2 extends HoodieSparkSqlTestBase {
     }
   }
 
+  test("Test MergeInto Refuses Conditions The Write Cannot Evaluate Per Record") {
+    withTempDir { tmp =>
+      Seq("primaryKey = 'id',", "").foreach { keyProp =>
+        val tableName = generateTableName
+        spark.sql(
+          s"""
+             |create table $tableName (
+             |  id int,
+             |  v int
+             |) using hudi
+             | location '${tmp.getCanonicalPath}/$tableName'
+             | tblproperties ($keyProp type = 'cow')
+           """.stripMargin)
+        spark.sql(s"insert into $tableName values (1, 10), (2, 20)")
+        val source = "(select 1 as id, -1 as v union all select 3, -3)"
+
+        checkExceptionContain(
+          s"merge into $tableName t using $source s on t.id = s.id and rand() > 0.5 when matched then delete")(
+          "MERGE operation contains unsupported SEARCH condition. Non-deterministic expressions are not allowed")
+        checkExceptionContain(
+          s"merge into $tableName t using $source s on t.id = s.id when matched and rand() > 0.5 then delete")(
+          "MERGE operation contains unsupported DELETE condition. Non-deterministic expressions are not allowed")
+        checkExceptionContain(
+          s"merge into $tableName t using $source s on t.id = s.id when not matched and rand() > 0.5 then insert *")(
+          "MERGE operation contains unsupported INSERT condition. Non-deterministic expressions are not allowed")
+        checkExceptionContain(
+          s"merge into $tableName t using $source s on t.id = s.id and max(t.id) = 1 when matched then delete")(
+          "MERGE operation contains unsupported SEARCH condition. Aggregates are not allowed")
+        checkExceptionContain(
+          s"""
+             |merge into $tableName t using $source s on t.id = s.id
+             |when matched and t.id < (select max(id) from $source) then update set v = s.v
+           """.stripMargin)("MERGE operation contains unsupported UPDATE condition. Subqueries are not allowed")
+        checkExceptionContain(
+          s"""
+             |merge into $tableName t using $source s on t.id = s.id
+             |when not matched and s.id in (select id from $source) then insert *
+           """.stripMargin)("MERGE operation contains unsupported INSERT condition. Subqueries are not allowed")
+        checkExceptionContain(
+          s"merge into $tableName t using $source s on t.id = s.id when matched and sum(t.id) < 1 then delete")(
+          "MERGE operation contains unsupported DELETE condition. Aggregates are not allowed")
+        checkAnswer(s"select id, v from $tableName order by id")(Seq(1, 10), Seq(2, 20))
+
+        if (keyProp.isEmpty) {
+          // the merge condition of a table without a record key is a join condition, which evaluates a subquery
+          spark.sql(
+            s"""
+               |merge into $tableName t using $source s on t.id = s.id and t.id < (select max(id) from $source)
+               |when matched then update set v = s.v
+               |when not matched then insert *
+             """.stripMargin)
+          checkAnswer(s"select id, v from $tableName order by id")(Seq(1, -1), Seq(2, 20), Seq(3, -3))
+        }
+      }
+    }
+  }
+
   test("Test MergeInto With A Source Key Of Another Integral Type") {
     withTempDir { tmp =>
       // a wider source key type relies on Spark 3.5 casting an inserted value with an ANSI cast
