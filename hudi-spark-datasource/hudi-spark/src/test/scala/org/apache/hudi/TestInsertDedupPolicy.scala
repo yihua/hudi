@@ -174,6 +174,52 @@ class TestInsertDedupPolicy extends SparkClientFunctionalTestHarness {
     write(keyless, None, Seq((1, "a3", 12L)))
     Assertions.assertEquals(keptDuplicates, rows(keyless))
   }
+
+  /**
+   * The duplicate key check leaves the inserted records in their order, so a base file holds them in the order
+   * of the insert, into an empty table and into one whose records the check looks up. The check and the write
+   * read the inserted records once.
+   */
+  @ParameterizedTest
+  @CsvSource(Array("COPY_ON_WRITE,SIMPLE,", "COPY_ON_WRITE,GLOBAL_SIMPLE,", "COPY_ON_WRITE,BLOOM,", "COPY_ON_WRITE,RECORD_INDEX,",
+    "MERGE_ON_READ,SIMPLE,", "MERGE_ON_READ,RECORD_INDEX,", "COPY_ON_WRITE,SIMPLE,fail", "MERGE_ON_READ,SIMPLE,fail"))
+  def testDuplicateKeyCheckKeepsOrderOfInsertedRecords(tableType: String, indexType: String, dedupPolicy: String): Unit = {
+    val opts = Map(
+      HoodieIndexConfig.INDEX_TYPE.key -> indexType,
+      HoodieMetadataConfig.GLOBAL_RECORD_LEVEL_INDEX_ENABLE_PROP.key -> (indexType == "RECORD_INDEX").toString,
+      // every insert writes a new base file
+      HoodieCompactionConfig.PARQUET_SMALL_FILE_LIMIT.key -> "0") ++ Option(dedupPolicy).map(INSERT_DUP_POLICY.key -> _)
+    val reads = spark.sparkContext.longAccumulator
+    def insert(ids: Seq[Int]): Unit = {
+      reads.reset()
+      val rows = spark.sparkContext.parallelize(ids.map(id => (id, s"name$id", id.toLong)), 1).map { row =>
+        reads.add(1)
+        row
+      }
+      spark.createDataFrame(rows).toDF("id", "name", "ts")
+        .write.format("hudi")
+        .option(TABLE_NAME.key, "test_table")
+        .option(TABLE_TYPE.key, tableType)
+        .option(OPERATION.key, INSERT_OPERATION_OPT_VAL)
+        .option(RECORDKEY_FIELD.key, "id")
+        .options(opts)
+        .mode(SaveMode.Append)
+        .save(basePath)
+      Assertions.assertEquals(ids.size, reads.value)
+    }
+    def idsInBaseFileOf(id: Int): Seq[Int] = {
+      val baseFile = spark.read.format("hudi").load(basePath).where(s"id = $id").select("_hoodie_file_name").head.getString(0)
+      spark.read.parquet(s"$basePath/$baseFile").select("id").collect().map(_.getInt(0)).toSeq
+    }
+
+    // two permutations of 40 ids each, neither in the order of the ids
+    val firstIds = (1 to 40).map(i => i * 17 % 41)
+    val secondIds = (1 to 40).map(i => 100 + i * 23 % 41)
+    insert(firstIds)
+    Assertions.assertEquals(firstIds, idsInBaseFileOf(firstIds.head))
+    insert(secondIds)
+    Assertions.assertEquals(secondIds, idsInBaseFileOf(secondIds.head))
+  }
 }
 
 object TestInsertDedupPolicy {
