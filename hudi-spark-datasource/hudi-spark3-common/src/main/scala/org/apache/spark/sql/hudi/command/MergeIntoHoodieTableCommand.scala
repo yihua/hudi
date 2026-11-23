@@ -47,7 +47,7 @@ import org.apache.spark.sql.catalyst.plans.LeftOuter
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.hudi.HoodieSqlCommonUtils._
 import org.apache.spark.sql.hudi.ProvidesHoodieConfig
-import org.apache.spark.sql.hudi.ProvidesHoodieConfig.{combineOptions, getPartitionPathFieldWriteConfig, validateUpdatesAsDeletesAndInserts}
+import org.apache.spark.sql.hudi.ProvidesHoodieConfig.{combineOptions, getPartitionPathFieldWriteConfig, validateUpdatesAsDeletesAndInserts, writesUpdatesAsDeletesAndInserts}
 import org.apache.spark.sql.hudi.command.HoodieCommandMetrics.updateCommitMetrics
 import org.apache.spark.sql.hudi.command.MergeIntoHoodieTableCommand._
 import org.apache.spark.sql.hudi.command.PartialAssignmentMode.PartialAssignmentMode
@@ -128,6 +128,36 @@ case class MergeIntoHoodieTableCommand(mergeInto: MergeIntoTable) extends Hoodie
   }
 
   private lazy val targetTableType = hoodieCatalogTable.tableTypeName
+
+  /**
+   * Whether the write appends the source records that match the table to the log files of a merge-on-read table,
+   * where the matched clauses of a record are evaluated without the record it matches.
+   */
+  private lazy val appendsUpdatesToLogFiles: Boolean = targetTableType == MOR_TABLE_TYPE_OPT_VAL &&
+    !writesUpdatesAsDeletesAndInserts(sparkSession.sessionState.conf, hoodieCatalogTable)
+
+  /**
+   * Whether such a write first reads the records the source records match and evaluates the matched clauses on
+   * both, which a statement on a table with a record key asks for when a matched clause refers to a field of the
+   * target table in its condition or in an assigned value. See [[HoodieWriteConfig.SPARK_SQL_MERGE_INTO_READS_TARGET_KEY]].
+   */
+  private lazy val readsTargetRecordsOnWrite: Boolean = appendsUpdatesToLogFiles && hasPrimaryKey() &&
+    mergeInto.matchedActions.exists { action =>
+      val assignedValues = action match {
+        case update: UpdateAction => update.assignments.map(_.value)
+        case _ => Seq.empty
+      }
+      (action.condition.toSeq ++ assignedValues).exists(_.collect {
+        case attr: AttributeReference if mergeInto.targetTable.outputSet.contains(attr) => attr
+      }.nonEmpty)
+    }
+
+  /**
+   * Whether the write evaluates the matched clauses on the source record alone. A copy-on-write merge has the
+   * target record, and so does a merge-on-read table that writes updates as deletes and inserts, which reads the
+   * target record to split the update.
+   */
+  private lazy val evaluatesMatchedClausesOnSourceOnly: Boolean = appendsUpdatesToLogFiles && !readsTargetRecordsOnWrite
 
   /**
    * Mapping of the Merge-Into-Table (MIT) command's [[targetTable]] attribute into
@@ -637,7 +667,7 @@ case class MergeIntoHoodieTableCommand(mergeInto: MergeIntoTable) extends Hoodie
   }
 
   private def isPartialUpdateActionForMOR(parameters: Map[String, String]) = {
-    (targetTableType == MOR_TABLE_TYPE_OPT_VAL
+    (evaluatesMatchedClausesOnSourceOnly
       && UPSERT_OPERATION_OPT_VAL == getOperationType(parameters)
       && parameters.getOrElse(
       ENABLE_MERGE_INTO_PARTIAL_UPDATES.key,
@@ -815,7 +845,7 @@ case class MergeIntoHoodieTableCommand(mergeInto: MergeIntoTable) extends Hoodie
                     case PartialAssignmentMode.NULL_VALUE =>
                       Assignment(attr, Literal(null))
                     case PartialAssignmentMode.ORIGINAL_VALUE =>
-                      if (targetTableType == MOR_TABLE_TYPE_OPT_VAL) {
+                      if (evaluatesMatchedClausesOnSourceOnly) {
                         Assignment(attr, Literal(null))
                       } else {
                         Assignment(attr, attr)
@@ -961,6 +991,7 @@ case class MergeIntoHoodieTableCommand(mergeInto: MergeIntoTable) extends Hoodie
       HoodieSparkSqlWriter.SQL_MERGE_INTO_WRITES.key -> "true",
       // Only primary keyless table requires prepped keys and upsert
       HoodieWriteConfig.SPARK_SQL_MERGE_INTO_PREPPED_KEY -> isPrimaryKeylessTable.toString,
+      HoodieWriteConfig.SPARK_SQL_MERGE_INTO_READS_TARGET_KEY -> readsTargetRecordsOnWrite.toString,
       HoodieWriteConfig.COMBINE_BEFORE_UPSERT.key() -> (!StringUtils.isNullOrEmpty(orderingFieldsAsString)).toString
     )
 
@@ -972,6 +1003,26 @@ case class MergeIntoHoodieTableCommand(mergeInto: MergeIntoTable) extends Hoodie
     checkUpdatingActions(updatingActions, props)
     checkInsertingActions(insertingActions, props)
     checkDeletingActions(deletingActions)
+    checkMatchedConditions()
+  }
+
+  /**
+   * A write that evaluates the matched clauses on the source record alone cannot evaluate a condition on a field
+   * of the target table, which is left to a merge-on-read table without a record key: its source records are
+   * written with the locations the join with the table gives them, without the records they match.
+   */
+  private def checkMatchedConditions(): Unit = {
+    if (evaluatesMatchedClausesOnSourceOnly) {
+      val targetAttrs = mergeInto.matchedActions.flatMap(_.condition).flatMap(_.collect {
+        case attr: AttributeReference if mergeInto.targetTable.outputSet.contains(attr) => attr
+      })
+      if (targetAttrs.nonEmpty) {
+        throw new HoodieAnalysisException(
+          s"Target table's field(${targetAttrs.map(_.name).distinct.mkString(",")}) cannot be used in the condition of " +
+            "a WHEN MATCHED clause for MOR table without a record key, as the source records are written without the " +
+            "records they match. Join the target table in the source query and use the field from the source instead.")
+      }
+    }
   }
 
   private def checkDeletingActions(deletingActions: Seq[DeleteAction]): Unit = {
@@ -1100,7 +1151,7 @@ case class MergeIntoHoodieTableCommand(mergeInto: MergeIntoTable) extends Hoodie
     val updateAssignments = updateActions.flatMap(_.assignments)
     checkSchemaMergeIntoCompatibility(updateAssignments, props)
 
-    if (targetTableType == MOR_TABLE_TYPE_OPT_VAL) {
+    if (evaluatesMatchedClausesOnSourceOnly) {
       // For MOR table, the target table field cannot be the right-value in the update action.
       updateActions.foreach(update => {
         val targetAttrs = update.assignments.flatMap(a => a.value.collect {
