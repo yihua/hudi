@@ -24,4 +24,4 @@ COMET_VERSION=1.2.0-hudi-1
 # transitive graph in overlay/native/Cargo.lock. This line documents it for
 # humans; the Cargo files are the source of truth. The pin is a git revision
 # until TableBuilder::with_object_store is in a hudi-rs release.
-HUDI_RS_VERSION=0.7.0-dev (git 123b0fee1e4f)
+HUDI_RS_VERSION=0.7.0-dev (git b6ad995ffd0e)
