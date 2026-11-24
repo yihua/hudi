@@ -551,6 +551,34 @@ public class TestHoodieJavaClientUpdatesAsDeletesAndInserts extends HoodieJavaCl
         operation + " must be rejected in this write mode but got: " + exception);
   }
 
+  /**
+   * With updates kept in logs, a prepped delete located without base file positions, the way Spark SQL locates
+   * it, still writes the position of each deleted row.
+   */
+  @Test
+  void testPreppedDeleteCarriesRecordPositions() throws Exception {
+    HoodieWriteConfig config = buildConfig(false);
+    HoodieJavaWriteClient client = getHoodieWriteClient(config);
+
+    String insertTime = WriteClientTestUtils.createNewInstantTime();
+    insertBatch(config, client, insertTime, "000", 100, HoodieJavaWriteClient::insert,
+        false, false, 100, 100, 1, Option.empty(), INSTANT_GENERATOR);
+
+    Map<String, HoodieRecordLocation> locations = locationsWithoutPositions(config);
+    String deleteTime = WriteClientTestUtils.createNewInstantTime();
+    List<HoodieRecord> records = dataGen.generateUniqueDeleteRecords(deleteTime, 10);
+    records.forEach(record -> {
+      record.unseal();
+      record.setCurrentLocation(locations.get(record.getRecordKey()));
+      record.seal();
+    });
+    WriteClientTestUtils.startCommitWithTime(client, deleteTime);
+    client.transitionInflight(deleteTime);
+    client.commit(deleteTime, client.deletePrepped(records, deleteTime));
+    assertEquals(10, assertOnlyPositionalDeletes(config,
+        HoodieTestUtils.createMetaClient(storageConf, basePath).getTableConfig().getTableVersion()));
+  }
+
   @Test
   public void testEventTimeOrderingRejectedInDeleteInsertMode() throws Exception {
     String eventTimeBasePath = basePath + "_event_time";
