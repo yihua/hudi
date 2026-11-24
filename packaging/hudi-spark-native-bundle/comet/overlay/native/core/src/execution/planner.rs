@@ -1995,6 +1995,7 @@ impl PhysicalPlanner {
                     .map(|s| HudiFileSliceSpec {
                         base_file_path: s.base_file_path.clone(),
                         log_file_paths: s.log_file_paths.clone(),
+                        base_file_size: (s.base_file_size > 0).then_some(s.base_file_size),
                     })
                     .collect();
                 let hudi_scan = HudiScanExec::new(

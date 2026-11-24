@@ -396,18 +396,22 @@ object HudiCometScanProvider extends SparkAdapterSupport {
     planTasks(session, partitions, baseUri, isMor).map(_.map { slices =>
       val builder = OperatorOuterClass.HudiScan.newBuilder()
       for (slice <- slices) {
-        builder.addFileSlices(
-          OperatorOuterClass.HudiFileSlice
-            .newBuilder()
-            .setBaseFilePath(slice._1)
-            .addAllLogFilePaths(slice._2.asJava))
+        val fileSlice = OperatorOuterClass.HudiFileSlice
+          .newBuilder()
+          .setBaseFilePath(slice._1)
+          .addAllLogFilePaths(slice._2.asJava)
+        if (slice._3 > 0) {
+          fileSlice.setBaseFileSize(slice._3)
+        }
+        builder.addFileSlices(fileSlice)
       }
       builder.build().toByteArray
     }.toArray)
 
   /**
-   * The file slices of each task, as (base file path, log file paths) pairs with every path
-   * relative to the table base as the hudi-rs reader expects, or None when any partition holds a
+   * The file slices of each task, as (base file path, log file paths, base file size) with every
+   * path relative to the table base as the hudi-rs reader expects, and the size 0 when the
+   * listing does not know it, or None when any partition holds a
    * shape the native reader does not take: CDC file groups, a slice with no base file, or a file
    * outside the table base path.
    *
@@ -419,7 +423,7 @@ object HudiCometScanProvider extends SparkAdapterSupport {
       session: SparkSession,
       partitions: Seq[PartitionDirectory],
       baseUri: String,
-      isMor: Boolean): Option[Seq[Seq[(String, Seq[String])]]] = {
+      isMor: Boolean): Option[Seq[Seq[(String, Seq[String], Long)]]] = {
     val basePrefix =
       if (baseUri.endsWith(StoragePath.SEPARATOR)) baseUri else baseUri + StoragePath.SEPARATOR
     def relativize(path: String): Option[String] = {
@@ -432,11 +436,11 @@ object HudiCometScanProvider extends SparkAdapterSupport {
     }
     val partitionedFileUtils = sparkAdapter.getSparkPartitionedFileUtils
     val files = new ArrayBuffer[PartitionedFile]()
-    val slicesByFile = new IdentityHashMap[PartitionedFile, (String, Seq[String])]()
+    val slicesByFile = new IdentityHashMap[PartitionedFile, (String, Seq[String], Long)]()
     for (partition <- partitions) {
       for (file <- partition.files) {
         val filePath = file.getPath.toString
-        val slice: (String, Seq[String]) = partition.values match {
+        val slice: (String, Seq[String], Long) = partition.values match {
           case _: HoodiePartitionCDCFileGroupMapping => return None
           case mapping: HoodiePartitionFileSliceMapping =>
             val fileId = FSUtils.getFileIdFromFilePath(new StoragePath(filePath))
@@ -464,16 +468,16 @@ object HudiCometScanProvider extends SparkAdapterSupport {
                     case None => return None
                   }
                 }
-                (base, logFiles.toSeq)
+                (base, logFiles.toSeq, math.max(fileSlice.getBaseFile.get().getFileSize, 0L))
               case None =>
                 relativize(filePath) match {
-                  case Some(p) => (p, Seq.empty)
+                  case Some(p) => (p, Seq.empty, file.getLen)
                   case None => return None
                 }
             }
           case _ =>
             relativize(filePath) match {
-              case Some(p) => (p, Seq.empty)
+              case Some(p) => (p, Seq.empty, file.getLen)
               case None => return None
             }
         }

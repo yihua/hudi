@@ -297,6 +297,9 @@ message CsvOptions {
 message HudiFileSlice {
   string base_file_path = 1;
   repeated string log_file_paths = 2;
+  // Base file size in bytes from the driver's listing, so the reader opens the
+  // file without a size lookup. 0 when the listing does not know it.
+  uint64 base_file_size = 3;
 }
 
 // Data shared by every partition of one Hudi scan. The native reader (hudi-rs)
