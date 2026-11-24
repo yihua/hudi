@@ -455,6 +455,15 @@ if (sys.env.get("NATIVE_HUDI_SCAN").contains("1")) {
     rows(0, 300, 200000).where("partitionpath = '0'"), "upsert")
   val compactedBaseFiles = Option(new java.io.File("/tmp/hudi-bundles/tests/native_scan_mor_mixed_v8/1").listFiles).
     map(_.count(_.getName.endsWith(".parquet"))).getOrElse(0)
+  for (part <- Seq("0", "1", "2"); f <- new java.io.File(s"/tmp/hudi-bundles/tests/native_scan_mor_mixed_v8/$part").listFiles
+       if f.getName.endsWith(".parquet") || f.getName.contains(".log.")) {
+    val schema = if (f.getName.endsWith(".parquet")) {
+      val reader = org.apache.parquet.hadoop.ParquetFileReader.open(org.apache.parquet.hadoop.util.HadoopInputFile.fromPath(
+        new org.apache.hadoop.fs.Path(f.getAbsolutePath), sc.hadoopConfiguration))
+      try reader.getFooter.getFileMetaData.getSchema.toString.replace("\n", " ") finally reader.close()
+    } else ""
+    println(s"::warning::native debug $part ${f.getName} ${f.length} $schema")
+  }
   routed("merge-on-read compacted slice and slice with a log file", 300,
       s"reads the slices without log files through the native Parquet scan (base files in the compacted group: $compactedBaseFiles)")(
     r => compactedBaseFiles == 2 && r.scans == 1 && r.asParquet > 1 && r.byHudiReader == 1)(
