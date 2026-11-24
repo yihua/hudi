@@ -90,7 +90,7 @@ probe("mor", morLeft, morRight)
 if (sys.env.get("NATIVE_HUDI_SCAN").contains("1")) {
   var failures = 0
   var checksRun = 0
-  val expectedChecks = 38
+  val expectedChecks = 51
   def check(label: String, condition: Boolean, detail: => String): Unit = {
     checksRun += 1
     if (condition) {
@@ -305,6 +305,73 @@ if (sys.env.get("NATIVE_HUDI_SCAN").contains("1")) {
     check(s"$label native scan reads only the kept partitions",
       read.nonEmpty && read.forall(n => n > 0 && n < listed),
       s"file slices read per fact scan: ${read.mkString(", ")}, listed for the table: $listed")
+  }
+
+  // Simple data filters reach hudi-rs, which prunes row groups and drops rows while reading,
+  // so the native scan emits fewer rows than the table holds; rows equal the JVM read whether a
+  // filter is pushed down or not. Data skipping is off so that every file reaches the scan.
+  def filterRead(q: => org.apache.spark.sql.DataFrame): (Array[String], Array[String], Long) = {
+    spark.conf.set("spark.comet.scan.hudi.enabled", "false")
+    val jvm = q.collect().map(_.toString).sorted
+    spark.conf.set("spark.comet.scan.hudi.enabled", "true")
+    val df = q
+    val nativeRows = df.collect().map(_.toString).sorted
+    val scans = PlanWalk.collect(df.queryExecution.executedPlan) {
+      case scan: org.apache.spark.sql.comet.CometHudiNativeScanExec =>
+        scan.metrics.get("output_rows").map(_.value).getOrElse(-1L)
+    }
+    spark.conf.set("spark.comet.scan.hudi.enabled", "false")
+    (jvm, nativeRows, if (scans.isEmpty) -1L else scans.sum)
+  }
+  def unskipped(path: String) =
+    spark.read.format("hudi").option("hoodie.enable.data.skipping", "false").load(path)
+  def filterRows(from: Int, to: Int, offset: Int) = spark.range(from, to).selectExpr(
+    "concat('id-', cast(id as string)) as uuid", "cast(id % 3 as string) as partitionpath",
+    s"cast(id + $offset as int) as n", "concat('s', lpad(cast(id as string), 6, '0')) as s",
+    "cast(id as double) as fare", "cast(id as decimal(10, 2)) as amount", s"id + $offset as ts")
+  val smallFiles = Map("hoodie.parquet.max.file.size" -> "131072",
+    "hoodie.parquet.small.file.limit" -> "0", "hoodie.parquet.block.size" -> "65536")
+  val filterCow = writeV8("native_scan_filters_cow_v8", "COPY_ON_WRITE", Overwrite,
+    filterRows(0, 20000, 0), "bulk_insert", smallFiles)
+  val (_, allRows, unfilteredScanRows) = filterRead(unskipped(filterCow)
+    .selectExpr("uuid", "n", "s"))
+  check(s"native scan reports every row of an unfiltered read ($unfilteredScanRows)",
+    allRows.length == 20000 && unfilteredScanRows == 20000, s"rows=${allRows.length}")
+  for ((label, predicate) <- Seq(
+      ("int range", "n >= 100 and n < 300"),
+      ("int equality", "n = 1234"),
+      ("string IN", "s in ('s000005', 's000700', 's019999')"),
+      ("string range", "s > 's019000'"))) {
+    val (jvm, nativeRows, scanRows) = filterRead(unskipped(filterCow)
+      .where(predicate).selectExpr("uuid", "n", "s"))
+    check(s"pushed $label filter rows match the JVM read (n=${jvm.length})",
+      jvm.nonEmpty && jvm.sameElements(nativeRows), s"jvm n=${jvm.length} native n=${nativeRows.length}")
+    check(s"pushed $label filter drops rows inside the native scan ($scanRows of 20000)",
+      scanRows >= jvm.length && scanRows < 20000, s"native scan output rows: $scanRows")
+  }
+  // On merge-on-read only record key filters reach the parquet read before the merge; every
+  // filter still applies to the merged rows.
+  val filterMor = writeV8("native_scan_filters_mor_v8", "MERGE_ON_READ", Overwrite,
+    filterRows(0, 6000, 0), "upsert", smallFiles)
+  writeV8("native_scan_filters_mor_v8", "MERGE_ON_READ", Append,
+    filterRows(0, 3000, 100000), "upsert")
+  for ((label, predicate) <- Seq(
+      ("merge-on-read non-key", "n >= 2900 and n < 3100"),
+      ("merge-on-read record key", "uuid in ('id-5', 'id-4000', 'id-999999')"))) {
+    val (jvm, nativeRows, _) = filterRead(unskipped(filterMor)
+      .where(predicate).selectExpr("uuid", "n", "s"))
+    check(s"$label filter rows match the JVM read (n=${jvm.length})",
+      jvm.nonEmpty && jvm.sameElements(nativeRows), s"jvm n=${jvm.length} native n=${nativeRows.length}")
+  }
+  // Filters on types hudi-rs does not compare as Spark does, and IN strings its list parsing
+  // would trim, stay above the scan only.
+  for ((label, predicate) <- Seq(
+      ("double and decimal", "fare > 100.5 and amount < 200.25"),
+      ("padded IN string", "s in ('s000005 ', ' s000006', 's000007')"))) {
+    val (jvm, nativeRows, _) = filterRead(unskipped(filterCow)
+      .where(predicate).selectExpr("uuid", "n", "s"))
+    check(s"$label filter rows match the JVM read (n=${jvm.length})",
+      jvm.nonEmpty && jvm.sameElements(nativeRows), s"jvm n=${jvm.length} native n=${nativeRows.length}")
   }
 
   // The same native scan read twice in one query shares one exchange, as the JVM scan does.

@@ -59,6 +59,7 @@ pub struct HudiScanExec {
     table_base_uri: String,
     options: HashMap<String, String>,
     object_store: Option<Arc<dyn ObjectStore>>,
+    data_filters: Vec<(String, String, String)>,
     output_schema: SchemaRef,
     file_slices: Vec<HudiFileSliceSpec>,
     plan_properties: Arc<PlanProperties>,
@@ -70,6 +71,7 @@ impl HudiScanExec {
         table_base_uri: String,
         options: HashMap<String, String>,
         object_store: Option<Arc<dyn ObjectStore>>,
+        data_filters: Vec<(String, String, String)>,
         output_schema: SchemaRef,
         file_slices: Vec<HudiFileSliceSpec>,
     ) -> Self {
@@ -83,6 +85,7 @@ impl HudiScanExec {
             table_base_uri,
             options,
             object_store,
+            data_filters,
             output_schema,
             file_slices,
             plan_properties,
@@ -177,6 +180,7 @@ impl ExecutionPlan for HudiScanExec {
         let base_uri = self.table_base_uri.clone();
         let options = self.options.clone();
         let object_store = self.object_store.clone();
+        let data_filters = self.data_filters.clone();
         let schema = Arc::clone(&self.output_schema);
         let slices = self.file_slices.clone();
         let projection: Vec<String> = schema.fields().iter().map(|f| f.name().clone()).collect();
@@ -213,6 +217,20 @@ impl ExecutionPlan for HudiScanExec {
                 .with_projection(projection)
                 .with_batch_size(batch_size)
                 .map_err(|e| DataFusionError::Execution(format!("Hudi scan batch size: {e}")))?;
+            // The data filters prune row groups and drop rows while reading. Spark
+            // applies them again above the scan, so a set hudi-rs rejects is skipped.
+            let read_options = if data_filters.is_empty() {
+                read_options
+            } else {
+                read_options
+                    .clone()
+                    .with_filters(
+                        data_filters
+                            .iter()
+                            .map(|(f, o, v)| (f.as_str(), o.as_str(), v.as_str())),
+                    )
+                    .unwrap_or(read_options)
+            };
             let reader = table
                 .create_file_group_reader_with_options(
                     Some(&read_options),

@@ -1997,10 +1997,16 @@ impl PhysicalPlanner {
                         log_file_paths: s.log_file_paths.clone(),
                     })
                     .collect();
+                let data_filters = common
+                    .data_filters
+                    .iter()
+                    .map(|f| (f.field.clone(), f.op.clone(), f.value.clone()))
+                    .collect();
                 let hudi_scan = HudiScanExec::new(
                     common.table_base_uri.clone(),
                     options,
                     object_store,
+                    data_filters,
                     required_schema,
                     file_slices,
                 );

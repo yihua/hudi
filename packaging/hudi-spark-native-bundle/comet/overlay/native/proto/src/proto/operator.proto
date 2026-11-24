@@ -320,6 +320,18 @@ message HudiScanCommon {
   // them. An S3 or ABFS table is read through the store Comet builds from
   // them.
   map<string, string> object_store_options = 6;
+  // Comparisons from the scan's data filters that hudi-rs evaluates exactly,
+  // for row-group pruning and row filtering. Spark still applies every filter
+  // above the scan.
+  repeated HudiFilter data_filters = 7;
+}
+
+// A `field op value` comparison as hudi-rs ReadOptions::with_filters takes it.
+// An IN value list is comma separated, with `\,` and `\\` escapes.
+message HudiFilter {
+  string field = 1;
+  string op = 2;
+  string value = 3;
 }
 
 message HudiScan {

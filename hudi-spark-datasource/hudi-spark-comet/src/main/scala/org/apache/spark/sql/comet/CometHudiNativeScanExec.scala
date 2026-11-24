@@ -30,6 +30,7 @@ import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.physical.{Partitioning, UnknownPartitioning}
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
 import org.apache.spark.sql.execution.datasources.PartitionDirectory
+import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 /**
@@ -62,6 +63,8 @@ case class CometHudiNativeScanExec(
   override val supportsColumnar: Boolean = true
 
   override val nodeName: String = "CometHudiNativeScan"
+
+  override lazy val metrics: Map[String, SQLMetric] = CometMetricNode.baselineMetrics(sparkContext)
 
   // The task count is only known once the runtime filters resolve, and AQE reads the
   // partitioning while it still holds unconverted pruning placeholders. The native RDD is sized

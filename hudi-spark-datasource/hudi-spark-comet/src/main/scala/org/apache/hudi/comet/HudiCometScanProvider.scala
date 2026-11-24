@@ -34,13 +34,15 @@ import org.apache.comet.serde.QueryPlanSerde.serializeDataType
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.expressions.PlanExpression
+import org.apache.spark.sql.catalyst.expressions.{And, AttributeReference, EqualTo, Expression, GreaterThan, GreaterThanOrEqual, In, InSet, LessThan, LessThanOrEqual, Literal, PlanExpression}
 import org.apache.spark.sql.comet.{CometHudiNativeScanExec, SerializedPlan}
 import org.apache.spark.sql.execution.{FileSourceScanExec, SparkPlan}
 import org.apache.spark.sql.execution.datasources.{FileFormat, FilePartition, PartitionDirectory, PartitionedFile}
 import org.apache.spark.sql.execution.datasources.parquet.HoodieFileGroupReaderBasedFileFormat
 import org.apache.spark.sql.types.{ArrayType, BooleanType, ByteType, DataType, DateType, IntegerType, LongType, MapType, ShortType, StringType, StructType, TimestampNTZType}
+import org.apache.spark.unsafe.types.UTF8String
 
+import java.time.LocalDate
 import java.util.IdentityHashMap
 
 import scala.collection.JavaConverters._
@@ -258,6 +260,11 @@ class HudiCometScanProvider extends CometExternalV1ScanProvider with Logging {
       }
       commonBuilder.addRequiredSchema(field)
     }
+    val dataFilters = HudiCometScanProvider.pushableDataFilters(scanExec, partitionColumns)
+    for ((column, op, value) <- dataFilters) {
+      commonBuilder.addDataFilters(
+        OperatorOuterClass.HudiFilter.newBuilder().setField(column).setOp(op).setValue(value))
+    }
     val commonBytes = commonBuilder.build().toByteArray
 
     // The plan carries only the identity of the scan; the full common block and each
@@ -310,6 +317,85 @@ object HudiCometScanProvider extends SparkAdapterSupport {
   /** Partition column types whose value survives the path rendering and parse the JVM read does. */
   val PATH_ROUND_TRIP_PARTITION_TYPES: Set[DataType] =
     Set(StringType, IntegerType, LongType, ShortType, ByteType, DateType, BooleanType)
+
+  /** Column types whose values hudi-rs parses back exactly and compares as Spark does. */
+  private val PUSHABLE_FILTER_TYPES: Set[DataType] =
+    Set(ByteType, ShortType, IntegerType, LongType, StringType, DateType)
+
+  /**
+   * The data filters of `scanExec` that hudi-rs evaluates exactly, as (column, operator, value)
+   * triples: comparisons and IN between a data column of a [[PUSHABLE_FILTER_TYPES]] type and
+   * non-null literals of that type. hudi-rs parses each value back into the column's type and
+   * fails the read if it cannot, so only values that round trip are sent, and IN string values
+   * that its list parsing would trim or drop are left out. Spark still applies every filter above
+   * the scan, so a filter left out is only not pushed down.
+   */
+  def pushableDataFilters(
+      scanExec: FileSourceScanExec,
+      partitionColumns: Set[String]): Seq[(String, String, String)] = {
+    val outputIds = scanExec.output.map(_.exprId).toSet
+    def column(e: Expression): Option[AttributeReference] = e match {
+      case a: AttributeReference
+          if outputIds.contains(a.exprId) && !partitionColumns.contains(a.name) &&
+            !a.name.startsWith("_hoodie_") && PUSHABLE_FILTER_TYPES.contains(a.dataType) =>
+        Some(a)
+      case _ => None
+    }
+    def render(value: Any, dataType: DataType): Option[String] = (value, dataType) match {
+      case (null, _) => None
+      case (s: UTF8String, StringType) => Some(s.toString)
+      case (days: Int, DateType) =>
+        val date = LocalDate.ofEpochDay(days)
+        if (date.getYear >= 1 && date.getYear <= 9999) Some(date.toString) else None
+      case (v: Byte, ByteType) => Some(v.toString)
+      case (v: Short, ShortType) => Some(v.toString)
+      case (v: Int, IntegerType) => Some(v.toString)
+      case (v: Long, LongType) => Some(v.toString)
+      case _ => None
+    }
+    def compare(e: Expression, op: String, literal: Literal): Option[(String, String, String)] =
+      column(e).filter(_.dataType == literal.dataType).flatMap { a =>
+        render(literal.value, a.dataType).map(v => (a.name, op, v))
+      }
+    def trimmedByHudi(c: Char): Boolean =
+      Character.isWhitespace(c) || Character.isSpaceChar(c) || c.toInt == 0x85
+    def inList(e: Expression, values: Seq[Any]): Option[(String, String, String)] =
+      column(e).filter(_ => values.nonEmpty).flatMap { a =>
+        val rendered = values.map(render(_, a.dataType))
+        val usable = rendered.forall {
+          case Some(v) => a.dataType != StringType ||
+            (v.nonEmpty && !trimmedByHudi(v.head) && !trimmedByHudi(v.last))
+          case None => false
+        }
+        if (usable) {
+          val escaped = rendered.flatten.map(_.replace("\\", "\\\\").replace(",", "\\,"))
+          Some((a.name, "IN", escaped.mkString(",")))
+        } else {
+          None
+        }
+      }
+    def conjuncts(e: Expression): Seq[Expression] = e match {
+      case And(left, right) => conjuncts(left) ++ conjuncts(right)
+      case other => Seq(other)
+    }
+    scanExec.dataFilters.flatMap(conjuncts).flatMap {
+      case EqualTo(c, l: Literal) => compare(c, "=", l)
+      case EqualTo(l: Literal, c) => compare(c, "=", l)
+      case LessThan(c, l: Literal) => compare(c, "<", l)
+      case LessThan(l: Literal, c) => compare(c, ">", l)
+      case LessThanOrEqual(c, l: Literal) => compare(c, "<=", l)
+      case LessThanOrEqual(l: Literal, c) => compare(c, ">=", l)
+      case GreaterThan(c, l: Literal) => compare(c, ">", l)
+      case GreaterThan(l: Literal, c) => compare(c, "<", l)
+      case GreaterThanOrEqual(c, l: Literal) => compare(c, ">=", l)
+      case GreaterThanOrEqual(l: Literal, c) => compare(c, "<=", l)
+      case In(c, list) if list.forall(_.isInstanceOf[Literal]) =>
+        val sameType = list.forall(_.dataType == c.dataType)
+        if (sameType) inList(c, list.map(_.asInstanceOf[Literal].value)) else None
+      case InSet(c, set) => inList(c, set.toSeq)
+      case _ => None
+    }
+  }
 
   /** URI schemes the object_store crate behind the native scan resolves. */
   val SUPPORTED_SCHEMES: Set[String] =
