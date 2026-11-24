@@ -26,7 +26,7 @@ import org.apache.hudi.common.table.log.HoodieLogFormat
 import org.apache.hudi.common.table.log.block.HoodieDeleteBlock
 import org.apache.hudi.common.testutils.HoodieTestUtils
 import org.apache.hudi.common.util.ConfigUtils.DEFAULT_HUDI_CONFIG_FOR_READER
-import org.apache.hudi.config.{HoodieCompactionConfig, HoodieWriteConfig}
+import org.apache.hudi.config.{HoodieCompactionConfig, HoodieIndexConfig, HoodieWriteConfig}
 import org.apache.hudi.core.io.storage.HoodieIOFactory
 import org.apache.hudi.storage.StoragePath
 import org.apache.hudi.table.action.commit.BaseWriteHelper
@@ -81,6 +81,53 @@ class TestUpdatesAsDeletesAndInsertsWithSql extends HoodieSparkSqlTestBase {
           Seq(5, "a5", 50.0, "p2"), Seq(6, "a6", 60.0, "p2"))
         assertEquals(Seq("1", "1", "2", "2", "3"), positionalDeletes(tablePath))
       }
+    }
+  }
+
+  Seq("GLOBAL_SIMPLE", "RECORD_INDEX").foreach { indexType =>
+    test(s"Test MERGE INTO and UPDATE moving records across partitions writing updates as deletes and inserts with $indexType index") {
+      withSQLConf(HoodieIndexConfig.RECORD_INDEX_UPDATE_PARTITION_PATH_ENABLE.key -> "true") {
+        withTable(indexType) { (tableName, tablePath) =>
+          // id 1 takes the partition the source names, id 2 one other than the source value it is looked up under
+          spark.sql(
+            s"""
+               |merge into $tableName t
+               |using (select 1 as id, 'a1m' as name, 11.0 as price, 'p2' as dt, 'p2' as new_dt
+               |  union all select 2, 'a2m', 21.0, 'p1', 'p2') s
+               |on t.id = s.id
+               |when matched and s.id = 1 then update set id = s.id, name = s.name, price = s.price, dt = s.dt
+               |when matched and s.id = 2 then update set id = s.id, name = s.name, price = s.price, dt = s.new_dt
+             """.stripMargin)
+          spark.sql(s"update $tableName set dt = 'p1' where id = 4")
+          checkAnswer(s"select id, name, price, dt, _hoodie_partition_path from $tableName order by id")(
+            Seq(1, "a1m", 11.0, "p2", "dt=p2"), Seq(2, "a2m", 21.0, "p2", "dt=p2"), Seq(3, "a3", 30.0, "p1", "dt=p1"),
+            Seq(4, "a4", 40.0, "p1", "dt=p1"), Seq(5, "a5", 50.0, "p2", "dt=p2"))
+          checkAnswer(s"select id from $tableName where dt = 'p1' order by id")(Seq(3), Seq(4))
+          assertEquals(Seq("1", "2", "4"), positionalDeletes(tablePath))
+        }
+      }
+    }
+  }
+
+  test("Test MERGE INTO and UPDATE moving records across partitions writing updates as deletes and inserts "
+    + "on a table without a primary key") {
+    withTable("SIMPLE", partitioned = true, keyed = false) { (tableName, tablePath) =>
+      // id 1 takes the partition the source names, id 2 one its clause assigns, and id 3 stays
+      spark.sql(
+        s"""
+           |merge into $tableName t
+           |using (select 1 as id, 'a1m' as name, 11.0 as price, 'p2' as dt
+           |  union all select 2, 'a2m', 21.0, 'p1' union all select 3, 'a3m', 31.0, 'p1') s
+           |on t.id = s.id
+           |when matched and s.id = 2 then update set name = s.name, price = s.price, dt = 'p2'
+           |when matched then update set *
+         """.stripMargin)
+      spark.sql(s"update $tableName set dt = 'p1' where id = 4")
+      checkAnswer(s"select id, name, price, dt, _hoodie_partition_path from $tableName order by id")(
+        Seq(1, "a1m", 11.0, "p2", "dt=p2"), Seq(2, "a2m", 21.0, "p2", "dt=p2"), Seq(3, "a3m", 31.0, "p1", "dt=p1"),
+        Seq(4, "a4", 40.0, "p1", "dt=p1"), Seq(5, "a5", 50.0, "p2", "dt=p2"))
+      checkAnswer(s"select id from $tableName where dt = 'p1' order by id")(Seq(3), Seq(4))
+      assertEquals(Seq(1, 2, 3, 4), positionallyDeletedIds(tablePath))
     }
   }
 
