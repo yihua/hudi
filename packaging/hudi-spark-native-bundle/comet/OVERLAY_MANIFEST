@@ -20,8 +20,10 @@ a01bbb7f829b345c595ed768c4d2960fb49168ff native/core/Cargo.toml
 49669c5831449a1c095a2ac14f32b52d85396bae native/core/src/execution/operators/mod.rs
 268f35570a6a59353b5f86608c007d89bcd99c7e native/core/src/execution/planner.rs
 c80a40a290cf1e03795d09782688d493cd69bfbe native/core/src/execution/planner/operator_registry.rs
+93b5dfd9c772fbad7259172cd1154cbf1e6a7cf5 native/core/src/parquet/parquet_support.rs
 5bc1ac12aa742981256a828dc925a7b688174a96 native/proto/src/proto/operator.proto
 37323e3dce755bcf47e78d794101e8b5569f1857 spark/src/main/scala/org/apache/comet/rules/CometExecRule.scala
 349a9dae3800930b6b2fc2c28cbbceb546b982eb spark/src/main/scala/org/apache/comet/rules/CometScanRule.scala
 new native/core/src/execution/operators/hudi_scan.rs
+new native/core/src/parquet/io_audit.rs
 new spark/src/main/scala/org/apache/comet/rules/CometExternalV1ScanProvider.scala
