@@ -266,6 +266,13 @@ class HudiCometScanProvider extends CometExternalV1ScanProvider with Logging {
       // the requested one. Base files need no bound: the driver's listing only
       // names base files from admitted commits.
       .putOptions("hoodie.read.as.of.timestamp", format.getQueryTimestamp)
+      // Hudi merges a slice's log records into its base file by row position when
+      // the log blocks carry positions, which is on by default; hudi-rs defaults it
+      // off, so the effective value is passed along.
+      .putOptions(
+        HoodieReaderConfig.MERGE_USE_RECORD_POSITIONS.key,
+        readOption(HoodieReaderConfig.MERGE_USE_RECORD_POSITIONS.key)
+          .getOrElse(HoodieReaderConfig.MERGE_USE_RECORD_POSITIONS.defaultValue.toString))
       .putAllObjectStoreOptions(objectStoreOptions.asJava)
     // A file slice with no log files is its base file, which the JVM scan reads with Spark's
     // Parquet reader. Comet's native Parquet scan reads those slices here, with the scan's data
