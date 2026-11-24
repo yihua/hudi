@@ -71,7 +71,6 @@ import static org.apache.hudi.common.testutils.RowLineageTestUtils.hasRowLineage
 import static org.apache.hudi.common.testutils.RowLineageTestUtils.readStoredRowLineage;
 import static org.apache.hudi.testutils.Assertions.assertNoWriteErrors;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -139,7 +138,8 @@ public class TestSparkCopyOnWriteRowLineageForTestFormat extends SparkClientFunc
       List<HoodieRecord> inserts = dataGen.generateInsertsForPartition("001", 20, PARTITION);
       write(client, toRecordType(inserts, recordType));
       HoodieBaseFile baseFile1 = getOnlyLatestBaseFile(metaClient);
-      assertFalse(hasRowLineageColumns(storageConf(), baseFile1));
+      assertTrue(hasRowLineageColumns(storageConf(), baseFile1));
+      assertTrue(readStoredRowLineage(storageConf(), baseFile1).values().stream().allMatch(NO_ROW_LINEAGE::equals));
       Map<String, Pair<Long, Long>> rowLineage1 = deriveRowLineage(storageConf(), tableBasePath, baseFile1);
       assertEquals(keys(inserts), rowLineage1.keySet());
 

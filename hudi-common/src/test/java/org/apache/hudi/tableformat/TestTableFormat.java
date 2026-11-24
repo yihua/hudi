@@ -37,6 +37,7 @@ import org.apache.hudi.common.table.timeline.TimelineFactory;
 import org.apache.hudi.common.table.view.FileSystemViewManager;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.exception.HoodieException;
+import org.apache.hudi.metadata.NativeTableMetadataFactory;
 import org.apache.hudi.metadata.TableMetadataFactory;
 import org.apache.hudi.storage.StoragePath;
 
@@ -78,6 +79,7 @@ public class TestTableFormat implements HoodieTableFormat {
   public static final String INSTANT_TIME_COLUMN_ENABLED = HoodieTableConfig.TABLE_FORMAT.key() + ".test.instant.time.column.enabled";
   public static final String INSTANT_TIME_COLUMN = "_test_instant_time";
   public static final String FIRST_INSTANT_TIME_COLUMN = "_test_first_instant_time";
+  public static final String METADATA_TABLE_ENABLED = HoodieTableConfig.TABLE_FORMAT.key() + ".test.metadata.table.enabled";
 
   private static final Map<String, List<HoodieInstant>> RECORDED_INSTANTS = new ConcurrentHashMap<>();
   private static final Map<String, Properties> INIT_PROPERTIES = new ConcurrentHashMap<>();
@@ -85,6 +87,7 @@ public class TestTableFormat implements HoodieTableFormat {
 
   private boolean rowLineageEnabled;
   private boolean instantTimeColumnEnabled;
+  private boolean metadataTableEnabled;
 
   public static List<HoodieInstant> getRecordedInstants(String basePath) {
     return RECORDED_INSTANTS.getOrDefault(basePath, Collections.emptyList());
@@ -133,6 +136,7 @@ public class TestTableFormat implements HoodieTableFormat {
     INIT_PROPERTIES.put(properties.getProperty(HoodieTableConfig.NAME.key(), ""), copy);
     rowLineageEnabled = Boolean.parseBoolean(properties.getProperty(ROW_LINEAGE_ENABLED, "false"));
     instantTimeColumnEnabled = Boolean.parseBoolean(properties.getProperty(INSTANT_TIME_COLUMN_ENABLED, "false"));
+    metadataTableEnabled = Boolean.parseBoolean(properties.getProperty(METADATA_TABLE_ENABLED, "false"));
   }
 
   @Override
@@ -204,7 +208,7 @@ public class TestTableFormat implements HoodieTableFormat {
 
   @Override
   public TableMetadataFactory getMetadataFactory() {
-    return TestTableMetadataFactory.getInstance();
+    return metadataTableEnabled ? NativeTableMetadataFactory.getInstance() : TestTableMetadataFactory.getInstance();
   }
 
   private static HoodieSchemaField nullableLongField(String name) {

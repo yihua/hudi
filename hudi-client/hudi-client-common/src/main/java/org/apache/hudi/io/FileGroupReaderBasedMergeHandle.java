@@ -39,6 +39,7 @@ import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecordDelegate;
 import org.apache.hudi.common.model.HoodieRecordLocation;
 import org.apache.hudi.common.model.HoodieWriteStat;
+import org.apache.hudi.common.model.ReplacedRecord;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.schema.internal.InternalSchema;
 import org.apache.hudi.common.schema.internal.utils.AvroSchemaEvolutionUtils;
@@ -54,6 +55,7 @@ import org.apache.hudi.common.table.read.HoodieReadStats;
 import org.apache.hudi.common.table.read.HoodieRecordReader;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.ClosableIterator;
+import org.apache.hudi.common.util.collection.MappingIterator;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.core.io.storage.HoodieFileWriterFactory;
 import org.apache.hudi.exception.HoodieException;
@@ -364,10 +366,27 @@ public class FileGroupReaderBasedMergeHandle<T, I, K, O> extends HoodieWriteMerg
 
     if (logFileStreamOpt.isPresent()) {
       fileGroupBuilder.withLogFiles(logFileStreamOpt.get());
+    } else if (formatMetaColumnHandler.isPresent()) {
+      fileGroupBuilder.withRecordIterator(withReplacedValues(incomingRecordsItr, formatMetaColumnHandler.get()));
     } else {
       fileGroupBuilder.withRecordIterator(incomingRecordsItr);
     }
     return fileGroupBuilder.build();
+  }
+
+  /**
+   * Gives the handler of the format meta columns the values resolved for the record of another file group that an
+   * incoming record replaces, see {@link HoodieRecord#getReplacedRecord()}. The file group reader reads all the
+   * incoming records before it returns the first record to write.
+   */
+  private static <T> Iterator<HoodieRecord<T>> withReplacedValues(Iterator<HoodieRecord<T>> records, FormatMetaColumnHandler<T> handler) {
+    return new MappingIterator<>(records, record -> {
+      ReplacedRecord replacedRecord = record.getReplacedRecord();
+      if (replacedRecord != null && replacedRecord.getFormatMetaColumnValues() != null) {
+        handler.putReplacedValues(record.getRecordKey(), replacedRecord.getFormatMetaColumnValues());
+      }
+      return record;
+    });
   }
 
   @Override

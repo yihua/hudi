@@ -90,6 +90,7 @@ public class HoodieWriteHelper<T, R> extends BaseWriteHelper<T, HoodieData<Hoodi
     TypedProperties props = config.getProps();
     final HoodieSchema schema = HoodieSchema.parse(config.getSchema());
     DeleteContext deleteContext = DeleteContext.fromRecordSchema(props, schema);
+    boolean keepReplacedRecords = HoodieIndexUtils.hasFormatMetaColumns(table);
     return locatedRecords.flatMap(record -> {
       if (!record.isCurrentLocationKnown() || record.isDelete(deleteContext, props)) {
         return Collections.singletonList(record).iterator();
@@ -98,8 +99,17 @@ public class HoodieWriteHelper<T, R> extends BaseWriteHelper<T, HoodieData<Hoodi
       deleteRecord.setIgnoreIndexUpdate(true);
       HoodieIndexUtils.tagRecord(deleteRecord, record.getCurrentLocation());
       HoodieRecord<T> insertRecord = record.newInstance(record.getKey());
+      if (keepReplacedRecords) {
+        HoodieIndexUtils.setReplacedRecord(insertRecord, record.getPartitionPath(), record.getCurrentLocation());
+      }
       return Arrays.asList(deleteRecord, insertRecord).iterator();
     });
+  }
+
+  @Override
+  protected HoodieData<HoodieRecord<T>> resolveReplacedRecords(HoodieData<HoodieRecord<T>> taggedRecords,
+                                                              HoodieTable<T, HoodieData<HoodieRecord<T>>, HoodieData<HoodieKey>, HoodieData<WriteStatus>> table) {
+    return HoodieIndexUtils.resolveReplacedRecords(taggedRecords, table);
   }
 
   @Override
