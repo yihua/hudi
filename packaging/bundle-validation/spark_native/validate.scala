@@ -90,7 +90,7 @@ probe("mor", morLeft, morRight)
 if (sys.env.get("NATIVE_HUDI_SCAN").contains("1")) {
   var failures = 0
   var checksRun = 0
-  val expectedChecks = 40
+  val expectedChecks = 43
   def check(label: String, condition: Boolean, detail: => String): Unit = {
     checksRun += 1
     if (condition) {
@@ -241,6 +241,10 @@ if (sys.env.get("NATIVE_HUDI_SCAN").contains("1")) {
     Map("hoodie.parquet.max.file.size" -> "65536", "hoodie.parquet.small.file.limit" -> "0",
       "hoodie.parquet.block.size" -> "65536"))
   writeV8("native_scan_many_files_v8", "MERGE_ON_READ", Append, updatedRows(0, 15000), "upsert")
+  // A merge-on-read read of a column that is neither the record key nor the ordering field:
+  // the native reader adds both back for the merge and reads only them from the base file.
+  compare("merge-on-read non-key column", expectNative = true)(
+    spark.read.format("hudi").load(nativeMor).select("fare"))
   compare("many small file slices", expectNative = true)(
     spark.read.format("hudi").load(manyFiles).selectExpr("uuid", "fare", "ts"))
 
