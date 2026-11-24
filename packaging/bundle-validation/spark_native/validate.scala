@@ -90,7 +90,7 @@ probe("mor", morLeft, morRight)
 if (sys.env.get("NATIVE_HUDI_SCAN").contains("1")) {
   var failures = 0
   var checksRun = 0
-  val expectedChecks = 47
+  val expectedChecks = 51
   def check(label: String, condition: Boolean, detail: => String): Unit = {
     checksRun += 1
     if (condition) {
@@ -383,6 +383,41 @@ if (sys.env.get("NATIVE_HUDI_SCAN").contains("1")) {
     s"jvm n=${reuseJvmRows.length} native n=${reuseRows.length}")
   check("repeated native scan reuses its exchange",
     reusePlan.contains("CometHudiNativeScan") && reusePlan.contains("ReusedExchange"), reusePlan)
+
+  // With forceShuffledHashJoin, a LEFT SEMI sort-merge join becomes a native hash join. The
+  // second query keeps an existence join on the same key above it, which reads the semi join's
+  // output and needs it sorted again, the plan shape that once returned extra rows.
+  spark.read.format("hudi").load(nativeMor).createOrReplaceTempView("native_mor")
+  spark.range(0, 300, 7).selectExpr("concat('id-', cast(id as string)) as uuid")
+    .createOrReplaceTempView("semi_excluded")
+  val semiQueries = Seq(
+    "semi and anti" -> ("select c.partitionpath, count(*), sum(c.fare) from native_cow c " +
+      "where exists (select 1 from native_mor m where m.uuid = c.uuid) " +
+      "and not exists (select 1 from semi_excluded x where x.uuid = c.uuid) " +
+      "group by c.partitionpath"),
+    "semi under existence join" -> ("select c.partitionpath, count(*), sum(c.fare) " +
+      "from native_cow c where exists (select 1 from native_mor m where m.uuid = c.uuid) " +
+      "and (exists (select 1 from semi_excluded x where x.uuid = c.uuid) or c.fare < 50) " +
+      "group by c.partitionpath"))
+  spark.conf.set("spark.comet.exec.forceShuffledHashJoin", "true")
+  semiQueries.foreach { case (label, query) =>
+    spark.conf.set("spark.comet.exec.enabled", "false")
+    spark.conf.set("spark.comet.scan.hudi.enabled", "false")
+    val sparkRows = spark.sql(query).collect().map(_.toString).sorted
+    spark.conf.set("spark.comet.exec.enabled", "true")
+    spark.conf.set("spark.comet.scan.hudi.enabled", "true")
+    val semiDf = spark.sql(query)
+    val semiRows = semiDf.collect().map(_.toString).sorted
+    val semiPlan = semiDf.queryExecution.executedPlan.toString
+    spark.conf.set("spark.comet.scan.hudi.enabled", "false")
+    check(s"$label rows match Spark (n=${sparkRows.length})",
+      sparkRows.length == 3 && sparkRows.sameElements(semiRows),
+      s"spark=${sparkRows.mkString(";")} comet=${semiRows.mkString(";")}")
+    check(s"$label runs the semi join as a native hash join",
+      semiPlan.split("\n").exists(l => l.contains("CometHashJoin") && l.contains("LeftSemi")),
+      semiPlan)
+  }
+  spark.conf.set("spark.comet.exec.forceShuffledHashJoin", "false")
 
   if (failures > 0 || checksRun != expectedChecks) {
     println(s"::error::native hudi scan probes: failures=$failures checksRun=$checksRun expected=$expectedChecks")
