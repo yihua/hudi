@@ -316,6 +316,11 @@ message HudiScanCommon {
   // Columns the scan must produce, in output order. Drives the reader's
   // column projection.
   repeated SparkStructField required_schema = 3;
+  // The scan as Comet's native Parquet scan would read the table's base
+  // files: the output columns as the required and data schema, no partition
+  // schema (partition columns are read from the files), and the scan's data
+  // filters. Unset when no slice may be read as plain Parquet.
+  NativeScanCommon parquet_scan = 8;
   string session_timezone = 4;
   // Disambiguates two scans of the same table in one query (a self-join can
   // read the same base URI with different projections), so per-partition data
@@ -326,11 +331,6 @@ message HudiScanCommon {
   // them. An S3 or ABFS table is read through the store Comet builds from
   // them.
   map<string, string> object_store_options = 6;
-  // The scan as Comet's native Parquet scan would read the table's base
-  // files: the output columns as the required and data schema, no partition
-  // schema (partition columns are read from the files), and the scan's data
-  // filters. Unset when no slice may be read as plain Parquet.
-  NativeScanCommon parquet_scan = 8;
 }
 
 message HudiScan {

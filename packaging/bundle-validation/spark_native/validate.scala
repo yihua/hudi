@@ -408,7 +408,7 @@ if (sys.env.get("NATIVE_HUDI_SCAN").contains("1")) {
       s"expected n=$expectedRows spark n=${sparkRows.length} native n=${nativeRows.length}\n" +
         s"only-spark=${sparkRows.diff(nativeRows).take(5).mkString(";")}\n" +
         s"only-native=${nativeRows.diff(sparkRows).take(5).mkString(";")}")
-    check(s"$label $routing", expected(reads), s"$reads\n$plan")
+    check(s"$label $routing ($reads)", expected(reads), plan.toString)
   }
   def hudi(path: String) = spark.read.format("hudi").load(path)
 
@@ -422,9 +422,9 @@ if (sys.env.get("NATIVE_HUDI_SCAN").contains("1")) {
   val prunedRows = prunedDf.collect()
   val prunedReads = sliceReads(prunedDf.queryExecution.executedPlan)
   spark.conf.set("spark.comet.scan.hudi.enabled", "false")
-  check("copy-on-write data filter prunes inside the native Parquet scan",
+  check(s"copy-on-write data filter prunes inside the native Parquet scan ($prunedReads)",
     prunedRows.isEmpty && prunedReads.asParquet > 0 && prunedReads.pruned > 0,
-    s"rows=${prunedRows.length} $prunedReads\n${prunedDf.queryExecution.executedPlan}")
+    s"rows=${prunedRows.length}\n${prunedDf.queryExecution.executedPlan}")
 
   // A base file written before a column was added lacks the column, which reads as null.
   val addedColumn = writeV8("native_scan_cow_added_column_v8", "COPY_ON_WRITE", Overwrite, rows(0, 300), "upsert")
