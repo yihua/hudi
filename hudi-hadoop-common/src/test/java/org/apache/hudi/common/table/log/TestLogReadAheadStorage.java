@@ -134,7 +134,8 @@ public class TestLogReadAheadStorage extends HoodieFileGroupReaderTestHarness {
 
     List<String> expected = readMerged(fileSlice, storage, useRecordPositions, Long.MAX_VALUE);
     Map<String, String> expectedLogRecords = readLogRecords(fileSlice, storage, useRecordPositions, Long.MAX_VALUE);
-    assertEquals(BASE_RECORDS, expected.size());
+    // Keys 1-15 and 190-195 are deleted
+    assertEquals(BASE_RECORDS - 21, expected.size());
 
     // Smaller than every file: no file is fetched whole, and the block contents are fetched ahead of the merge
     LogReadAheadStorage.Stats small = assertReadAheadMatches(fileSlice, useRecordPositions, smallest / 2, expected, expectedLogRecords);
