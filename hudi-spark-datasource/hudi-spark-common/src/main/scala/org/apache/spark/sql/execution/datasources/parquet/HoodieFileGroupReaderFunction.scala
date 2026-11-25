@@ -290,7 +290,10 @@ private[parquet] class HoodieFileGroupReaderFunction(baseFileReader: Broadcast[S
           val baseOrderingFields = if (mergeMode == RecordMergeMode.EVENT_TIME_ORDERING) orderingFieldNames.toSeq else Seq.empty
           val matchFields: Seq[StructField] = matcher match {
             case _: HoodieColumnarMorReader.PositionBasedMatcher =>
-              SparkFileFormatInternalRowReaderContext.getAppliedRequiredSchema(new StructType(), shouldAddRecordPosition = true).fields.toSeq
+              // The vectorized Parquet reader fills the row index into a column it finds missing from the file,
+              // which it only accepts for a nullable field
+              SparkFileFormatInternalRowReaderContext.getAppliedRequiredSchema(new StructType(), shouldAddRecordPosition = true)
+                .fields.map(_.copy(nullable = true)).toSeq
             case _ => dataStructType.fields.find(_.name == HoodieRecord.RECORD_KEY_METADATA_FIELD).toSeq
           }
           val extraFieldNames = (matcher.columnName +: baseOrderingFields).distinct
