@@ -50,9 +50,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -60,7 +62,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TestPositionBasedFileGroupRecordBuffer {
@@ -125,6 +130,29 @@ class TestPositionBasedFileGroupRecordBuffer {
     when(emptyBlock.getSchema()).thenReturn(SCHEMA);
     buffer.processDataBlock(emptyBlock, Option.empty());
     assertEquals(HoodieFileGroupRecordBuffer.BufferType.KEY_BASED_MERGE, buffer.getBufferType());
+    buffer.close();
+  }
+
+  @Test
+  void testBaseRecordsMergeOnlyAtBufferedPositions() throws Exception {
+    PositionBasedFileGroupRecordBuffer<IndexedRecord> buffer = createBuffer();
+    // Log records at base positions 1 and 3; positions 0, 2 and 4 have none.
+    buffer.processNextDataRecord(BufferedRecords.fromEngineRecord(
+        record("k1", 2), SCHEMA, buffer.readerContext.getRecordContext(), Collections.emptyList(), false), 1L);
+    buffer.processNextDataRecord(BufferedRecords.fromEngineRecord(
+        record("k3", 2), SCHEMA, buffer.readerContext.getRecordContext(), Collections.emptyList(), false), 3L);
+    List<IndexedRecord> base = Arrays.asList(record("k0", 1), record("k1", 1), record("k2", 1), record("k3", 1), record("k4", 1));
+    buffer.setBaseFileIterator(ClosableIterator.wrap(base.iterator()));
+
+    List<String> emitted = new ArrayList<>();
+    while (buffer.hasNext()) {
+      emitted.add(buffer.next().getRecord().get(0).toString());
+    }
+    // The update processor mock drops merged records, so only the untouched base records are emitted.
+    assertEquals(Arrays.asList("k0", "k2", "k4"), emitted);
+    verify(buffer.updateProcessor, times(1)).processUpdate(eq("k1"), any(), any(), eq(false));
+    verify(buffer.updateProcessor, times(1)).processUpdate(eq("k3"), any(), any(), eq(false));
+    assertEquals(0, buffer.size());
     buffer.close();
   }
 
