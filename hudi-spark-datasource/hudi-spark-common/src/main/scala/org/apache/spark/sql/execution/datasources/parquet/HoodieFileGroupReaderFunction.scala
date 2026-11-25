@@ -40,7 +40,7 @@ import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration
 
 import org.apache.hadoop.conf.Configuration
 import org.apache.parquet.schema.MessageType
-import org.apache.spark.SparkEnv
+import org.apache.spark.{SparkEnv, TaskContext}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.HoodieCatalystExpressionUtils
 import org.apache.spark.sql.HoodieCatalystExpressionUtils.generateUnsafeProjection
@@ -409,8 +409,11 @@ private[parquet] class HoodieFileGroupReaderFunction(baseFileReader: Broadcast[S
       // Read the slice's log files, then the content of the blocks to merge, ahead of the log scan within a byte
       // window, so the merge of one block runs while the next ones are fetched
       LogReadAheadStorage.setExecutorBudget(HoodieColumnarMorReader.logReadAheadExecutorBytes(state))
-      LogReadAheadStorage.create(fileStorage, logFiles, HoodieColumnarMorReader.logReadAheadBytes(state),
+      val readAhead = LogReadAheadStorage.create(fileStorage, logFiles, HoodieColumnarMorReader.logReadAheadBytes(state),
         deleteHeaderOnly && state.tableState.getTableConfig.getRecordMergeMode == RecordMergeMode.COMMIT_TIME_ORDERING)
+      // A failed or killed task may not reach the close below; drop its fetched bytes when the task ends
+      Option(TaskContext.get()).foreach(_.addTaskCompletionListener[Unit](_ => readAhead.close()))
+      readAhead
     } else {
       // Fetch the slice's log files concurrently rather than one request at a time during the log scan
       PrefetchedLogFileStorage.prefetch(fileStorage, logFiles, HoodieColumnarMorReader.logPrefetchBytes(state))

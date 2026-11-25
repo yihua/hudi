@@ -217,6 +217,21 @@ public class TestLogReadAheadStorage extends HoodieFileGroupReaderTestHarness {
   }
 
   @Test
+  public void testFailedFetchIsReleasedAndReadInLine() throws Exception {
+    FileSlice fileSlice = writeFileSlice(false);
+    HoodieLogFile logFile = logFilesOf(fileSlice).get(0);
+    List<String> expected = readBlocks(storage, logFile, null);
+    // A recorded size past the end of the file makes the whole-file fetch fail
+    HoodieLogFile oversized = new HoodieLogFile(logFile.getPath(), logFile.getFileSize() + 100);
+    try (LogReadAheadStorage readAhead = LogReadAheadStorage.create(storage, Collections.singletonList(oversized), Long.MAX_VALUE / 4, false)) {
+      assertEquals(expected, readBlocks(readAhead, oversized, null));
+      assertEquals(1, readAhead.getStats().filesFetched);
+      assertTrue(readAhead.getStats().inlineReads > 0);
+      assertEquals(0, LogReadAheadStorage.executorBytesInUse());
+    }
+  }
+
+  @Test
   public void testBlockContentsReadAheadOfTheMerge() throws Exception {
     FileSlice fileSlice = writeFileSlice(false);
     List<HoodieLogFile> logFiles = logFilesOf(fileSlice);

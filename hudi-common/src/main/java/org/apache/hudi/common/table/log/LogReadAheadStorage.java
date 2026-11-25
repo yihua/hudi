@@ -80,11 +80,11 @@ import java.util.stream.Collectors;
 @Slf4j
 public final class LogReadAheadStorage extends HoodieStorage {
 
-  private static final int FETCH_THREADS = 64;
+  // Fetches wait on object store latency rather than on CPU, so a few per core keep the cores busy
+  private static final int FETCH_THREADS = Math.max(8, 4 * Runtime.getRuntime().availableProcessors());
   private static final AtomicInteger THREAD_ID = new AtomicInteger();
   private static final ThreadPoolExecutor FETCH_POOL = createFetchPool();
-  private static final ExecutorBudget EXECUTOR_BUDGET =
-      new ExecutorBudget((long) (Runtime.getRuntime().maxMemory() * 0.2));
+  private static final ExecutorBudget EXECUTOR_BUDGET = new ExecutorBudget(defaultExecutorBudget());
 
   private final HoodieStorage delegate;
   private final long windowBytes;
@@ -145,6 +145,14 @@ public final class LogReadAheadStorage extends HoodieStorage {
       storage.fillWindow();
     }
     return storage;
+  }
+
+  /**
+   * @return the default cap of the bytes held by the read-ahead of all log scans in this JVM: 10% of the heap, at most
+   * 512 MB
+   */
+  public static long defaultExecutorBudget() {
+    return Math.min(512L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 10);
   }
 
   /**
@@ -314,7 +322,22 @@ public final class LogReadAheadStorage extends HoodieStorage {
       }
       future.complete(bytes);
     } catch (Throwable t) {
+      // Release before completing, so that the bytes are back by the time the scan sees the failure
+      onFetchFailed(unit, future);
       future.completeExceptionally(t);
+    }
+  }
+
+  /**
+   * Returns the bytes of a failed fetch to the window and the executor-wide cap; the scan reads the unit in line.
+   */
+  private synchronized void onFetchFailed(Unit unit, CompletableFuture<byte[]> future) {
+    if (unit.bytes == future && (unit.state == State.FETCHING || unit.state == State.RETAINED)) {
+      boolean wasRetained = unit.state == State.RETAINED;
+      release(unit);
+      unit.state = wasRetained || unit.wholeFile ? State.RELEASED : State.INLINE;
+      stats.inlineReads++;
+      fillWindow();
     }
   }
 
