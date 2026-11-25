@@ -269,12 +269,55 @@ impl Drop for AbortOnDrop {
 /// consumer is still on the previous slice. A slice with log files reads only
 /// when consumed, so at most one merge buffer is live per partition and a
 /// LIMIT never pays for a merge it does not read.
+struct SliceDiag {
+    t0: std::time::Instant,
+    file: String,
+    logs: usize,
+    open_us: u128,
+    first_us: Option<u128>,
+    rows: usize,
+    batches: usize,
+}
+
+impl SliceDiag {
+    fn observe<E>(&mut self, r: &Result<RecordBatch, E>) {
+        if self.first_us.is_none() {
+            self.first_us = Some(self.t0.elapsed().as_micros());
+        }
+        if let Ok(b) = r {
+            self.rows += b.num_rows();
+            self.batches += 1;
+        }
+    }
+}
+
+impl Drop for SliceDiag {
+    fn drop(&mut self) {
+        eprintln!(
+            "HUDIDIAG t={} file={} logs={} open_ms={:.1} first_ms={:.1} total_ms={:.1} rows={} batches={}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0),
+            self.file,
+            self.logs,
+            self.open_us as f64 / 1000.0,
+            self.first_us.unwrap_or(0) as f64 / 1000.0,
+            self.t0.elapsed().as_micros() as f64 / 1000.0,
+            self.rows,
+            self.batches
+        );
+    }
+}
+
 fn read_slice(
     reader: Arc<FileGroupReader>,
     read_options: ReadOptions,
     slice: HudiFileSliceSpec,
 ) -> BoxStream<'static, DFResult<RecordBatch>> {
     let read_ahead = slice.log_file_paths.is_empty();
+    let diag_t0 = std::time::Instant::now();
+    let diag_logs = slice.log_file_paths.len();
     let open = async move {
         let stream = reader
             .read_file_slice_from_paths_stream_with_base_file_size(
@@ -291,6 +334,19 @@ fn read_slice(
                 ))
             })?;
         let base_file_path = slice.base_file_path;
+        let mut diag = SliceDiag {
+            t0: diag_t0,
+            file: base_file_path.rsplit('/').next().unwrap_or("").to_string(),
+            logs: diag_logs,
+            open_us: diag_t0.elapsed().as_micros(),
+            first_us: None,
+            rows: 0,
+            batches: 0,
+        };
+        let stream = stream.map(move |r| {
+            diag.observe(&r);
+            r
+        });
         Ok::<_, DataFusionError>(stream.map_err(move |e| {
             DataFusionError::Execution(format!(
                 "failed to read Hudi file slice {base_file_path}: {e}"
