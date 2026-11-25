@@ -297,8 +297,23 @@ fn read_slice(
             ))
         }))
     };
-    if !read_ahead || tokio::runtime::Handle::try_current().is_err() {
+    if tokio::runtime::Handle::try_current().is_err() {
         return futures::stream::once(open).try_flatten().boxed();
+    }
+    if !read_ahead {
+        // Only the open runs ahead: the log scan and the base footer, which are
+        // round trips. The merge itself still runs when consumed, so at most
+        // one slice's batches are in flight per partition.
+        let task = tokio::spawn(open);
+        let abort = AbortOnDrop(task.abort_handle());
+        return futures::stream::once(async move {
+            let _abort = abort;
+            task.await.map_err(|e| {
+                DataFusionError::Execution(format!("Hudi file slice open ended early: {e}"))
+            })?
+        })
+        .try_flatten()
+        .boxed();
     }
     let (tx, rx) = mpsc::channel(SLICE_READ_AHEAD);
     let task = tokio::spawn(async move {
