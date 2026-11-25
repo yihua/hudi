@@ -326,7 +326,7 @@ private[parquet] class HoodieFileGroupReaderFunction(baseFileReader: Broadcast[S
     }
     val baseReadSchema = StructType(state.requiredSchema.fields ++ extraFields)
     val readerSchema = readerContext.getSchemaHandler.getRequiredSchema
-    val merger = BufferedRecordMergerFactory.create(readerContext, mergeMode, false, readerContext.getRecordMerger,
+    val merger = BufferedRecordMergerFactory.create(readerContext, mergeMode, false, readerContext.getRecordMerger(),
       readerSchema, readerContext.getPayloadClasses(props), props, HOption.empty[PartialUpdateMode]())
     val logRecords = HoodieColumnarMorReader.LogRecords(byKey,
       HoodieSchemaConversionUtils.convertHoodieSchemaToStructType(readerSchema), merger, orderingFieldNames, mergeMode)
