@@ -33,6 +33,7 @@ import org.apache.hudi.common.util.{Option => HOption}
 import org.apache.hudi.exception.HoodieNotSupportedException
 import org.apache.hudi.io.MergeUtils
 import org.apache.hudi.io.storage.HoodieSparkParquetReader.ENABLE_LOGICAL_TIMESTAMP_REPAIR
+import org.apache.hudi.sql.vectorized.RowBatchWriter
 import org.apache.hudi.storage.StorageConfiguration
 import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration
 
@@ -43,7 +44,7 @@ import org.apache.spark.api.java.JavaSparkContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.execution.datasources.{OutputWriterFactory, PartitionedFile, SparkColumnarFileReader, SparkSchemaTransformUtils}
+import org.apache.spark.sql.execution.datasources.{FileFormat, OutputWriterFactory, PartitionedFile, SparkColumnarFileReader, SparkSchemaTransformUtils}
 import org.apache.spark.sql.execution.datasources.orc.OrcUtils
 import org.apache.spark.sql.execution.vectorized.{OffHeapColumnVector, OnHeapColumnVector}
 import org.apache.spark.sql.hudi.MultipleColumnarFileFormatReader
@@ -238,17 +239,36 @@ class HoodieFileGroupReaderBasedFileFormat(tablePath: String,
   }
 
   /**
+   * Whether the table's merge semantics allow a merge-on-read snapshot scan to return columnar batches, see
+   * [[HoodieColumnarMorReader]]. Null on a deserialized format, where it is never consulted.
+   */
+  @transient private lazy val columnarMorTableSupported: Boolean =
+    Option(tableMetaClient).flatten.exists(metaClient =>
+      HoodieColumnarMorReader.isTableSupported(metaClient.getTableConfig, mandatoryFields))
+
+  /**
+   * Whether a merge-on-read snapshot scan with output `schema` returns columnar batches: slices with log files
+   * are then merged on the vectorized base file batches rather than row by row.
+   */
+  private def supportsColumnarMor(sparkSession: SparkSession, schema: StructType): Boolean = {
+    isMOR && !isIncremental && !isCDC && !isBootstrap && !isMultipleBaseFileFormatsEnabled &&
+      hoodieFileFormat == HoodieFileFormat.PARQUET && requiredFilters.isEmpty && !internalSchemaOpt.isPresent &&
+      HoodieColumnarMorReader.isEnabled(sparkSession) && RowBatchWriter.isSupported(schema) &&
+      detectVectorColumnsCached(schema).isEmpty && columnarMorTableSupported
+  }
+
+  /**
    * Checks if the file format supports returning columnar batches, please refer to SPARK-40918.
    *
-   * NOTE: for MOR, a file slice with only a base file can still be read with the vectorized reader,
-   * but the scan as a whole cannot return batches because slices with log files are merged row by row.
+   * NOTE: a merge-on-read scan returns batches only where [[supportsColumnarMor]] holds; otherwise slices with
+   * log files are merged row by row and the scan returns rows.
    */
   override def supportBatch(sparkSession: SparkSession, schema: StructType): Boolean = {
     val vectorized = canReadVectorized(sparkSession, schema)
     // Required filters (the commit-time range of an incremental query) must hold for every row, but the
     // vectorized reader only uses them to prune row groups. Unless the plan already filters on them, return
     // rows rather than batches so that the base file read can evaluate them row by row; decoding stays vectorized.
-    val returningBatch = !isMOR && vectorized && !evaluateRequiredFiltersPerRow
+    val returningBatch = vectorized && !evaluateRequiredFiltersPerRow && (!isMOR || supportsColumnarMor(sparkSession, schema))
     logDebug(s"supportReturningBatch: $returningBatch, supportVectorizedRead: $vectorized, " +
       s"isIncremental: $isIncremental, isCDC: $isCDC, isBootstrap: $isBootstrap, isMOR: $isMOR")
     returningBatch
@@ -402,6 +422,11 @@ class HoodieFileGroupReaderBasedFileFormat(tablePath: String,
     val readerProps = TypedProperties.copy(metaClient.getTableConfig.getProps)
     options.foreach(kv => readerProps.setProperty(kv._1, kv._2))
     readerProps.put(HoodieMemoryConfig.MAX_MEMORY_FOR_MERGE.key(), String.valueOf(maxMemoryPerCompaction))
+    // A merge-on-read scan that returns batches needs every file slice as batches, including slices with log files.
+    // Spark 3.3 does not pass the scan's decision in the options, so it is recomputed the way supportBatch made it.
+    val scanReturnsBatch = isMOR && options.get(FileFormat.OPTION_RETURNING_BATCH).map(_.toBoolean)
+      .getOrElse(supportBatch(spark, outputSchema))
+    readerProps.setProperty(HoodieColumnarMorReader.SCAN_RETURNS_BATCH_KEY, scanReturnsBatch.toString)
 
     val (baseReadRequiredSchema, readVectorColumns) = withVectorRewrite(readRequiredSchema)
     val baseFileReadSchemas = if (readVectorColumns.nonEmpty) {
