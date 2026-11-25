@@ -32,6 +32,7 @@ import org.apache.hudi.common.schema.internal.InternalSchema;
 import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.PartitionPathParser;
+import org.apache.hudi.common.table.log.LogReadAheadStorage;
 import org.apache.hudi.common.table.read.buffer.FileGroupRecordBufferLoader;
 import org.apache.hudi.common.table.read.buffer.HoodieFileGroupRecordBuffer;
 import org.apache.hudi.common.util.ConfigUtils;
@@ -234,12 +235,35 @@ public final class HoodieFileGroupReader<T> implements HoodieRecordReader<T> {
           rec -> readerContext.getRecordContext().seal(requiredSchema, rec));
     } else {
       this.baseFileIterator = iter;
-      Pair<HoodieFileGroupRecordBuffer<T>, List<String>> initializationResult = recordBufferLoader.getRecordBuffer(
-          readerContext, storage, inputSplit, orderingFieldNames, tableState, props, readerParameters, readStats, fileGroupUpdateCallback);
+      Pair<HoodieFileGroupRecordBuffer<T>, List<String>> initializationResult;
+      LogReadAheadStorage logReadAhead = startLogReadAhead();
+      try {
+        initializationResult = recordBufferLoader.getRecordBuffer(readerContext, logReadAhead != null ? logReadAhead : storage,
+            inputSplit, orderingFieldNames, tableState, props, readerParameters, readStats, fileGroupUpdateCallback);
+      } finally {
+        // The log scan is over once the buffer is loaded
+        if (logReadAhead != null) {
+          logReadAhead.close();
+        }
+      }
       recordBuffer = initializationResult.getLeft();
       validBlockInstants = initializationResult.getRight();
       recordBuffer.setBaseFileIterator(baseFileIterator);
     }
+  }
+
+  /**
+   * Starts reading the log files ahead of the log scan when {@link HoodieReaderConfig#LOG_READ_AHEAD_BYTES} is positive,
+   * or returns null.
+   */
+  private LogReadAheadStorage startLogReadAhead() {
+    long windowBytes = props.getLong(HoodieReaderConfig.LOG_READ_AHEAD_BYTES.key(), HoodieReaderConfig.LOG_READ_AHEAD_BYTES.defaultValue());
+    if (windowBytes <= 0 || inputSplit.getLogFiles().isEmpty() || storage instanceof LogReadAheadStorage) {
+      return null;
+    }
+    LogReadAheadStorage.setExecutorBudget(
+        props.getLong(HoodieReaderConfig.LOG_READ_AHEAD_EXECUTOR_BYTES.key(), LogReadAheadStorage.defaultExecutorBudget()));
+    return LogReadAheadStorage.create(storage, inputSplit.getLogFiles(), windowBytes);
   }
 
   private ClosableIterator<T> makeBaseFileIterator() throws IOException {
