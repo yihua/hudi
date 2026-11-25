@@ -834,19 +834,22 @@ class TestHoodieFileIndex extends HoodieSparkClientTestBase with ScalaAssertionS
   }
 
   /**
-   * Data skipping on column and partition stats must keep exactly the file groups holding a matching row,
-   * and an index read in memory must be evaluated on the driver without launching a Spark job.
+   * Data skipping on column, partition and expression index stats must keep exactly the partitions and file
+   * groups holding a matching row. An index read in memory must be evaluated on the driver without launching
+   * a Spark job, and no lookup may leave anything persisted.
    */
   @ParameterizedTest
   @EnumSource(value = classOf[HoodieTableType])
   def testDataSkippingCandidatesAndSparkJobs(tableType: HoodieTableType): Unit = {
     val schema = StructType(Seq(StructField("id", IntegerType, nullable = false), StructField("opt", LongType),
-      StructField("ts", LongType, nullable = false), StructField("p", StringType, nullable = false)))
-    // Four files of 100 consecutive ids: "opt" is all null in the first and third, mixed in the second
-    // and never null in the fourth
+      StructField("name", StringType), StructField("d", DateType), StructField("ts", LongType, nullable = false),
+      StructField("p", StringType, nullable = false)))
+    def row(id: Int, opt: java.lang.Long, ts: Long): Row = Row(id, opt, f"$id%04d",
+      java.sql.Date.valueOf(java.time.LocalDate.of(2020, 1, 1).plusDays(id)), ts, if (id < 200) "a" else "b")
+    // Four files of 100 consecutive ids, two per partition: "opt" is all null in the first and third,
+    // mixed in the second and never null in the fourth
     val rows = (0 until 400).map { id =>
-      val opt = if ((id / 100 == 1 && id % 2 == 0) || id / 100 == 3) Long.box(id) else null
-      Row(id, opt, 0L, if (id < 200) "a" else "b")
+      row(id, if ((id / 100 == 1 && id % 2 == 0) || id / 100 == 3) Long.box(id) else null, 0L)
     }
     val writeOpts = Map(
       HoodieWriteConfig.TBL_NAME.key -> "hoodie_test",
@@ -856,6 +859,8 @@ class TestHoodieFileIndex extends HoodieSparkClientTestBase with ScalaAssertionS
       HoodieTableConfig.ORDERING_FIELDS.key -> "ts",
       HoodieMetadataConfig.ENABLE.key -> "true",
       HoodieMetadataConfig.ENABLE_METADATA_INDEX_COLUMN_STATS.key -> "true",
+      // "ts" has no statistics
+      HoodieMetadataConfig.COLUMN_STATS_INDEX_FOR_COLUMNS.key -> "id,opt,name,d",
       HoodieMetadataConfig.ENABLE_METADATA_INDEX_PARTITION_STATS.key -> "true")
     spark.createDataFrame(spark.sparkContext.parallelize(rows, 4), schema).write.format("hudi").options(writeOpts)
       .option(OPERATION.key, BULK_INSERT_OPERATION_OPT_VAL).mode(SaveMode.Overwrite).save(basePath)
@@ -864,15 +869,24 @@ class TestHoodieFileIndex extends HoodieSparkClientTestBase with ScalaAssertionS
     val allFileGroups = fileGroupOfId.values.toSet
     assertEquals(4, allFileGroups.size)
     // The first file is no longer all null; on MOR only its log file holds the non-null value
-    spark.createDataFrame(spark.sparkContext.parallelize(Seq(Row(10, 10L, 1L, "a")), 1), schema).write.format("hudi")
+    spark.createDataFrame(spark.sparkContext.parallelize(Seq(row(10, 10L, 1L)), 1), schema).write.format("hudi")
       .options(writeOpts).option(OPERATION.key, UPSERT_OPERATION_OPT_VAL).mode(SaveMode.Append).save(basePath)
+    val table = s"hoodie_test_${tableType.name.toLowerCase}"
+    spark.sql(s"create table $table using hudi location '$basePath'")
+    spark.sql(s"create index idx_lower_name on $table using column_stats(name) options(expr='lower')")
     metaClient = HoodieTableMetaClient.reload(metaClient)
     spark.sqlContext.setConf(DataSkippingFailureMode.configName, DataSkippingFailureMode.Strict.value)
 
-    Seq("id > 350", "id = 120", "id IN (5, 250)", "id < 0", "opt IS NOT NULL", "opt IS NULL").foreach { predicate =>
-      val expected = spark.read.format("hudi").option(DataSourceReadOptions.ENABLE_DATA_SKIPPING.key, "false")
-        .load(basePath).where(predicate).select("id").collect().map(row => fileGroupOfId(row.getInt(0))).toSet
-      assertTrue(expected.size < allFileGroups.size, s"$predicate must be able to skip a file group")
+    // Partition stats skip null-count predicates, so those keep every partition
+    val nullCountPredicates = Set("opt IS NOT NULL", "opt IS NULL")
+    Seq("id > 350", "id = 120", "id IN (5, 250)", "id < 0", "name = '0120'", "name >= '0350'",
+      "d < DATE '2020-01-05'", "ts >= 0 AND id > 350", "lower(name) = '0120'", "opt IS NOT NULL", "opt IS NULL"
+    ).foreach { predicate =>
+      val matching = spark.read.format("hudi").option(DataSourceReadOptions.ENABLE_DATA_SKIPPING.key, "false")
+        .load(basePath).where(predicate).select("id", "p").collect()
+      val expectedFileGroups = matching.map(row => fileGroupOfId(row.getInt(0))).toSet
+      val expectedPartitions = if (nullCountPredicates.contains(predicate)) Set("a", "b") else matching.map(_.getString(1)).toSet
+      assertTrue(expectedFileGroups.size < allFileGroups.size, s"$predicate must be able to skip a file group")
       Seq(HoodieMetadataConfig.COLUMN_STATS_INDEX_PROCESSING_MODE_IN_MEMORY,
         HoodieMetadataConfig.COLUMN_STATS_INDEX_PROCESSING_MODE_ENGINE).foreach { mode =>
         val fileIndex = HoodieFileIndex(spark, metaClient, Option.empty, queryOpts ++ Map(
@@ -880,10 +894,12 @@ class TestHoodieFileIndex extends HoodieSparkClientTestBase with ScalaAssertionS
           DataSourceReadOptions.ENABLE_DATA_SKIPPING.key -> "true",
           HoodieMetadataConfig.COLUMN_STATS_INDEX_PROCESSING_MODE_OVERRIDE.key -> mode), NoopCache)
         val filter = HoodieCatalystExpressionUtils.resolveExpr(spark, predicate, fileIndex.schema)
-        // The first listing loads the file slices; count the jobs of a listing that only looks up the indexes
-        fileIndex.filterFileSlices(Seq(filter), Seq.empty)
+        assertEquals(expectedPartitions, fileIndex.prunePartitionsAndGetFileSlices(Seq(filter), Seq.empty)._2
+          .map(_._1.get.getPath).toSet, s"$predicate partitions in $mode mode")
+        val persistedBefore = spark.sparkContext.getPersistentRDDs.keySet
         val (slices, jobs) = countSparkJobs(fileIndex.filterFileSlices(Seq(filter), Seq.empty))
-        assertEquals(expected, slices.flatMap(_._2).map(_.getFileId).toSet, s"$predicate in $mode mode")
+        assertEquals(expectedFileGroups, slices.flatMap(_._2).map(_.getFileId).toSet, s"$predicate in $mode mode")
+        assertEquals(persistedBefore, spark.sparkContext.getPersistentRDDs.keySet, s"$predicate left data persisted")
         if (mode == HoodieMetadataConfig.COLUMN_STATS_INDEX_PROCESSING_MODE_IN_MEMORY) {
           assertEquals(0, jobs, s"$predicate must not launch a Spark job when the index is read in memory")
         } else {
@@ -891,6 +907,7 @@ class TestHoodieFileIndex extends HoodieSparkClientTestBase with ScalaAssertionS
         }
       }
     }
+    spark.sql(s"drop table $table")
   }
 
   /**
