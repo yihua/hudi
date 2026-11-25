@@ -277,11 +277,37 @@ private[parquet] class HoodieFileGroupReaderFunction(baseFileReader: Broadcast[S
     val props = TypedProperties.copy(state.readerProps)
     val mergeType = ConfigUtils.getStringWithAltKeys(props, HoodieReaderConfig.MERGE_TYPE, true)
     if (mergeType.equalsIgnoreCase(HoodieReaderConfig.REALTIME_SKIP_MERGE) || LsmReaderUtils.shouldUseLsmReader(tableConfig, mergeType)) {
-      return rowsAsBatches()
+      rowsAsBatches()
+    } else {
+      val readerContext = newReaderContext(state, conf)
+      loadLogRecords(fileSlice, state, readerContext, props) match {
+        case None => rowsAsBatches()
+        case Some(byKey) =>
+          val mergeMode = readerContext.getMergeMode
+          val orderingFieldNames = HoodieRecordUtils.getOrderingFieldNames(mergeMode, tableConfig).asScala.toArray
+          val dataStructType = HoodieSchemaConversionUtils.convertHoodieSchemaToStructType(state.dataSchema)
+          val extraFieldNames = (HoodieRecord.RECORD_KEY_METADATA_FIELD +: orderingFieldNames).distinct
+            .filterNot(name => state.requiredSchema.fieldNames.contains(name))
+          val extraFields = extraFieldNames.flatMap(name => dataStructType.fields.find(_.name == name))
+          if (extraFields.length != extraFieldNames.length) {
+            rowsAsBatches()
+          } else {
+            mergeColumnar(file, fileSlice, fileSliceMapping, state, conf, readerContext, props, byKey, mergeMode,
+              orderingFieldNames, StructType(state.requiredSchema.fields ++ extraFields))
+          }
+      }
     }
+  }
 
+  /**
+   * Reads the log records of a file slice keyed by record key, or None when there are more than the columnar
+   * merge takes.
+   */
+  private def loadLogRecords(fileSlice: FileSlice,
+                             state: HoodieFileGroupReadState,
+                             readerContext: SparkFileFormatInternalRowReaderContext,
+                             props: TypedProperties): Option[java.util.HashMap[UTF8String, BufferedRecord[InternalRow]]] = {
     // Log records only: the file group reader is given no base file, so it buffers the log records by key.
-    val readerContext = newReaderContext(state, conf)
     val logReader = HoodieFileGroupReader.builder[InternalRow]()
       .withReaderContext(readerContext)
       .withTableState(state.tableState)
@@ -311,20 +337,23 @@ private[parquet] class HoodieFileGroupReaderFunction(baseFileReader: Broadcast[S
       logRecordIterator.close()
       logReader.close()
     }
-    if (tooManyLogRecords) {
-      return rowsAsBatches()
-    }
+    if (tooManyLogRecords) None else Some(byKey)
+  }
 
-    val mergeMode = readerContext.getMergeMode
-    val orderingFieldNames = HoodieRecordUtils.getOrderingFieldNames(mergeMode, tableConfig).asScala.toArray
-    val dataStructType = HoodieSchemaConversionUtils.convertHoodieSchemaToStructType(state.dataSchema)
-    val extraFieldNames = (HoodieRecord.RECORD_KEY_METADATA_FIELD +: orderingFieldNames).distinct
-      .filterNot(name => state.requiredSchema.fieldNames.contains(name))
-    val extraFields = extraFieldNames.flatMap(name => dataStructType.fields.find(_.name == name))
-    if (extraFields.length != extraFieldNames.length) {
-      return rowsAsBatches()
-    }
-    val baseReadSchema = StructType(state.requiredSchema.fields ++ extraFields)
+  /**
+   * Merges the base file batches of a file slice with its log records, reading the base file in `baseReadSchema`.
+   */
+  private def mergeColumnar(file: PartitionedFile,
+                            fileSlice: FileSlice,
+                            fileSliceMapping: HoodiePartitionFileSliceMapping,
+                            state: HoodieFileGroupReadState,
+                            conf: StorageConfiguration[Configuration],
+                            readerContext: SparkFileFormatInternalRowReaderContext,
+                            props: TypedProperties,
+                            byKey: java.util.HashMap[UTF8String, BufferedRecord[InternalRow]],
+                            mergeMode: RecordMergeMode,
+                            orderingFieldNames: Array[String],
+                            baseReadSchema: StructType): Iterator[InternalRow] = {
     val readerSchema = readerContext.getSchemaHandler.getRequiredSchema
     val merger = BufferedRecordMergerFactory.create(readerContext, mergeMode, false, readerContext.getRecordMerger(),
       readerSchema, readerContext.getPayloadClasses(props), props, HOption.empty[PartialUpdateMode]())
