@@ -20,8 +20,6 @@ package org.apache.hudi.common.table.log;
 
 import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.exception.HoodieIOException;
-import org.apache.hudi.io.ByteArraySeekableDataInputStream;
-import org.apache.hudi.io.ByteBufferBackedInputStream;
 import org.apache.hudi.io.SeekableDataInputStream;
 import org.apache.hudi.storage.HoodieStorage;
 import org.apache.hudi.storage.StorageConfiguration;
@@ -130,7 +128,82 @@ public final class PrefetchedLogFileStorage extends HoodieStorage {
     byte[] bytes = fetchedBytes(path);
     return bytes == null
         ? delegate.openSeekable(path, bufferSize, wrapStream)
-        : new ByteArraySeekableDataInputStream(new ByteBufferBackedInputStream(bytes));
+        : new InMemorySeekableDataInputStream(new InMemoryFileStream(bytes));
+  }
+
+  /**
+   * A whole file in memory, read with the end-of-file behavior of a file system stream: a read at the end returns
+   * -1, and a seek past the end throws {@link EOFException}, which the log reader takes as the end of the file or a
+   * truncated block.
+   */
+  static final class InMemoryFileStream extends InputStream {
+    private final byte[] bytes;
+    private int pos;
+
+    InMemoryFileStream(byte[] bytes) {
+      this.bytes = bytes;
+    }
+
+    @Override
+    public int read() {
+      return pos < bytes.length ? bytes[pos++] & 0xFF : -1;
+    }
+
+    @Override
+    public int read(byte[] target, int offset, int length) {
+      if (length == 0) {
+        return 0;
+      }
+      if (pos >= bytes.length) {
+        return -1;
+      }
+      int n = Math.min(length, bytes.length - pos);
+      System.arraycopy(bytes, pos, target, offset, n);
+      pos += n;
+      return n;
+    }
+
+    @Override
+    public long skip(long n) {
+      long skipped = Math.max(0, Math.min(n, bytes.length - pos));
+      pos += (int) skipped;
+      return skipped;
+    }
+
+    @Override
+    public int available() {
+      return bytes.length - pos;
+    }
+
+    long position() {
+      return pos;
+    }
+
+    void seek(long target) throws EOFException {
+      if (target < 0 || target > bytes.length) {
+        throw new EOFException("Cannot seek to " + target + " in an in-memory file of " + bytes.length + " bytes");
+      }
+      pos = (int) target;
+    }
+  }
+
+  private static final class InMemorySeekableDataInputStream extends SeekableDataInputStream {
+    private final InMemoryFileStream stream;
+
+    InMemorySeekableDataInputStream(InMemoryFileStream stream) {
+      super(stream);
+      this.stream = stream;
+    }
+
+    @Override
+    public long getPos() {
+      return stream.position();
+    }
+
+    @Override
+    public void seek(long pos) throws IOException {
+      stream.seek(pos);
+    }
   }
 
   @Override

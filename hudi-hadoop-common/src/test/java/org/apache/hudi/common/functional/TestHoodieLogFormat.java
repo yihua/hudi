@@ -43,6 +43,7 @@ import org.apache.hudi.common.table.cdc.HoodieCDCSupplementalLoggingMode;
 import org.apache.hudi.common.table.cdc.HoodieCDCUtils;
 import org.apache.hudi.common.table.log.AppendResult;
 import org.apache.hudi.common.table.log.HoodieLogFileReader;
+import org.apache.hudi.common.table.log.PrefetchedLogFileStorage;
 import org.apache.hudi.common.table.log.HoodieLogFormat;
 import org.apache.hudi.common.table.log.HoodieLogFormat.Reader;
 import org.apache.hudi.common.table.log.HoodieLogFormatWriter;
@@ -440,6 +441,59 @@ public class TestHoodieLogFormat extends HoodieCommonTestHarness {
     // Cannot get the current size after closing the log
     final HoodieLogFormat.Writer closedWriter = writer;
     assertThrows(IllegalStateException.class, closedWriter::getCurrentSize, "getCurrentSize should fail after the logAppender is closed");
+  }
+
+  @ParameterizedTest
+  @EnumSource(names = {"AVRO_DATA_BLOCK", "PARQUET_DATA_BLOCK"})
+  public void testReadPrefetchedLogFileWithMultipleBlocks(HoodieLogBlockType dataBlockType) throws IOException, InterruptedException {
+    HoodieLogFormat.Writer writer = HoodieLogFormatWriter.builder()
+        .withParentPath(partitionPath)
+        .withFileExtension(HoodieLogFile.DELTA_EXTENSION)
+        .withLogFileId("test-prefetch")
+        .withInstantTime("100")
+        .withStorage(storage)
+        .build();
+    Map<HoodieLogBlock.HeaderMetadataType, String> header = new HashMap<>();
+    header.put(HoodieLogBlock.HeaderMetadataType.INSTANT_TIME, "100");
+    header.put(HoodieLogBlock.HeaderMetadataType.SCHEMA, getSimpleSchema().toString());
+    writer.appendBlock(getDataBlock(dataBlockType, SchemaTestUtil.generateTestRecords(0, 100), header));
+    List<Pair<DeleteRecord, Long>> deletes = new ArrayList<>();
+    for (int i = 0; i < 20; i++) {
+      deletes.add(Pair.of(DeleteRecord.create("key" + i, "partition_path"), (long) i));
+    }
+    writer.appendBlock(new HoodieDeleteBlock(deletes, header));
+    writer.appendBlock(getDataBlock(dataBlockType, SchemaTestUtil.generateTestRecords(100, 50), header));
+    writer.close();
+
+    StoragePath logPath = writer.getLogFile().getPath();
+    HoodieLogFile logFile = new HoodieLogFile(logPath, storage.getPathInfo(logPath).getLength());
+    List<String> expected = readBlockSummaries(storage, logFile);
+    assertEquals(3, expected.size());
+
+    // The whole file is fetched into memory up front; the reader must still see the end of the file after the last block
+    try (PrefetchedLogFileStorage prefetched = PrefetchedLogFileStorage.prefetch(
+        storage, Collections.singletonList(logFile), Long.MAX_VALUE)) {
+      assertEquals(expected, readBlockSummaries(prefetched, logFile));
+    }
+    // A file over the budget is read through the wrapped storage
+    try (PrefetchedLogFileStorage prefetched = PrefetchedLogFileStorage.prefetch(
+        storage, Collections.singletonList(logFile), 1)) {
+      assertEquals(expected, readBlockSummaries(prefetched, logFile));
+    }
+  }
+
+  private static List<String> readBlockSummaries(HoodieStorage storage, HoodieLogFile logFile) throws IOException {
+    List<String> summaries = new ArrayList<>();
+    try (HoodieLogFileReader reader = new HoodieLogFileReader(storage, logFile, getSimpleSchema(), 4096)) {
+      while (reader.hasNext()) {
+        HoodieLogBlock block = reader.next();
+        int count = block instanceof HoodieDeleteBlock
+            ? ((HoodieDeleteBlock) block).getRecordsToDelete().length
+            : getRecords((HoodieDataBlock) block).size();
+        summaries.add(block.getBlockType() + ":" + count);
+      }
+    }
+    return summaries;
   }
 
   @Test
