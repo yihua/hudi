@@ -3974,7 +3974,7 @@ checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 [[package]]
 name = "hudi"
 version = "0.7.0-dev"
-source = "git+https://github.com/yihua/hudi-rs.git?rev=7d8a0c3f4f54859b57e5beacd763914661583f67#7d8a0c3f4f54859b57e5beacd763914661583f67"
+source = "git+https://github.com/yihua/hudi-rs.git?rev=b80f07dd59abd59420c0f2c65a42e046780e8c89#b80f07dd59abd59420c0f2c65a42e046780e8c89"
 dependencies = [
  "hudi-core",
  "hudi-datafusion",
@@ -3983,7 +3983,7 @@ dependencies = [
 [[package]]
 name = "hudi-core"
 version = "0.7.0-dev"
-source = "git+https://github.com/yihua/hudi-rs.git?rev=7d8a0c3f4f54859b57e5beacd763914661583f67#7d8a0c3f4f54859b57e5beacd763914661583f67"
+source = "git+https://github.com/yihua/hudi-rs.git?rev=b80f07dd59abd59420c0f2c65a42e046780e8c89#b80f07dd59abd59420c0f2c65a42e046780e8c89"
 dependencies = [
  "apache-avro 0.21.0",
  "apache-avro-derive",
@@ -4048,7 +4048,7 @@ dependencies = [
 [[package]]
 name = "hudi-datafusion"
 version = "0.7.0-dev"
-source = "git+https://github.com/yihua/hudi-rs.git?rev=7d8a0c3f4f54859b57e5beacd763914661583f67#7d8a0c3f4f54859b57e5beacd763914661583f67"
+source = "git+https://github.com/yihua/hudi-rs.git?rev=b80f07dd59abd59420c0f2c65a42e046780e8c89#b80f07dd59abd59420c0f2c65a42e046780e8c89"
 dependencies = [
  "arrow 59.3.0",
  "arrow-arith 59.3.0",
