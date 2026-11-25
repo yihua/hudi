@@ -19,6 +19,7 @@
 package org.apache.hudi
 
 import org.apache.hudi.ColumnStatsIndexSupport.{getMaxColumnNameFor, getMinColumnNameFor, getNullCountColumnNameFor}
+import org.apache.hudi.HoodieCatalystUtils.withPersistedDataset
 import org.apache.hudi.HoodieFileIndex.DataSkippingFailureMode
 import org.apache.hudi.client.common.HoodieSparkEngineContext
 import org.apache.hudi.common.config.HoodieMetadataConfig
@@ -123,12 +124,7 @@ abstract class SparkBaseIndexSupport(spark: SparkSession,
       // No translated predicate can prune files, so avoid scanning the index.
       fileNamesFromPrunedPartitions
     } else {
-      val prunedCandidateFileNames =
-        indexDf.where(candidateFilter.get)
-          .select(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME)
-          .collect()
-          .map(_.getString(0))
-          .toSet
+      val (allIndexedFileNames, prunedCandidateFileNames) = collectIndexedAndMatchingNames(indexDf, candidateFilter.get)
 
       // NOTE: Col-Stats Index isn't guaranteed to have complete set of statistics for every
       //       base-file or log file: since it's bound to clustering, which could occur asynchronously
@@ -137,14 +133,33 @@ abstract class SparkBaseIndexSupport(spark: SparkSession,
       //       To close that gap, we manually compute the difference b/w all indexed (by col-stats-index)
       //       files and all outstanding base-files or log files, and make sure that all base files and
       //       log file not represented w/in the index are included in the output of this method
-      val allIndexedFileNames =
-      indexDf.select(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME)
-        .collect()
-        .map(_.getString(0))
-        .toSet
       val notIndexedFileNames = fileNamesFromPrunedPartitions -- allIndexedFileNames
 
       prunedCandidateFileNames ++ notIndexedFileNames
+    }
+  }
+
+  /**
+   * Returns the names of all rows of a transposed index view and of the rows `candidateFilter` keeps,
+   * read in a single pass.
+   */
+  protected def collectIndexedAndMatchingNames(indexDf: DataFrame, candidateFilter: Column): (Set[String], Set[String]) = {
+    val rows = indexDf.select(indexDf.col(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME), candidateFilter).collect()
+    // A NULL verdict excludes the row, as it would in a WHERE clause
+    (rows.map(_.getString(0)).toSet, rows.filter(row => !row.isNullAt(1) && row.getBoolean(1)).map(_.getString(0)).toSet)
+  }
+
+  /**
+   * Runs `block` over a transposed index view. A view read in memory is a [[LocalRelation]] that Spark
+   * filters and projects on the driver; persisting it would instead turn every action on it into a Spark job.
+   */
+  protected def withIndexView[T](indexDf: DataFrame, readInMemory: Boolean)(block: DataFrame => T): T = {
+    if (readInMemory) {
+      block(indexDf)
+    } else {
+      withPersistedDataset(indexDf) {
+        block(indexDf)
+      }
     }
   }
 

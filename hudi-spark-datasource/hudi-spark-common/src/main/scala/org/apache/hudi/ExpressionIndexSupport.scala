@@ -21,7 +21,7 @@ package org.apache.hudi
 
 import org.apache.hudi.ColumnStatsIndexSupport.{composeColumnStatStructType, extractWrapperValueV1}
 import org.apache.hudi.ExpressionIndexSupport._
-import org.apache.hudi.HoodieCatalystUtils.{withPersistedData, withPersistedDataset}
+import org.apache.hudi.HoodieCatalystUtils.withPersistedData
 import org.apache.hudi.HoodieConversionUtils.{toJavaOption, toScalaOption}
 import org.apache.hudi.avro.model.{HoodieMetadataColumnStats, HoodieMetadataRecord}
 import org.apache.hudi.common.config.HoodieMetadataConfig
@@ -114,28 +114,13 @@ class ExpressionIndexSupport(spark: SparkSession,
           loadTransposed(Seq(use.definition.getIndexName, "partitions"), use.indexed.sourceColumn, use.statsType, readInMemory,
             expressionIndexRecords) {
             transposedPartitionStatsDF => {
-              try {
-                transposedPartitionStatsDF.persist(StorageLevel.MEMORY_AND_DISK_SER)
-                val allPartitions = transposedPartitionStatsDF.select(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME)
-                  .collect()
-                  .map(_.getString(0))
-                  .toSet
-                if (allPartitions.nonEmpty) {
-                  // NOTE: a leaf whose term the index holds no stats for compiles to TRUE, so it prunes no partition
-                  val source = ExpressionIndexSource(use.indexed)
-                  val indexFilter = use.conjuncts.map(translateIntoExpressionIndexFilterExpr(_, source)).reduce(And)
-                  Some(transposedPartitionStatsDF.where(sparkAdapter.createColumnFromExpression(indexFilter))
-                    .select(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME)
-                    .collect()
-                    .map(_.getString(0))
-                    .toSet)
-                } else {
-                  // Partition stats do not exist, skip the pruning
-                  Option.empty
-                }
-              } finally {
-                transposedPartitionStatsDF.unpersist()
-              }
+              // NOTE: a leaf whose term the index holds no stats for compiles to TRUE, so it prunes no partition
+              val source = ExpressionIndexSource(use.indexed)
+              val indexFilter = use.conjuncts.map(translateIntoExpressionIndexFilterExpr(_, source)).reduce(And)
+              val (allPartitions, matchingPartitions) = collectIndexedAndMatchingNames(transposedPartitionStatsDF,
+                sparkAdapter.createColumnFromExpression(indexFilter))
+              // Partition stats do not exist when no partition is indexed, skip the pruning
+              if (allPartitions.nonEmpty) Some(matchingPartitions) else Option.empty
             }
           }
         }.reduceOption(_ intersect _)
@@ -180,9 +165,7 @@ class ExpressionIndexSupport(spark: SparkSession,
 
             block(df)
           } else {
-            withPersistedDataset(df) {
-              block(df)
-            }
+            withIndexView(df, shouldReadInMemory)(block)
           }
         }
     }

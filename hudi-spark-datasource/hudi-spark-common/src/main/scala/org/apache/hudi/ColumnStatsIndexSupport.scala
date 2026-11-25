@@ -18,7 +18,7 @@
 package org.apache.hudi
 
 import org.apache.hudi.ColumnStatsIndexSupport._
-import org.apache.hudi.HoodieCatalystUtils.{withPersistedData, withPersistedDataset}
+import org.apache.hudi.HoodieCatalystUtils.withPersistedData
 import org.apache.hudi.HoodieConversionUtils.toScalaOption
 import org.apache.hudi.avro.model._
 import org.apache.hudi.common.config.HoodieMetadataConfig
@@ -168,9 +168,7 @@ class ColumnStatsIndexSupport(spark: SparkSession,
 
             block(df)
           } else {
-            withPersistedDataset(df) {
-              block(df)
-            }
+            withIndexView(df, shouldReadInMemory)(block)
           }
         }
     }

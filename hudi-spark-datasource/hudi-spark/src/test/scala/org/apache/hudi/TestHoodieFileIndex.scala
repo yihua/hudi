@@ -43,6 +43,7 @@ import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration
 import org.apache.hudi.testutils.HoodieSparkClientTestBase
 import org.apache.hudi.util.JFunction
 
+import org.apache.spark.scheduler.{SparkListener, SparkListenerJobStart}
 import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{And, AttributeReference, EqualTo, Expression, GetStructField, GreaterThanOrEqual, LessThan, Literal, Or}
@@ -57,6 +58,7 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.{Arguments, CsvSource, EnumSource, MethodSource, ValueSource}
 
 import java.util.Properties
+import java.util.concurrent.{ConcurrentLinkedQueue, CountDownLatch, TimeUnit}
 import java.util.function.Consumer
 
 import scala.collection.JavaConverters._
@@ -828,6 +830,104 @@ class TestHoodieFileIndex extends HoodieSparkClientTestBase with ScalaAssertionS
         val filteredPartitions = fileIndex.listFiles(Seq(), Seq(dataFilter))
         assertEquals(1, filteredPartitions.head.files.length)
       }
+    }
+  }
+
+  /**
+   * Data skipping on column and partition stats must keep exactly the file groups holding a matching row,
+   * and an index read in memory must be evaluated on the driver without launching a Spark job.
+   */
+  @ParameterizedTest
+  @EnumSource(value = classOf[HoodieTableType])
+  def testDataSkippingCandidatesAndSparkJobs(tableType: HoodieTableType): Unit = {
+    val schema = StructType(Seq(StructField("id", IntegerType, nullable = false), StructField("opt", LongType),
+      StructField("ts", LongType, nullable = false), StructField("p", StringType, nullable = false)))
+    // Four files of 100 consecutive ids: "opt" is all null in the first and third, mixed in the second
+    // and never null in the fourth
+    val rows = (0 until 400).map { id =>
+      val opt = if ((id / 100 == 1 && id % 2 == 0) || id / 100 == 3) Long.box(id) else null
+      Row(id, opt, 0L, if (id < 200) "a" else "b")
+    }
+    val writeOpts = Map(
+      HoodieWriteConfig.TBL_NAME.key -> "hoodie_test",
+      DataSourceWriteOptions.TABLE_TYPE.key -> tableType.name,
+      RECORDKEY_FIELD.key -> "id",
+      PARTITIONPATH_FIELD.key -> "p",
+      HoodieTableConfig.ORDERING_FIELDS.key -> "ts",
+      HoodieMetadataConfig.ENABLE.key -> "true",
+      HoodieMetadataConfig.ENABLE_METADATA_INDEX_COLUMN_STATS.key -> "true",
+      HoodieMetadataConfig.ENABLE_METADATA_INDEX_PARTITION_STATS.key -> "true")
+    spark.createDataFrame(spark.sparkContext.parallelize(rows, 4), schema).write.format("hudi").options(writeOpts)
+      .option(OPERATION.key, BULK_INSERT_OPERATION_OPT_VAL).mode(SaveMode.Overwrite).save(basePath)
+    val fileGroupOfId = spark.read.format("hudi").load(basePath).select("id", HoodieRecord.FILENAME_METADATA_FIELD)
+      .collect().map(row => row.getInt(0) -> FSUtils.getFileId(row.getString(1))).toMap
+    val allFileGroups = fileGroupOfId.values.toSet
+    assertEquals(4, allFileGroups.size)
+    // The first file is no longer all null; on MOR only its log file holds the non-null value
+    spark.createDataFrame(spark.sparkContext.parallelize(Seq(Row(10, 10L, 1L, "a")), 1), schema).write.format("hudi")
+      .options(writeOpts).option(OPERATION.key, UPSERT_OPERATION_OPT_VAL).mode(SaveMode.Append).save(basePath)
+    metaClient = HoodieTableMetaClient.reload(metaClient)
+    spark.sqlContext.setConf(DataSkippingFailureMode.configName, DataSkippingFailureMode.Strict.value)
+
+    Seq("id > 350", "id = 120", "id IN (5, 250)", "id < 0", "opt IS NOT NULL", "opt IS NULL").foreach { predicate =>
+      val expected = spark.read.format("hudi").option(DataSourceReadOptions.ENABLE_DATA_SKIPPING.key, "false")
+        .load(basePath).where(predicate).select("id").collect().map(row => fileGroupOfId(row.getInt(0))).toSet
+      assertTrue(expected.size < allFileGroups.size, s"$predicate must be able to skip a file group")
+      Seq(HoodieMetadataConfig.COLUMN_STATS_INDEX_PROCESSING_MODE_IN_MEMORY,
+        HoodieMetadataConfig.COLUMN_STATS_INDEX_PROCESSING_MODE_ENGINE).foreach { mode =>
+        val fileIndex = HoodieFileIndex(spark, metaClient, Option.empty, queryOpts ++ Map(
+          HoodieMetadataConfig.ENABLE.key -> "true",
+          DataSourceReadOptions.ENABLE_DATA_SKIPPING.key -> "true",
+          HoodieMetadataConfig.COLUMN_STATS_INDEX_PROCESSING_MODE_OVERRIDE.key -> mode), NoopCache)
+        val filter = HoodieCatalystExpressionUtils.resolveExpr(spark, predicate, fileIndex.schema)
+        // The first listing loads the file slices; count the jobs of a listing that only looks up the indexes
+        fileIndex.filterFileSlices(Seq(filter), Seq.empty)
+        val (slices, jobs) = countSparkJobs(fileIndex.filterFileSlices(Seq(filter), Seq.empty))
+        assertEquals(expected, slices.flatMap(_._2).map(_.getFileId).toSet, s"$predicate in $mode mode")
+        if (mode == HoodieMetadataConfig.COLUMN_STATS_INDEX_PROCESSING_MODE_IN_MEMORY) {
+          assertEquals(0, jobs, s"$predicate must not launch a Spark job when the index is read in memory")
+        } else {
+          assertTrue(jobs > 0, s"$predicate must read the index on the cluster")
+        }
+      }
+    }
+  }
+
+  /**
+   * Returns the result of `f` with the number of Spark jobs it launched. Marker jobs before and after
+   * delimit them, since the listener bus delivers events asynchronously but in order.
+   */
+  private def countSparkJobs[T](f: => T): (T, Int) = {
+    val (before, after) = ("count-spark-jobs-before", "count-spark-jobs-after")
+    val jobGroups = new ConcurrentLinkedQueue[String]()
+    val afterSeen = new CountDownLatch(1)
+    val listener = new SparkListener {
+      override def onJobStart(jobStart: SparkListenerJobStart): Unit = {
+        val group = Option(jobStart.properties).flatMap(p => Option(p.getProperty("spark.jobGroup.id"))).getOrElse("")
+        jobGroups.add(group)
+        if (group == after) {
+          afterSeen.countDown()
+        }
+      }
+    }
+    def runMarker(group: String): Unit = {
+      spark.sparkContext.setJobGroup(group, group)
+      try {
+        spark.sparkContext.parallelize(Seq(1), 1).count()
+      } finally {
+        spark.sparkContext.clearJobGroup()
+      }
+    }
+    spark.sparkContext.addSparkListener(listener)
+    try {
+      runMarker(before)
+      val result = f
+      runMarker(after)
+      assertTrue(afterSeen.await(60, TimeUnit.SECONDS), "Timed out waiting for Spark listener events")
+      val groups = jobGroups.asScala.toSeq
+      (result, groups.indexOf(after) - groups.indexOf(before) - 1)
+    } finally {
+      spark.sparkContext.removeSparkListener(listener)
     }
   }
 
