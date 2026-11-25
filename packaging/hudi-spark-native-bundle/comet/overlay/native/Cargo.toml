@@ -78,7 +78,7 @@ thiserror = "2"
 object_store = { version = "0.13.2", features = ["gcp", "azure", "aws", "http"] }
 # hudi-rs shares this workspace's arrow and DataFusion versions, so its batches
 # are this workspace's arrow batches.
-hudi = { git = "https://github.com/yihua/hudi-rs.git", rev = "6ad4f68062cfb3d3580967a49380063f0ff9365d" }
+hudi = { git = "https://github.com/yihua/hudi-rs.git", rev = "64000695fbdd27cfd72b48fcb583f916cf9f9b2f" }
 url = "2.2"
 aws-config = "1.8.18"
 aws-credential-types = "1.2.13"
