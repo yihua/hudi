@@ -445,7 +445,8 @@ public class TestHoodieLogFormat extends HoodieCommonTestHarness {
 
   @ParameterizedTest
   @EnumSource(names = {"AVRO_DATA_BLOCK", "PARQUET_DATA_BLOCK"})
-  public void testReadPrefetchedLogFileWithMultipleBlocks(HoodieLogBlockType dataBlockType) throws IOException, InterruptedException {
+  public void testReadPrefetchedLogFileWithMultipleBlocks(HoodieLogBlockType dataBlockType)
+      throws IOException, InterruptedException, URISyntaxException {
     HoodieLogFormat.Writer writer = HoodieLogFormatWriter.builder()
         .withParentPath(partitionPath)
         .withFileExtension(HoodieLogFile.DELTA_EXTENSION)
