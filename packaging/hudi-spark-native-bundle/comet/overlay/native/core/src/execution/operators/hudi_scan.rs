@@ -277,9 +277,8 @@ fn read_slice(
     let read_ahead = slice.log_file_paths.is_empty();
     let open = async move {
         let stream = reader
-            .read_file_slice_from_paths_stream_with_base_file_size(
+            .read_file_slice_from_paths_stream(
                 &slice.base_file_path,
-                slice.base_file_size,
                 slice.log_file_paths.iter().map(|s| s.as_str()),
                 &read_options,
             )
