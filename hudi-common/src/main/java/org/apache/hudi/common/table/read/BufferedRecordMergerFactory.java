@@ -66,7 +66,7 @@ public class BufferedRecordMergerFactory {
   public static boolean needsFullRowMerge(RecordMergeMode mergeMode, Option<String> payloadClass,
                                           Option<PartialUpdateMode> partialUpdateMode) {
     return !(mergeMode == RecordMergeMode.COMMIT_TIME_ORDERING || mergeMode == RecordMergeMode.EVENT_TIME_ORDERING)
-        || payloadClass.filter(className -> !className.isEmpty() && !BUILT_IN_PAYLOADS.contains(className)).isPresent()
+        || payloadClass.map(className -> !className.isEmpty() && !BUILT_IN_PAYLOADS.contains(className)).orElse(false)
         || partialUpdateMode.isPresent();
   }
 
