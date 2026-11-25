@@ -117,6 +117,18 @@ class TestColumnarMergeOnReadRead extends SparkClientFunctionalTestHarness {
   @ValueSource(strings = Array("COMMIT_TIME_ORDERING", "EVENT_TIME_ORDERING"))
   def testColumnarReadMatchesRowRead(mergeMode: String): Unit = {
     writeTable(mergeMode)
+    // Log records matched by record position, which the log blocks carry by default
+    assertAllShapes()
+    // Log records matched by record key
+    spark.conf.set("hoodie.merge.use.record.positions", "false")
+    try {
+      assertAllShapes()
+    } finally {
+      spark.conf.unset("hoodie.merge.use.record.positions")
+    }
+  }
+
+  private def assertAllShapes(): Unit = {
     // All columns, including meta columns
     assertSameRows(Seq("*"), expectColumnar = true)
     // A projection that leaves out the record key and the ordering field

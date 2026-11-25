@@ -53,10 +53,12 @@ import lombok.Builder;
 import lombok.Getter;
 
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 
@@ -411,6 +413,19 @@ public final class HoodieFileGroupReader<T> implements HoodieRecordReader<T> {
   public ClosableIterator<BufferedRecord<T>> getLogRecordsOnly() throws IOException {
     initRecordIterators();
     return recordBuffer.getLogRecordIterator();
+  }
+
+  /**
+   * Reads the log files without opening the base file and returns the buffered log records, keyed by record
+   * position when the merge uses record positions ({@link HoodieReaderContext#getShouldMergeUseRecordPosition()}
+   * after this call) and by record key otherwise. The map is valid until this reader is closed.
+   */
+  public Map<Serializable, BufferedRecord<T>> getLogRecordsByPositionOrKey() throws IOException {
+    Pair<HoodieFileGroupRecordBuffer<T>, List<String>> initializationResult = recordBufferLoader.getRecordBuffer(
+        readerContext, storage, inputSplit, orderingFieldNames, tableState, props, readerParameters, readStats, fileGroupUpdateCallback);
+    recordBuffer = initializationResult.getLeft();
+    validBlockInstants = initializationResult.getRight();
+    return recordBuffer.getLogRecords();
   }
 
   public static class HoodieFileGroupReaderIterator<T> implements ClosableIterator<BufferedRecord<T>> {
