@@ -59,7 +59,7 @@ class TestColumnarMergeOnReadRead extends SparkClientFunctionalTestHarness {
     HoodieWriteConfig.TBL_NAME.key -> "columnar_mor",
     "hoodie.insert.shuffle.parallelism" -> "2",
     "hoodie.upsert.shuffle.parallelism" -> "2",
-    "hoodie.delete.shuffle.parallelism" -> "1") ++ mergeMode.map("hoodie.record.merge.mode" -> _)
+    "hoodie.delete.shuffle.parallelism" -> "1") ++ mergeMode.map("hoodie.write.record.merge.mode" -> _)
 
   private def rows(n: Int, ts: Long, tag: String): DataFrame = spark.range(n).select(
     expr("concat('k', id)").as("id"),
