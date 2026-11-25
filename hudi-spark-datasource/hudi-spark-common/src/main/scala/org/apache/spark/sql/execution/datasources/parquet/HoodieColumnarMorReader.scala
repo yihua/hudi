@@ -75,7 +75,27 @@ private[parquet] object HoodieColumnarMorReader extends SparkAdapterSupport {
     classOf[DefaultHoodieRecordPayload].getName)
 
   def isEnabled(spark: SparkSession): Boolean =
-    spark.conf.getOption(ENABLED_KEY).forall(_.toBoolean)
+    sessionConf(spark, ENABLED_KEY).forall(_.toBoolean)
+
+  /** A session setting given as `key` or, as spark-submit passes it, `spark.key`. */
+  def sessionConf(spark: SparkSession, key: String): Option[String] =
+    spark.conf.getOption(key).orElse(spark.conf.getOption("spark." + key))
+
+  /** Open the base file and read its first batch on another thread while the log records load (on by default). */
+  val EARLY_BASE_OPEN_KEY = "hoodie.datasource.read.mor.columnar.early.base.open"
+
+  /** Take commit-time position deletes from the delete block header without reading the block (on by default). */
+  val DELETE_HEADER_ONLY_KEY = "hoodie.datasource.read.mor.columnar.delete.header.only"
+
+  /** Settings of the vectorized read that a session conf can set for the scan's reader props. */
+  def sessionKeys: Seq[String] =
+    Seq(MAX_LOG_RECORDS_KEY, LOG_PREFETCH_BYTES_KEY, EARLY_BASE_OPEN_KEY, DELETE_HEADER_ONLY_KEY)
+
+  def earlyBaseOpen(state: HoodieFileGroupReadState): Boolean =
+    state.readerProps.getBoolean(EARLY_BASE_OPEN_KEY, true)
+
+  def deleteHeaderOnly(state: HoodieFileGroupReadState): Boolean =
+    state.readerProps.getBoolean(DELETE_HEADER_ONLY_KEY, true)
 
   /**
    * Whether the table's log records can be merged into columnar base batches. Only commit-time and

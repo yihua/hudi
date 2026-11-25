@@ -30,7 +30,7 @@ import org.apache.hudi.common.table.read.{BufferedRecord, BufferedRecordMergerFa
 import org.apache.hudi.common.table.read.buffer.PositionBasedFileGroupRecordBuffer
 import org.apache.hudi.common.table.read.lsm.{HoodieLsmFileGroupReader, LsmReaderUtils}
 import org.apache.hudi.common.util.{ConfigUtils, HoodieRecordUtils, HoodieStorageUtils, Option => HOption}
-import org.apache.hudi.common.util.collection.ClosableIterator
+import org.apache.hudi.common.util.collection.{ClosableIterator, ExternalSpillableMap}
 import org.apache.hudi.data.CloseableIteratorListener
 import org.apache.hudi.exception.HoodieException
 import org.apache.hudi.io.storage.HoodieSparkParquetReader.ENABLE_LOGICAL_TIMESTAMP_REPAIR
@@ -285,7 +285,8 @@ private[parquet] class HoodieFileGroupReaderFunction(baseFileReader: Broadcast[S
       // With record positions the base file read is known before the log scan, so the base file is opened and its
       // first batch read on another thread while the log records load
       val earlyMergeMode = tableConfig.getRecordMergeMode
-      val earlyBase = if (fileSlice.getBaseFile.isPresent && state.shouldUseRecordPosition) {
+      val earlyBase = if (fileSlice.getBaseFile.isPresent && state.shouldUseRecordPosition
+        && HoodieColumnarMorReader.earlyBaseOpen(state)) {
         baseReadSchemaFor(positionBased = true, earlyMergeMode, tableConfig, dataStructType, state).map { schema =>
           (schema, HoodieColumnarMorReader.openAsync(() => openBaseBatches(file, schema, earlyMergeMode, state, conf)))
         }
@@ -407,7 +408,8 @@ private[parquet] class HoodieFileGroupReaderFunction(baseFileReader: Broadcast[S
       logFiles, HoodieColumnarMorReader.logPrefetchBytes(state))
     // The merge drops deleted rows without looking at their keys
     val logProps = TypedProperties.copy(props)
-    logProps.setProperty(PositionBasedFileGroupRecordBuffer.SKIP_DELETE_BLOCK_CONTENT, "true")
+    logProps.setProperty(PositionBasedFileGroupRecordBuffer.SKIP_DELETE_BLOCK_CONTENT,
+      HoodieColumnarMorReader.deleteHeaderOnly(state).toString)
     val logReader = HoodieFileGroupReader.builder[InternalRow]()
       .withReaderContext(readerContext)
       .withStorage(storage)
@@ -426,7 +428,13 @@ private[parquet] class HoodieFileGroupReaderFunction(baseFileReader: Broadcast[S
       .build()
     try {
       val records = logReader.getLogRecordsByPositionOrKey
-      if (records.size() > HoodieColumnarMorReader.maxLogRecords(state)) {
+      val spilled = records match {
+        case spillable: ExternalSpillableMap[_, _] => spillable.getDiskBasedMapNumEntries > 0
+        case _ => false
+      }
+      // Log records the buffer spilled to disk stay with the row path, which streams them, rather than coming
+      // back onto the heap here
+      if (spilled || records.size() > HoodieColumnarMorReader.maxLogRecords(state)) {
         None
       } else if (readerContext.getShouldMergeUseRecordPosition) {
         val entries = records.entrySet().asScala.toArray.map(e => (e.getKey, e.getValue))
