@@ -35,6 +35,7 @@ import org.apache.hudi.common.table.read.BufferedRecordMergerFactory;
 import org.apache.hudi.common.table.read.BufferedRecords;
 import org.apache.hudi.common.table.read.UpdateProcessor;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.OrderingValues;
 import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.common.util.collection.Pair;
@@ -63,6 +64,13 @@ public class PositionBasedFileGroupRecordBuffer<T> extends KeyBasedFileGroupReco
 
   private static final String ROW_INDEX_COLUMN_NAME = "row_index";
   public static final String ROW_INDEX_TEMPORARY_COLUMN_NAME = "_tmp_metadata_" + ROW_INDEX_COLUMN_NAME;
+
+  /**
+   * Reader property: under commit-time ordering, take a delete block's positions from its header without reading
+   * its content. The deletes then carry no record key, so only readers that never need the keys of deleted records
+   * set it.
+   */
+  public static final String SKIP_DELETE_BLOCK_CONTENT = "hoodie.merge.record.positions.skip.delete.content";
   protected final String baseFileInstantTime;
   private long nextRecordPosition = 0L;
   private boolean needToDoHybridStrategy = false;
@@ -205,6 +213,17 @@ public class PositionBasedFileGroupRecordBuffer<T> extends KeyBasedFileGroupReco
       log.debug("Falling back to key based merging for delete block");
       fallbackToKeyBasedBuffer();
       super.processDeleteBlock(deleteBlock);
+      return;
+    }
+
+    if (recordMergeMode == RecordMergeMode.COMMIT_TIME_ORDERING
+        && props.getBoolean(SKIP_DELETE_BLOCK_CONTENT, false)) {
+      // Under commit-time ordering a delete at a position supersedes everything before it, so the positions in the
+      // header are all the merge needs and the block content is neither read nor deserialized. The deletes carry
+      // no record key, so a later fallback to key-based merging keeps them as position deletes.
+      for (Long recordPosition : recordPositions) {
+        records.put(recordPosition, BufferedRecords.createDelete(null, OrderingValues.getDefault()));
+      }
       return;
     }
 

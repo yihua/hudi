@@ -405,6 +405,9 @@ private[parquet] class HoodieFileGroupReaderFunction(baseFileReader: Broadcast[S
     val storage = PrefetchedLogFileStorage.prefetch(
       HoodieStorageUtils.getStorage(state.tableState.getBasePath, readerContext.getStorageConfiguration),
       logFiles, HoodieColumnarMorReader.logPrefetchBytes(state))
+    // The merge drops deleted rows without looking at their keys
+    val logProps = TypedProperties.copy(props)
+    logProps.setProperty(PositionBasedFileGroupRecordBuffer.SKIP_DELETE_BLOCK_CONTENT, "true")
     val logReader = HoodieFileGroupReader.builder[InternalRow]()
       .withReaderContext(readerContext)
       .withStorage(storage)
@@ -416,7 +419,7 @@ private[parquet] class HoodieFileGroupReaderFunction(baseFileReader: Broadcast[S
       .withDataSchema(state.dataSchema)
       .withRequestedSchema(state.requestedSchema)
       .withInternalSchemaOpt(state.internalSchemaOpt)
-      .withProps(props)
+      .withProps(logProps)
       .withStart(file.start)
       .withLength(baseFileLength)
       .withShouldUseRecordPosition(state.shouldUseRecordPosition)
