@@ -19,7 +19,6 @@
 package org.apache.hudi
 
 import org.apache.hudi.ColumnStatsIndexSupport.{getMaxColumnNameFor, getMinColumnNameFor, getNullCountColumnNameFor}
-import org.apache.hudi.HoodieCatalystUtils.withPersistedDataset
 import org.apache.hudi.HoodieFileIndex.DataSkippingFailureMode
 import org.apache.hudi.client.common.HoodieSparkEngineContext
 import org.apache.hudi.common.config.HoodieMetadataConfig
@@ -147,20 +146,6 @@ abstract class SparkBaseIndexSupport(spark: SparkSession,
     val rows = indexDf.select(indexDf.col(HoodieMetadataPayload.COLUMN_STATS_FIELD_FILE_NAME), candidateFilter).collect()
     // A NULL verdict excludes the row, as it would in a WHERE clause
     (rows.map(_.getString(0)).toSet, rows.filter(row => !row.isNullAt(1) && row.getBoolean(1)).map(_.getString(0)).toSet)
-  }
-
-  /**
-   * Runs `block` over a transposed index view. A view read in memory is a [[LocalRelation]] that Spark
-   * filters and projects on the driver; persisting it would instead turn every action on it into a Spark job.
-   */
-  protected def withIndexView[T](indexDf: DataFrame, readInMemory: Boolean)(block: DataFrame => T): T = {
-    if (readInMemory) {
-      block(indexDf)
-    } else {
-      withPersistedDataset(indexDf) {
-        block(indexDf)
-      }
-    }
   }
 
   /**
