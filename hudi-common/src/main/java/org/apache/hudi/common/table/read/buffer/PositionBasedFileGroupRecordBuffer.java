@@ -42,6 +42,7 @@ import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieKeyException;
 
 import lombok.extern.slf4j.Slf4j;
+import org.roaringbitmap.longlong.Roaring64NavigableMap;
 
 import java.io.IOException;
 import java.io.Serializable;
@@ -65,6 +66,9 @@ public class PositionBasedFileGroupRecordBuffer<T> extends KeyBasedFileGroupReco
   protected final String baseFileInstantTime;
   private long nextRecordPosition = 0L;
   private boolean needToDoHybridStrategy = false;
+  // Positions buffered by the log scan, built on the first base record. Most base records have no
+  // log record, so this saves a lookup into the (possibly spilled) record map for each of them.
+  private Roaring64NavigableMap bufferedPositions;
 
   public PositionBasedFileGroupRecordBuffer(HoodieReaderContext<T> readerContext,
                                             RecordMergeMode recordMergeMode,
@@ -255,8 +259,23 @@ public class PositionBasedFileGroupRecordBuffer<T> extends KeyBasedFileGroupReco
 
     nextRecordPosition = readerContext.getRecordContext().extractRecordPosition(baseRecord, readerSchema,
         ROW_INDEX_TEMPORARY_COLUMN_NAME, nextRecordPosition);
-    BufferedRecord<T> logRecordInfo = records.remove(nextRecordPosition++);
+    long position = nextRecordPosition++;
+    BufferedRecord<T> logRecordInfo = getBufferedPositions().contains(position) ? records.remove(position) : null;
     return super.hasNextBaseRecord(baseRecord, logRecordInfo);
+  }
+
+  private Roaring64NavigableMap getBufferedPositions() {
+    if (bufferedPositions == null) {
+      Roaring64NavigableMap positions = new Roaring64NavigableMap();
+      for (Serializable key : records.keySet()) {
+        if (key instanceof Long) {
+          positions.addLong((Long) key);
+        }
+      }
+      positions.runOptimize();
+      bufferedPositions = positions;
+    }
+    return bufferedPositions;
   }
 
   private boolean doHasNextFallbackBaseRecord(T baseRecord) throws IOException {
