@@ -30,4 +30,4 @@ COMET_VERSION=1.2.0-hudi-2
 # humans; the Cargo files are the source of truth. The pin is a git revision
 # until TableBuilder::with_object_store and the read-path changes the bundle
 # uses are in a hudi-rs release.
-HUDI_RS_VERSION=0.7.0-dev (git 619592064816)
+HUDI_RS_VERSION=0.7.0-dev (git 13f50b11e80e)
