@@ -280,7 +280,11 @@ class HoodieFileGroupReaderBasedFileFormat(tablePath: String,
                            partitionSchema: StructType,
                            sqlConf: SQLConf): Option[Seq[String]] = {
     val originalVectorTypes = super.vectorTypes(requiredSchema, partitionSchema, sqlConf)
-    if (mandatoryFields.isEmpty) {
+    if (isMOR) {
+      // A merge-on-read batch mixes the Parquet reader's vectors with row-id views and vectors written from log
+      // rows, so the generated code must read them through the ColumnVector interface
+      None
+    } else if (mandatoryFields.isEmpty) {
       originalVectorTypes
     } else {
       val regularVectorType = if (!sqlConf.offHeapColumnVectorEnabled) {
