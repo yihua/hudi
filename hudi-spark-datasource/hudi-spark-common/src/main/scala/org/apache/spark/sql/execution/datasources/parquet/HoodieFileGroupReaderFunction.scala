@@ -47,7 +47,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{And, AttributeReference, In, InSet, JoinedRow, Literal, Predicate, UnsafeProjection}
 import org.apache.spark.sql.execution.datasources.{PartitionedFile, SparkColumnarFileReader, SparkSchemaTransformUtils}
 import org.apache.spark.sql.sources.Filter
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{StructField, StructType}
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnarBatchUtils}
 import org.apache.spark.unsafe.types.UTF8String
 import org.apache.spark.util.{SerializableConfiguration, Utils}
@@ -280,19 +280,28 @@ private[parquet] class HoodieFileGroupReaderFunction(baseFileReader: Broadcast[S
       rowsAsBatches()
     } else {
       val readerContext = newReaderContext(state, conf)
-      loadLogRecords(fileSlice, state, readerContext, props) match {
+      loadLogRecords(file, fileSlice, state, readerContext, props) match {
         case None => rowsAsBatches()
-        case Some(byKey) =>
+        case Some(matcher) =>
           val mergeMode = readerContext.getMergeMode
           val orderingFieldNames = HoodieRecordUtils.getOrderingFieldNames(mergeMode, tableConfig).asScala.toArray
           val dataStructType = HoodieSchemaConversionUtils.convertHoodieSchemaToStructType(state.dataSchema)
-          val extraFieldNames = (HoodieRecord.RECORD_KEY_METADATA_FIELD +: orderingFieldNames).distinct
+          // Commit-time ordering never reads the ordering value of a base row
+          val baseOrderingFields = if (mergeMode == RecordMergeMode.EVENT_TIME_ORDERING) orderingFieldNames.toSeq else Seq.empty
+          val matchFields: Seq[StructField] = matcher match {
+            case _: HoodieColumnarMorReader.PositionBasedMatcher =>
+              SparkFileFormatInternalRowReaderContext.getAppliedRequiredSchema(new StructType(), shouldAddRecordPosition = true).fields.toSeq
+            case _ => dataStructType.fields.find(_.name == HoodieRecord.RECORD_KEY_METADATA_FIELD).toSeq
+          }
+          val extraFieldNames = (matcher.columnName +: baseOrderingFields).distinct
             .filterNot(name => state.requiredSchema.fieldNames.contains(name))
-          val extraFields = extraFieldNames.flatMap(name => dataStructType.fields.find(_.name == name))
+          val extraFields = extraFieldNames.flatMap { name =>
+            matchFields.find(_.name == name).orElse(dataStructType.fields.find(_.name == name))
+          }
           if (extraFields.length != extraFieldNames.length) {
             rowsAsBatches()
           } else {
-            mergeColumnar(file, fileSlice, fileSliceMapping, state, conf, readerContext, props, byKey, mergeMode,
+            mergeColumnar(file, fileSlice, fileSliceMapping, state, conf, readerContext, props, matcher, mergeMode,
               orderingFieldNames, StructType(state.requiredSchema.fields ++ extraFields))
           }
       }
@@ -300,44 +309,59 @@ private[parquet] class HoodieFileGroupReaderFunction(baseFileReader: Broadcast[S
   }
 
   /**
-   * Reads the log records of a file slice keyed by record key, or None when there are more than the columnar
-   * merge takes.
+   * Reads the log records of a file slice without opening its base file. They are matched to base rows by
+   * record position when the log blocks carry valid positions for this base file, else by record key. Returns
+   * None when there are more log records than the vectorized read takes, or when the log files mix the two.
    */
-  private def loadLogRecords(fileSlice: FileSlice,
+  private def loadLogRecords(file: PartitionedFile,
+                             fileSlice: FileSlice,
                              state: HoodieFileGroupReadState,
                              readerContext: SparkFileFormatInternalRowReaderContext,
-                             props: TypedProperties): Option[java.util.HashMap[UTF8String, BufferedRecord[InternalRow]]] = {
-    // Log records only: the file group reader is given no base file, so it buffers the log records by key.
+                             props: TypedProperties): Option[HoodieColumnarMorReader.LogRecordMatcher] = {
+    val baseFileLength = if (fileSlice.getBaseFile.isPresent) fileSlice.getBaseFile.get.getFileSize else 0L
     val logReader = HoodieFileGroupReader.builder[InternalRow]()
       .withReaderContext(readerContext)
       .withTableState(state.tableState)
       .withLatestCommitTime(state.queryTimestamp)
-      .withBaseFileOption(HOption.empty())
+      .withBaseFileOption(fileSlice.getBaseFile)
       .withLogFiles(fileSlice.getLogFiles)
       .withPartitionPath(fileSlice.getPartitionPath)
       .withDataSchema(state.dataSchema)
       .withRequestedSchema(state.requestedSchema)
       .withInternalSchemaOpt(state.internalSchemaOpt)
       .withProps(props)
+      .withStart(file.start)
+      .withLength(baseFileLength)
+      .withShouldUseRecordPosition(state.shouldUseRecordPosition)
       .build()
-    val maxLogRecords = HoodieColumnarMorReader.maxLogRecords(state)
-    val byKey = new java.util.HashMap[UTF8String, BufferedRecord[InternalRow]]()
-    var tooManyLogRecords = false
-    val logRecordIterator = logReader.getLogRecordsOnly
     try {
-      while (!tooManyLogRecords && logRecordIterator.hasNext) {
-        val record = logRecordIterator.next()
-        if (byKey.size() >= maxLogRecords) {
-          tooManyLogRecords = true
+      val records = logReader.getLogRecordsByPositionOrKey
+      if (records.size() > HoodieColumnarMorReader.maxLogRecords(state)) {
+        None
+      } else if (readerContext.getShouldMergeUseRecordPosition) {
+        val entries = records.entrySet().asScala.toArray.map(e => (e.getKey, e.getValue))
+        if (!entries.forall(_._1.isInstanceOf[java.lang.Long])) {
+          None
         } else {
-          byKey.put(UTF8String.fromString(record.getRecordKey), record)
+          val sorted = entries.sortBy(_._1.asInstanceOf[java.lang.Long].longValue())
+          Some(new HoodieColumnarMorReader.PositionBasedMatcher(
+            sorted.map(_._1.asInstanceOf[java.lang.Long].longValue()), sorted.map(_._2)))
         }
+      } else {
+        val byKey = new java.util.HashMap[UTF8String, BufferedRecord[InternalRow]](records.size() * 2)
+        val allKeys = records.entrySet().asScala.forall { e =>
+          e.getKey match {
+            case key: String =>
+              byKey.put(UTF8String.fromString(key), e.getValue)
+              true
+            case _ => false
+          }
+        }
+        if (allKeys) Some(new HoodieColumnarMorReader.KeyBasedMatcher(byKey)) else None
       }
     } finally {
-      logRecordIterator.close()
       logReader.close()
     }
-    if (tooManyLogRecords) None else Some(byKey)
   }
 
   /**
@@ -350,14 +374,14 @@ private[parquet] class HoodieFileGroupReaderFunction(baseFileReader: Broadcast[S
                             conf: StorageConfiguration[Configuration],
                             readerContext: SparkFileFormatInternalRowReaderContext,
                             props: TypedProperties,
-                            byKey: java.util.HashMap[UTF8String, BufferedRecord[InternalRow]],
+                            matcher: HoodieColumnarMorReader.LogRecordMatcher,
                             mergeMode: RecordMergeMode,
                             orderingFieldNames: Array[String],
                             baseReadSchema: StructType): Iterator[InternalRow] = {
     val readerSchema = readerContext.getSchemaHandler.getRequiredSchema
     val merger = BufferedRecordMergerFactory.create(readerContext, mergeMode, false, readerContext.getRecordMerger(),
       readerSchema, readerContext.getPayloadClasses(props), props, HOption.empty[PartialUpdateMode]())
-    val logRecords = HoodieColumnarMorReader.LogRecords(byKey,
+    val logRecords = HoodieColumnarMorReader.LogRecords(matcher,
       HoodieSchemaConversionUtils.convertHoodieSchemaToStructType(readerSchema), merger, orderingFieldNames, mergeMode)
 
     val (baseBatches, baseCloseables) = if (fileSlice.getBaseFile.isPresent) {

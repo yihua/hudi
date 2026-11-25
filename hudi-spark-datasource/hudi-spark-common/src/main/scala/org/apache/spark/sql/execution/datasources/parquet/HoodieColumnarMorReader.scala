@@ -24,6 +24,7 @@ import org.apache.hudi.common.config.RecordMergeMode
 import org.apache.hudi.common.model.{DefaultHoodieRecordPayload, HoodieRecord, OverwriteWithLatestAvroPayload}
 import org.apache.hudi.common.table.HoodieTableConfig
 import org.apache.hudi.common.table.read.{BufferedRecord, BufferedRecordMerger}
+import org.apache.hudi.common.table.read.buffer.PositionBasedFileGroupRecordBuffer
 import org.apache.hudi.common.util.HoodieRecordUtils
 import org.apache.hudi.sql.vectorized.{RowBatchWriter, RowIdMappedColumnVector}
 
@@ -118,9 +119,75 @@ private[parquet] object HoodieColumnarMorReader extends SparkAdapterSupport {
   }
 
   /**
-   * Log records of one file slice, keyed by record key, with the schema their rows are laid out in.
+   * Finds the log record of a base row, by record key or by record position.
    */
-  case class LogRecords(byKey: util.HashMap[UTF8String, BufferedRecord[InternalRow]],
+  sealed trait LogRecordMatcher {
+    /** The base file column the matcher reads: the record key or the row index. */
+    def columnName: String
+
+    /** Whether no log record can match a row of a batch whose match column is `column`. */
+    def untouched(column: ColumnVector, numRows: Int): Boolean
+
+    /** Removes and returns the log record of a base row, or null when it has none. */
+    def take(column: ColumnVector, row: Int): BufferedRecord[InternalRow]
+
+    /** Log records no base row took. */
+    def leftovers: Iterator[BufferedRecord[InternalRow]]
+  }
+
+  /** Key-based matching: a hash lookup of each base row's record key. */
+  final class KeyBasedMatcher(byKey: util.HashMap[UTF8String, BufferedRecord[InternalRow]]) extends LogRecordMatcher {
+    override val columnName: String = HoodieRecord.RECORD_KEY_METADATA_FIELD
+
+    override def untouched(column: ColumnVector, numRows: Int): Boolean = byKey.isEmpty
+
+    override def take(column: ColumnVector, row: Int): BufferedRecord[InternalRow] =
+      if (column.isNullAt(row)) null else byKey.remove(column.getUTF8String(row))
+
+    override def leftovers: Iterator[BufferedRecord[InternalRow]] = byKey.values().asScala.iterator
+  }
+
+  /**
+   * Position-based matching: the log records sorted by the base file row they replace, walked with the row
+   * index of the base batches, which ascends through the file. A batch with no log position between its first
+   * and last row index passes through without a per-row look.
+   */
+  final class PositionBasedMatcher(positions: Array[Long], records: Array[BufferedRecord[InternalRow]])
+    extends LogRecordMatcher {
+    private var cursor = 0
+
+    override val columnName: String = PositionBasedFileGroupRecordBuffer.ROW_INDEX_TEMPORARY_COLUMN_NAME
+
+    private def skipBefore(position: Long): Unit = {
+      while (cursor < positions.length && positions(cursor) < position) {
+        cursor += 1
+      }
+    }
+
+    override def untouched(column: ColumnVector, numRows: Int): Boolean = {
+      skipBefore(column.getLong(0))
+      cursor >= positions.length || positions(cursor) > column.getLong(numRows - 1)
+    }
+
+    override def take(column: ColumnVector, row: Int): BufferedRecord[InternalRow] = {
+      skipBefore(column.getLong(row))
+      if (cursor < positions.length && positions(cursor) == column.getLong(row)) {
+        val record = records(cursor)
+        records(cursor) = null
+        cursor += 1
+        record
+      } else {
+        null
+      }
+    }
+
+    override def leftovers: Iterator[BufferedRecord[InternalRow]] = records.iterator.filter(_ != null)
+  }
+
+  /**
+   * Log records of one file slice, with the schema their rows are laid out in.
+   */
+  case class LogRecords(matcher: LogRecordMatcher,
                         readerStructType: StructType,
                         merger: BufferedRecordMerger[InternalRow],
                         orderingFieldNames: Array[String],
@@ -131,8 +198,8 @@ private[parquet] object HoodieColumnarMorReader extends SparkAdapterSupport {
    *
    * @param baseBatches       batches of the base file in `baseReadSchema` followed by the partition columns,
    *                          empty when the slice has no base file
-   * @param baseReadSchema    the scan's required schema followed by the record key and any ordering field
-   *                          it lacks, in that order
+   * @param baseReadSchema    the scan's required schema followed by the matcher's column and, under event-time
+   *                          ordering, any ordering field it lacks
    * @param requiredSchema    the scan's required schema
    * @param partitionSchema   partition columns appended to every output row
    * @param partitionValues   this slice's partition values
@@ -147,7 +214,8 @@ private[parquet] object HoodieColumnarMorReader extends SparkAdapterSupport {
             recordContextOps: (InternalRow, StructType) => BufferedRecord[InternalRow],
             closeables: Seq[Closeable]): Iterator[ColumnarBatch] with Closeable = {
     val outputSchema = StructType(requiredSchema.fields ++ partitionSchema.fields)
-    val keyOrdinal = baseReadSchema.fieldIndex(HoodieRecord.RECORD_KEY_METADATA_FIELD)
+    val matcher = logRecords.matcher
+    val matchOrdinal = baseReadSchema.fieldIndex(matcher.columnName)
     val baseStructWithPartitions = StructType(baseReadSchema.fields ++ partitionSchema.fields)
     // Output columns of a base batch: the required columns, then the partition columns after the extra ones
     val outputOrdinals: Array[Int] = (requiredSchema.indices ++
@@ -179,7 +247,7 @@ private[parquet] object HoodieColumnarMorReader extends SparkAdapterSupport {
             }
           } else if (!leftoverDone) {
             // Log records left over have no base row: emit the ones that are not deletes.
-            logRecords.byKey.values().asScala.foreach { record =>
+            matcher.leftovers.foreach { record =>
               if (!record.isDelete && record.getRecord != null) {
                 pendingRows.add(toOutputRow(record.getRecord))
                 if (pendingRows.size() >= OUTPUT_BATCH_ROWS) {
@@ -187,7 +255,6 @@ private[parquet] object HoodieColumnarMorReader extends SparkAdapterSupport {
                 }
               }
             }
-            logRecords.byKey.clear()
             leftoverDone = true
           } else {
             ready.add(flushRows())
@@ -205,12 +272,22 @@ private[parquet] object HoodieColumnarMorReader extends SparkAdapterSupport {
 
       private def mergeBaseBatch(batch: ColumnarBatch): Unit = {
         val numRows = batch.numRows()
-        val keyVector = batch.column(keyOrdinal)
+        if (numRows > 0) {
+          val matchVector = batch.column(matchOrdinal)
+          if (matcher.untouched(matchVector, numRows)) {
+            ready.add(sparkAdapter.makeColumnarBatch(outputOrdinals.map(batch.column), numRows))
+          } else {
+            mergeRows(batch, matchVector, numRows)
+          }
+        }
+      }
+
+      private def mergeRows(batch: ColumnarBatch, matchVector: ColumnVector, numRows: Int): Unit = {
         var keep: Array[Int] = null
         var kept = 0
         var i = 0
         while (i < numRows) {
-          val logRecord = if (keyVector.isNullAt(i)) null else logRecords.byKey.remove(keyVector.getUTF8String(i))
+          val logRecord = matcher.take(matchVector, i)
           val keepBase = logRecord == null || {
             // Under commit-time ordering a log record always supersedes the base row
             val baseRecord = if (commitTimeOrdering) null else recordContextOps(batch.getRow(i), baseStructWithPartitions)
