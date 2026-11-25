@@ -55,7 +55,7 @@ import org.apache.spark.util.{SerializableConfiguration, Utils}
 import java.io.Closeable
 import java.nio.ByteBuffer
 
-import scala.collection.JavaConverters.{asScalaBufferConverter, mapAsJavaMapConverter}
+import scala.collection.JavaConverters.{asScalaBufferConverter, asScalaSetConverter, mapAsJavaMapConverter}
 import scala.reflect.ClassTag
 
 /**
