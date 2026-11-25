@@ -55,7 +55,7 @@ import org.apache.spark.util.{SerializableConfiguration, Utils}
 import java.io.Closeable
 import java.nio.ByteBuffer
 
-import scala.collection.JavaConverters.mapAsJavaMapConverter
+import scala.collection.JavaConverters.{mapAsJavaMapConverter, seqAsJavaListConverter}
 import scala.reflect.ClassTag
 
 /**
@@ -376,10 +376,9 @@ private[parquet] object HoodieFileGroupReaderFunction {
    * batches in a scan that returns batches.
    */
   private def toBatches(rows: Iterator[InternalRow], outputSchema: StructType): Iterator[InternalRow] = {
-    val batches = rows.grouped(ROWS_PER_BATCH).map { group =>
-      val copied = new java.util.ArrayList[InternalRow](group.size)
-      group.foreach(row => copied.add(row.copy()))
-      SparkAdapterSupport.sparkAdapter.makeColumnarBatch(RowBatchWriter.write(outputSchema, copied), copied.size())
+    // The rows may reuse one object, so each is copied before the next one is read
+    val batches = rows.map(_.copy()).grouped(ROWS_PER_BATCH).map { group =>
+      SparkAdapterSupport.sparkAdapter.makeColumnarBatch(RowBatchWriter.write(outputSchema, group.asJava), group.size)
     }
     new Iterator[ColumnarBatch] with Closeable {
       override def hasNext: Boolean = batches.hasNext

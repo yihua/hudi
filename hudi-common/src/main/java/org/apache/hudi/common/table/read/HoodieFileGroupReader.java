@@ -557,9 +557,10 @@ public final class HoodieFileGroupReader<T> implements HoodieRecordReader<T> {
   }
 
   /**
-   * Returns the rows of a row-based read as engine batches.
+   * Returns the rows of a row-based read as engine batches, copying each row since the read may reuse it.
    */
-  private static <T, B> ClosableIterator<B> rowsAsBatches(BatchSupport<T, B> batchSupport, ClosableIterator<T> rows) {
+  private <B> ClosableIterator<B> rowsAsBatches(BatchSupport<T, B> batchSupport, ClosableIterator<T> rows) {
+    HoodieSchema rowSchema = readerContext.getSchemaHandler().getRequestedSchema();
     return new ClosableIterator<B>() {
       @Override
       public boolean hasNext() {
@@ -570,7 +571,7 @@ public final class HoodieFileGroupReader<T> implements HoodieRecordReader<T> {
       public B next() {
         List<T> batch = new ArrayList<>();
         while (rows.hasNext() && batch.size() < ROWS_PER_BATCH) {
-          batch.add(rows.next());
+          batch.add(readerContext.getRecordContext().seal(rowSchema, rows.next()));
         }
         return batchSupport.toBatch(batch);
       }
