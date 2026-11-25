@@ -61,7 +61,7 @@ const TABLE_CACHE_CAPACITY: usize = 32;
 const READER_CACHE_CAPACITY: usize = 64;
 /// File slices a partition reads at once: the one being consumed, and the next
 /// one, which opens and reads ahead meanwhile if it has no log files.
-const SLICES_IN_FLIGHT: usize = 2;
+const SLICES_IN_FLIGHT: usize = 4;
 /// Batches a slice read may produce ahead of its consumer.
 const SLICE_READ_AHEAD: usize = 2;
 
