@@ -431,6 +431,11 @@ class HoodieFileGroupReaderBasedFileFormat(tablePath: String,
     val scanReturnsBatch = isMOR && options.get(FileFormat.OPTION_RETURNING_BATCH).map(_.toBoolean)
       .getOrElse(supportBatch(spark, outputSchema))
     readerProps.setProperty(HoodieColumnarMorReader.SCAN_RETURNS_BATCH_KEY, scanReturnsBatch.toString)
+    HoodieColumnarMorReader.sessionKeys.foreach { key =>
+      if (!options.contains(key)) {
+        HoodieColumnarMorReader.sessionConf(spark, key).foreach(readerProps.setProperty(key, _))
+      }
+    }
 
     val (baseReadRequiredSchema, readVectorColumns) = withVectorRewrite(readRequiredSchema)
     val baseFileReadSchemas = if (readVectorColumns.nonEmpty) {
