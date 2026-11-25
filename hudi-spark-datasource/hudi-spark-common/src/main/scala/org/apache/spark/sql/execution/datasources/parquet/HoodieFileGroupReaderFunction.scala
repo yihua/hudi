@@ -26,7 +26,7 @@ import org.apache.hudi.common.schema.HoodieSchema
 import org.apache.hudi.common.schema.internal.InternalSchema
 import org.apache.hudi.common.table.ParquetTableSchemaResolver
 import org.apache.hudi.common.table.log.InstantRange
-import org.apache.hudi.common.table.read.{HoodieFileGroupReader, HoodieRecordReader, TableState}
+import org.apache.hudi.common.table.read.{BatchSupport, HoodieFileGroupReader, HoodieRecordReader, TableState}
 import org.apache.hudi.common.table.read.lsm.{HoodieLsmFileGroupReader, LsmReaderUtils}
 import org.apache.hudi.common.util.{ConfigUtils, Option => HOption}
 import org.apache.hudi.common.util.collection.ClosableIterator
@@ -281,7 +281,7 @@ private[parquet] class HoodieFileGroupReaderFunction(baseFileReader: Broadcast[S
       val readerContext = newReaderContext(state, conf)
       val dataFields = HoodieSchemaConversionUtils.convertHoodieSchemaToStructType(state.dataSchema).fields
       val fieldsByName = (dataFields ++ state.requiredSchema.fields).map(field => field.name -> field).toMap
-      readerContext.setBatchSupport(HOption.of(new SparkColumnarBatchSupport(baseFileReader.value, file, fieldsByName,
+      readerContext.setBatchSupport(HOption.of[BatchSupport[InternalRow, _]](new SparkColumnarBatchSupport(baseFileReader.value, file, fieldsByName,
         state, conf, fileSliceMapping.getPartitionValues, state.outputSchema)))
       val baseFileLength = if (fileSlice.getBaseFile.isPresent) fileSlice.getBaseFile.get.getFileSize else 0L
       val reader = HoodieFileGroupReader.builder[InternalRow]()
