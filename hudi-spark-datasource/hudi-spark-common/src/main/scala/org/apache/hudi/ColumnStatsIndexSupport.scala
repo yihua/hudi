@@ -159,17 +159,16 @@ class ColumnStatsIndexSupport(spark: SparkSession,
             spark.createDataFrame(rdd, indexSchema)
           }
 
+          // NOTE: Each lookup runs a single action over the view, so only a cached view is persisted. A view read
+          //       in memory is a [[LocalRelation]] that Spark filters and projects on the driver; persisting it
+          //       would turn every action over it into a Spark job.
           if (allowCaching) {
             cachedColumnStatsIndexViews.put(targetColumns, df)
-            // NOTE: Instead of collecting the rows from the index and hold them in memory, we instead rely
-            //       on Spark as (potentially distributed) cache managing data lifecycle, while we simply keep
-            //       the referenced to persisted [[DataFrame]] instance
-            df.persist(StorageLevel.MEMORY_ONLY)
-
-            block(df)
-          } else {
-            withIndexView(df, shouldReadInMemory)(block)
+            if (!shouldReadInMemory) {
+              df.persist(StorageLevel.MEMORY_ONLY)
+            }
           }
+          block(df)
         }
     }
   }
