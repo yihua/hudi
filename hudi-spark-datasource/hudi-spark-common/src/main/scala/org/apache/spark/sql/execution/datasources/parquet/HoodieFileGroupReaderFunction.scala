@@ -24,9 +24,10 @@ import org.apache.hudi.common.fs.FSUtils
 import org.apache.hudi.common.model.{FileSlice, HoodieLogFile, HoodieRecord}
 import org.apache.hudi.common.schema.HoodieSchema
 import org.apache.hudi.common.schema.internal.InternalSchema
-import org.apache.hudi.common.table.{ParquetTableSchemaResolver, PartialUpdateMode}
+import org.apache.hudi.common.table.{HoodieTableConfig, ParquetTableSchemaResolver, PartialUpdateMode}
 import org.apache.hudi.common.table.log.{InstantRange, PrefetchedLogFileStorage}
 import org.apache.hudi.common.table.read.{BufferedRecord, BufferedRecordMergerFactory, BufferedRecords, HoodieFileGroupReader, HoodieRecordReader, TableState}
+import org.apache.hudi.common.table.read.buffer.PositionBasedFileGroupRecordBuffer
 import org.apache.hudi.common.table.read.lsm.{HoodieLsmFileGroupReader, LsmReaderUtils}
 import org.apache.hudi.common.util.{ConfigUtils, HoodieRecordUtils, HoodieStorageUtils, Option => HOption}
 import org.apache.hudi.common.util.collection.ClosableIterator
@@ -280,35 +281,112 @@ private[parquet] class HoodieFileGroupReaderFunction(baseFileReader: Broadcast[S
       rowsAsBatches()
     } else {
       val readerContext = newReaderContext(state, conf)
-      loadLogRecords(file, fileSlice, state, readerContext, props) match {
-        case None => rowsAsBatches()
+      val dataStructType = HoodieSchemaConversionUtils.convertHoodieSchemaToStructType(state.dataSchema)
+      // With record positions the base file read is known before the log scan, so the base file is opened and its
+      // first batch read on another thread while the log records load
+      val earlyMergeMode = tableConfig.getRecordMergeMode
+      val earlyBase = if (fileSlice.getBaseFile.isPresent && state.shouldUseRecordPosition) {
+        baseReadSchemaFor(positionBased = true, earlyMergeMode, tableConfig, dataStructType, state).map { schema =>
+          (schema, HoodieColumnarMorReader.openAsync(() => openBaseBatches(file, schema, earlyMergeMode, state, conf)))
+        }
+      } else {
+        None
+      }
+      val matcherOpt = try {
+        loadLogRecords(file, fileSlice, state, readerContext, props)
+      } catch {
+        case e: Throwable =>
+          earlyBase.foreach(eb => HoodieColumnarMorReader.discard(eb._2))
+          throw e
+      }
+      matcherOpt match {
+        case None =>
+          earlyBase.foreach(eb => HoodieColumnarMorReader.discard(eb._2))
+          rowsAsBatches()
         case Some(matcher) =>
           val mergeMode = readerContext.getMergeMode
           val orderingFieldNames = HoodieRecordUtils.getOrderingFieldNames(mergeMode, tableConfig).asScala.toArray
-          val dataStructType = HoodieSchemaConversionUtils.convertHoodieSchemaToStructType(state.dataSchema)
-          // Commit-time ordering never reads the ordering value of a base row
-          val baseOrderingFields = if (mergeMode == RecordMergeMode.EVENT_TIME_ORDERING) orderingFieldNames.toSeq else Seq.empty
-          val matchFields: Seq[StructField] = matcher match {
-            case _: HoodieColumnarMorReader.PositionBasedMatcher =>
-              // The vectorized Parquet reader fills the row index into a column it finds missing from the file,
-              // which it only accepts for a nullable field
-              SparkFileFormatInternalRowReaderContext.getAppliedRequiredSchema(new StructType(), shouldAddRecordPosition = true)
-                .fields.map(_.copy(nullable = true)).toSeq
-            case _ => dataStructType.fields.find(_.name == HoodieRecord.RECORD_KEY_METADATA_FIELD).toSeq
-          }
-          val extraFieldNames = (matcher.columnName +: baseOrderingFields).distinct
-            .filterNot(name => state.requiredSchema.fieldNames.contains(name))
-          val extraFields = extraFieldNames.flatMap { name =>
-            matchFields.find(_.name == name).orElse(dataStructType.fields.find(_.name == name))
-          }
-          if (extraFields.length != extraFieldNames.length) {
-            rowsAsBatches()
-          } else {
-            mergeColumnar(file, fileSlice, fileSliceMapping, state, conf, readerContext, props, matcher, mergeMode,
-              orderingFieldNames, StructType(state.requiredSchema.fields ++ extraFields))
+          val positionBased = matcher.isInstanceOf[HoodieColumnarMorReader.PositionBasedMatcher]
+          baseReadSchemaFor(positionBased, mergeMode, tableConfig, dataStructType, state) match {
+            case None =>
+              earlyBase.foreach(eb => HoodieColumnarMorReader.discard(eb._2))
+              rowsAsBatches()
+            case Some(baseReadSchema) =>
+              val preopened = earlyBase.flatMap { case (schema, future) =>
+                if (mergeMode == earlyMergeMode && schema == baseReadSchema) {
+                  HoodieColumnarMorReader.await(future)
+                } else {
+                  HoodieColumnarMorReader.discard(future)
+                  None
+                }
+              }
+              mergeColumnar(file, fileSlice, fileSliceMapping, state, conf, readerContext, props, matcher, mergeMode,
+                orderingFieldNames, baseReadSchema, preopened)
           }
       }
     }
+  }
+
+  /**
+   * The base file read of a vectorized merge: the scan's required columns, then the column the log records are
+   * matched by (the row index or the record key) and, under event-time ordering, the ordering fields. None when
+   * one of them is not in the table schema.
+   */
+  private def baseReadSchemaFor(positionBased: Boolean,
+                                mergeMode: RecordMergeMode,
+                                tableConfig: HoodieTableConfig,
+                                dataStructType: StructType,
+                                state: HoodieFileGroupReadState): Option[StructType] = {
+    val orderingFieldNames = HoodieRecordUtils.getOrderingFieldNames(mergeMode, tableConfig).asScala.toSeq
+    // Commit-time ordering never reads the ordering value of a base row
+    val baseOrderingFields = if (mergeMode == RecordMergeMode.EVENT_TIME_ORDERING) orderingFieldNames else Seq.empty
+    val matchFields: Seq[StructField] = if (positionBased) {
+      // The vectorized Parquet reader fills the row index into a column it finds missing from the file,
+      // which it only accepts for a nullable field
+      SparkFileFormatInternalRowReaderContext.getAppliedRequiredSchema(new StructType(), shouldAddRecordPosition = true)
+        .fields.map(_.copy(nullable = true)).toSeq
+    } else {
+      dataStructType.fields.find(_.name == HoodieRecord.RECORD_KEY_METADATA_FIELD).toSeq
+    }
+    val matchColumn = if (positionBased) {
+      PositionBasedFileGroupRecordBuffer.ROW_INDEX_TEMPORARY_COLUMN_NAME
+    } else {
+      HoodieRecord.RECORD_KEY_METADATA_FIELD
+    }
+    val extraFieldNames = (matchColumn +: baseOrderingFields).distinct
+      .filterNot(name => state.requiredSchema.fieldNames.contains(name))
+    val extraFields = extraFieldNames.flatMap { name =>
+      matchFields.find(_.name == name).orElse(dataStructType.fields.find(_.name == name))
+    }
+    if (extraFields.length != extraFieldNames.length) {
+      None
+    } else {
+      Some(StructType(state.requiredSchema.fields ++ extraFields))
+    }
+  }
+
+  /**
+   * Opens the base file of a slice as columnar batches in `baseReadSchema`.
+   */
+  private def openBaseBatches(file: PartitionedFile,
+                              baseReadSchema: StructType,
+                              mergeMode: RecordMergeMode,
+                              state: HoodieFileGroupReadState,
+                              conf: StorageConfiguration[Configuration]): (Iterator[ColumnarBatch], Seq[Closeable]) = {
+    // A base row a filter skips under event-time ordering may still beat its log record, so the filters
+    // only prune the base file under commit-time ordering, where the log record always wins.
+    val baseFilters = if (mergeMode == RecordMergeMode.COMMIT_TIME_ORDERING) state.filters else Seq.empty
+    val iter = baseFileReader.value.read(file, baseReadSchema, state.partitionSchema, state.internalSchemaOpt,
+      baseFilters, conf, state.tableSchemaAsMessageType)
+    val batches = iter.asInstanceOf[Iterator[Any]].map {
+      case batch: ColumnarBatch => batch
+      case other => throw new IllegalStateException(
+        s"Expected columnar batches from the base file of a columnar merge-on-read scan, got ${other.getClass.getName}")
+    }
+    (batches, iter match {
+      case closeable: Closeable => Seq(closeable)
+      case _ => Seq.empty
+    })
   }
 
   /**
@@ -387,7 +465,8 @@ private[parquet] class HoodieFileGroupReaderFunction(baseFileReader: Broadcast[S
                             matcher: HoodieColumnarMorReader.LogRecordMatcher,
                             mergeMode: RecordMergeMode,
                             orderingFieldNames: Array[String],
-                            baseReadSchema: StructType): Iterator[InternalRow] = {
+                            baseReadSchema: StructType,
+                            preopened: Option[(Iterator[ColumnarBatch], Seq[Closeable])]): Iterator[InternalRow] = {
     val readerSchema = readerContext.getSchemaHandler.getRequiredSchema
     val merger = BufferedRecordMergerFactory.create(readerContext, mergeMode, false, readerContext.getRecordMerger(),
       readerSchema, readerContext.getPayloadClasses(props), props, HOption.empty[PartialUpdateMode]())
@@ -395,20 +474,7 @@ private[parquet] class HoodieFileGroupReaderFunction(baseFileReader: Broadcast[S
       HoodieSchemaConversionUtils.convertHoodieSchemaToStructType(readerSchema), merger, orderingFieldNames, mergeMode)
 
     val (baseBatches, baseCloseables) = if (fileSlice.getBaseFile.isPresent) {
-      // A base row a filter skips under event-time ordering may still beat its log record, so the filters
-      // only prune the base file under commit-time ordering, where the log record always wins.
-      val baseFilters = if (mergeMode == RecordMergeMode.COMMIT_TIME_ORDERING) state.filters else Seq.empty
-      val iter = baseFileReader.value.read(file, baseReadSchema, state.partitionSchema, state.internalSchemaOpt,
-        baseFilters, conf, state.tableSchemaAsMessageType)
-      val batches = iter.asInstanceOf[Iterator[Any]].map {
-        case batch: ColumnarBatch => batch
-        case other => throw new IllegalStateException(
-          s"Expected columnar batches from the base file of a columnar merge-on-read scan, got ${other.getClass.getName}")
-      }
-      (batches, iter match {
-        case closeable: Closeable => Seq(closeable)
-        case _ => Seq.empty
-      })
+      preopened.getOrElse(openBaseBatches(file, baseReadSchema, mergeMode, state, conf))
     } else {
       (Iterator.empty, Seq.empty)
     }

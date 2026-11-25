@@ -38,6 +38,9 @@ import org.apache.spark.unsafe.types.UTF8String
 
 import java.io.Closeable
 import java.util
+import java.util.concurrent.{CompletableFuture, CompletionException, Executors, ExecutorService, ThreadFactory}
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.function.Supplier
 
 import scala.collection.JavaConverters._
 
@@ -112,6 +115,47 @@ private[parquet] object HoodieColumnarMorReader extends SparkAdapterSupport {
 
   def logPrefetchBytes(state: HoodieFileGroupReadState): Long =
     state.readerProps.getLong(LOG_PREFETCH_BYTES_KEY, DEFAULT_LOG_PREFETCH_BYTES)
+
+  private lazy val openPool: ExecutorService = Executors.newCachedThreadPool(new ThreadFactory {
+    private val ids = new AtomicInteger()
+
+    override def newThread(runnable: Runnable): Thread = {
+      val thread = new Thread(runnable, s"hudi-base-open-${ids.incrementAndGet()}")
+      thread.setDaemon(true)
+      thread
+    }
+  })
+
+  /**
+   * Opens a base file on another thread and reads its first batch there, so the read overlaps the log scan.
+   */
+  def openAsync(open: () => (Iterator[ColumnarBatch], Seq[Closeable])): CompletableFuture[(Iterator[ColumnarBatch], Seq[Closeable])] =
+    CompletableFuture.supplyAsync(new Supplier[(Iterator[ColumnarBatch], Seq[Closeable])] {
+      override def get(): (Iterator[ColumnarBatch], Seq[Closeable]) = {
+        val (batches, closeables) = open()
+        val buffered = batches.buffered
+        try {
+          buffered.hasNext
+        } catch {
+          case e: Throwable =>
+            closeables.foreach(_.close())
+            throw e
+        }
+        (buffered, closeables)
+      }
+    }, openPool)
+
+  /** The base file opened by [[openAsync]], or None when opening it failed and the caller should open it again. */
+  def await(future: CompletableFuture[(Iterator[ColumnarBatch], Seq[Closeable])]): Option[(Iterator[ColumnarBatch], Seq[Closeable])] =
+    try {
+      Some(future.join())
+    } catch {
+      case _: CompletionException => None
+    }
+
+  /** Closes a base file opened by [[openAsync]] that the merge does not use. */
+  def discard(future: CompletableFuture[(Iterator[ColumnarBatch], Seq[Closeable])]): Unit =
+    await(future).foreach(_._2.foreach(_.close()))
 
   /**
    * Splits rows already in the scan's output schema into batches, for slices that cannot take the columnar
