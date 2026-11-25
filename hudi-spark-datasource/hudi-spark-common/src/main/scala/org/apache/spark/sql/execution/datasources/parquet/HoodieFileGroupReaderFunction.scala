@@ -25,7 +25,7 @@ import org.apache.hudi.common.model.{FileSlice, HoodieLogFile, HoodieRecord}
 import org.apache.hudi.common.schema.HoodieSchema
 import org.apache.hudi.common.schema.internal.InternalSchema
 import org.apache.hudi.common.table.{HoodieTableConfig, ParquetTableSchemaResolver, PartialUpdateMode}
-import org.apache.hudi.common.table.log.{InstantRange, PrefetchedLogFileStorage}
+import org.apache.hudi.common.table.log.{InstantRange, LogReadAheadStorage, PrefetchedLogFileStorage}
 import org.apache.hudi.common.table.read.{BufferedRecord, BufferedRecordMergerFactory, BufferedRecords, HoodieFileGroupReader, HoodieRecordReader, TableState}
 import org.apache.hudi.common.table.read.buffer.PositionBasedFileGroupRecordBuffer
 import org.apache.hudi.common.table.read.lsm.{HoodieLsmFileGroupReader, LsmReaderUtils}
@@ -35,7 +35,7 @@ import org.apache.hudi.data.CloseableIteratorListener
 import org.apache.hudi.exception.HoodieException
 import org.apache.hudi.io.storage.HoodieSparkParquetReader.ENABLE_LOGICAL_TIMESTAMP_REPAIR
 import org.apache.hudi.io.storage.VectorConversionUtils
-import org.apache.hudi.storage.StorageConfiguration
+import org.apache.hudi.storage.{HoodieStorage, StorageConfiguration}
 import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration
 
 import org.apache.hadoop.conf.Configuration
@@ -401,15 +401,22 @@ private[parquet] class HoodieFileGroupReaderFunction(baseFileReader: Broadcast[S
                              readerContext: SparkFileFormatInternalRowReaderContext,
                              props: TypedProperties): Option[HoodieColumnarMorReader.LogRecordMatcher] = {
     val baseFileLength = if (fileSlice.getBaseFile.isPresent) fileSlice.getBaseFile.get.getFileSize else 0L
-    // Fetch the slice's log files concurrently rather than one request at a time during the log scan
     val logFiles = fileSlice.getLogFiles.collect(java.util.stream.Collectors.toList[HoodieLogFile]())
-    val storage = PrefetchedLogFileStorage.prefetch(
-      HoodieStorageUtils.getStorage(state.tableState.getBasePath, readerContext.getStorageConfiguration),
-      logFiles, HoodieColumnarMorReader.logPrefetchBytes(state))
+    val fileStorage = HoodieStorageUtils.getStorage(state.tableState.getBasePath, readerContext.getStorageConfiguration)
     // The merge drops deleted rows without looking at their keys
+    val deleteHeaderOnly = HoodieColumnarMorReader.deleteHeaderOnly(state)
+    val storage: HoodieStorage = if (HoodieColumnarMorReader.logReadAheadEnabled(state)) {
+      // Read the slice's log files, then the content of the blocks to merge, ahead of the log scan within a byte
+      // window, so the merge of one block runs while the next ones are fetched
+      LogReadAheadStorage.setExecutorBudget(HoodieColumnarMorReader.logReadAheadExecutorBytes(state))
+      LogReadAheadStorage.create(fileStorage, logFiles, HoodieColumnarMorReader.logReadAheadBytes(state),
+        deleteHeaderOnly && state.tableState.getTableConfig.getRecordMergeMode == RecordMergeMode.COMMIT_TIME_ORDERING)
+    } else {
+      // Fetch the slice's log files concurrently rather than one request at a time during the log scan
+      PrefetchedLogFileStorage.prefetch(fileStorage, logFiles, HoodieColumnarMorReader.logPrefetchBytes(state))
+    }
     val logProps = TypedProperties.copy(props)
-    logProps.setProperty(PositionBasedFileGroupRecordBuffer.SKIP_DELETE_BLOCK_CONTENT,
-      HoodieColumnarMorReader.deleteHeaderOnly(state).toString)
+    logProps.setProperty(PositionBasedFileGroupRecordBuffer.SKIP_DELETE_BLOCK_CONTENT, deleteHeaderOnly.toString)
     val logReader = HoodieFileGroupReader.builder[InternalRow]()
       .withReaderContext(readerContext)
       .withStorage(storage)

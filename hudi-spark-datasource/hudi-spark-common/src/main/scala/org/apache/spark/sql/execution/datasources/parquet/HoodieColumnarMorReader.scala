@@ -136,6 +136,37 @@ private[parquet] object HoodieColumnarMorReader extends SparkAdapterSupport {
   def logPrefetchBytes(state: HoodieFileGroupReadState): Long =
     state.readerProps.getLong(LOG_PREFETCH_BYTES_KEY, DEFAULT_LOG_PREFETCH_BYTES)
 
+  /**
+   * Whether to read a file slice's log files ahead of the log scan within a sliding byte window, in place of
+   * fetching them all before it.
+   */
+  val LOG_READAHEAD_ENABLED_KEY = "hoodie.datasource.read.mor.columnar.log.readahead.enabled"
+  /** Bytes of a file slice's log files or log blocks one log scan holds ahead of its merge at a time. */
+  val LOG_READAHEAD_BYTES_KEY = "hoodie.datasource.read.mor.columnar.log.readahead.bytes"
+  private val DEFAULT_LOG_READAHEAD_BYTES = 64L * 1024 * 1024
+  /** Bytes the log read-ahead of all tasks in an executor holds at a time; unset takes a fraction of the heap. */
+  val LOG_READAHEAD_EXECUTOR_BYTES_KEY = "hoodie.datasource.read.mor.columnar.log.readahead.executor.bytes"
+  /** The fraction of the executor heap the log read-ahead of all tasks holds at a time, unless capped in bytes. */
+  val LOG_READAHEAD_EXECUTOR_HEAP_FRACTION_KEY = "hoodie.datasource.read.mor.columnar.log.readahead.executor.heap.fraction"
+  private val DEFAULT_LOG_READAHEAD_EXECUTOR_HEAP_FRACTION = 0.2
+
+  def logReadAheadEnabled(state: HoodieFileGroupReadState): Boolean =
+    state.readerProps.getBoolean(LOG_READAHEAD_ENABLED_KEY, true)
+
+  def logReadAheadBytes(state: HoodieFileGroupReadState): Long =
+    state.readerProps.getLong(LOG_READAHEAD_BYTES_KEY, DEFAULT_LOG_READAHEAD_BYTES)
+
+  def logReadAheadExecutorBytes(state: HoodieFileGroupReadState): Long = {
+    val bytes = state.readerProps.getLong(LOG_READAHEAD_EXECUTOR_BYTES_KEY, -1L)
+    if (bytes >= 0) {
+      bytes
+    } else {
+      val fraction = state.readerProps.getDouble(LOG_READAHEAD_EXECUTOR_HEAP_FRACTION_KEY,
+        DEFAULT_LOG_READAHEAD_EXECUTOR_HEAP_FRACTION)
+      (Runtime.getRuntime.maxMemory * fraction).toLong
+    }
+  }
+
   private lazy val openPool: ExecutorService = Executors.newCachedThreadPool(new ThreadFactory {
     private val ids = new AtomicInteger()
 
