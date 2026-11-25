@@ -28,8 +28,8 @@ import org.apache.spark.SparkConf
 import org.apache.spark.sql.{DataFrame, Row, SaveMode}
 import org.apache.spark.sql.execution.FileSourceScanExec
 import org.apache.spark.sql.functions.{col, expr, lit}
-import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertTrue}
 import org.junit.jupiter.api.{BeforeEach, Test}
+import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertTrue}
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 
