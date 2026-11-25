@@ -253,7 +253,7 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
                       String rowKey = payload.key != null ? payload.key : metadataRecord.get(KEY_FIELD_NAME).toString();
                       HoodieKey key = new HoodieKey(rowKey, partitionName);
                       return new HoodieAvroRecord<>(key, payload);
-                    }, false))
+                    }, false, shouldLoadInMemory))
         .filter(r -> !r.getData().isDeleted());
   }
 
@@ -561,6 +561,11 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
   }
 
   private ClosableIterator<IndexedRecord> readSliceWithFilter(Predicate predicate, FileSlice fileSlice) throws IOException {
+    return readSliceWithFilter(predicate, fileSlice, false);
+  }
+
+  private ClosableIterator<IndexedRecord> readSliceWithFilter(Predicate predicate, FileSlice fileSlice,
+                                                              boolean fetchLogFilesInParallel) throws IOException {
     Option<HoodieInstant> latestMetadataInstant =
         metadataMetaClient.getActiveTimeline().filterCompletedInstants().lastInstant();
     String latestMetadataInstantTime =
@@ -580,6 +585,10 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
     Map<StoragePath, HoodieAvroFileReader> baseFileReaders = Collections.emptyMap();
     ReusableFileGroupRecordBufferLoader<IndexedRecord> recordBufferLoader = null;
     TypedProperties fileGroupReaderProps = ConfigUtils.buildFileGroupReaderProperties(metadataConfig, shouldReuse);
+    if (fetchLogFilesInParallel && !shouldReuse) {
+      fileGroupReaderProps.setProperty(HoodieMetadataConfig.LOG_FILE_FETCH_PARALLELISM.key(),
+          Integer.toString(metadataConfig.getLogFileFetchParallelism()));
+    }
     if (shouldReuse) {
       Pair<HoodieAvroFileReader, ReusableFileGroupRecordBufferLoader<IndexedRecord>> readers =
           getReusableFileReaders().computeIfAbsent(fileSlice.getFileGroupId(), fgId -> {
@@ -702,13 +711,26 @@ public class HoodieBackedTableMetadata extends BaseTableMetadata {
                                                                    FileSlice fileSlice,
                                                                    SerializableFunctionUnchecked<GenericRecord, T> transformer,
                                                                    boolean isFullKey) {
+    return readSliceAndFilterByKeysIntoList(partitionName, sortedKeys, fileSlice, transformer, isFullKey, false);
+  }
+
+  /**
+   * @param fetchLogFilesInParallel whether the lookup runs in memory on the driver, where the slice's log files are
+   *                                fetched whole and concurrently (see {@link HoodieMetadataConfig#LOG_FILE_FETCH_PARALLELISM}).
+   */
+  private <T> ClosableIterator<T> readSliceAndFilterByKeysIntoList(String partitionName,
+                                                                   Collection<String> sortedKeys,
+                                                                   FileSlice fileSlice,
+                                                                   SerializableFunctionUnchecked<GenericRecord, T> transformer,
+                                                                   boolean isFullKey,
+                                                                   boolean fetchLogFilesInParallel) {
     // If no keys to lookup, we must return early, otherwise, the hfile lookup will return all records.
     if (sortedKeys.isEmpty()) {
       return new EmptyIterator<>();
     }
     try {
       Predicate predicate = buildPredicate(partitionName, sortedKeys, isFullKey);
-      ClosableIterator<IndexedRecord> rawIterator = readSliceWithFilter(predicate, fileSlice);
+      ClosableIterator<IndexedRecord> rawIterator = readSliceWithFilter(predicate, fileSlice, fetchLogFilesInParallel);
 
       return new CloseableMappingIterator<>(rawIterator, record -> {
         GenericRecord metadataRecord = (GenericRecord) record;

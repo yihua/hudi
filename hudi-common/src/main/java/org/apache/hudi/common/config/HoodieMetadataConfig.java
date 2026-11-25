@@ -639,6 +639,17 @@ public final class HoodieMetadataConfig extends HoodieConfig {
       .withDocumentation("Max size in MB below which metadata file (HFile) will be downloaded "
           + "and cached entirely for the HFileReader.");
 
+  public static final ConfigProperty<Integer> LOG_FILE_FETCH_PARALLELISM = ConfigProperty
+      .key(METADATA_PREFIX + ".log.file.fetch.parallelism")
+      .defaultValue(16)
+      .markAdvanced()
+      .sinceVersion("1.3.0")
+      .withDocumentation("Number of log files of a metadata table file slice that a lookup served in memory on "
+          + "the driver (for example a column stats or partition stats lookup for data skipping) fetches at once. When "
+          + "the slice's log files total at most " + METADATA_FILE_CACHE_MAX_SIZE_MB.key() + ", each one is read "
+          + "whole with a single request and its blocks, including HFile key lookups, are served from memory. "
+          + "Set to 0 to read the log files one after another.");
+
   public static final ConfigProperty<Boolean> BLOOM_FILTER_ENABLE = ConfigProperty
       .key(METADATA_PREFIX + ".bloom.filter.enable")
       .defaultValue(false)
@@ -1027,6 +1038,10 @@ public final class HoodieMetadataConfig extends HoodieConfig {
 
   public int getFileCacheMaxSizeMB() {
     return getInt(METADATA_FILE_CACHE_MAX_SIZE_MB);
+  }
+
+  public int getLogFileFetchParallelism() {
+    return getIntOrDefault(LOG_FILE_FETCH_PARALLELISM);
   }
 
   public int getRecordPreparationParallelism() {

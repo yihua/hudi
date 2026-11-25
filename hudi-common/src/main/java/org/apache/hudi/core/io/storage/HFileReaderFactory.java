@@ -49,16 +49,19 @@ public class HFileReaderFactory {
   private final TypedProperties properties;
   private final Either<StoragePath, byte[]> fileSource;
   private Option<Long> fileSizeOpt;
+  private final Option<String> cacheKeyOpt;
 
   private HFileReaderFactory(HoodieStorage storage,
                              TypedProperties properties,
                              Either<StoragePath, byte[]> fileSource,
-                             Option<Long> fileSizeOpt) {
+                             Option<Long> fileSizeOpt,
+                             Option<String> cacheKeyOpt) {
     this.storage = storage;
     this.metadataConfig = HoodieMetadataConfig.newBuilder().withProperties(properties).build();
     this.properties = properties;
     this.fileSource = fileSource;
     this.fileSizeOpt = fileSizeOpt;
+    this.cacheKeyOpt = cacheKeyOpt;
   }
 
   public HFileReader createHFileReader() throws IOException {
@@ -85,6 +88,9 @@ public class HFileReaderFactory {
   }
 
   private String getFilePath() {
+    if (cacheKeyOpt.isPresent()) {
+      return cacheKeyOpt.get();
+    }
     if (fileSource.isLeft()) {
       return fileSource.asLeft().toString();
     }
@@ -126,6 +132,7 @@ public class HFileReaderFactory {
     private Option<TypedProperties> properties = Option.empty();
     private Either<StoragePath, byte[]> fileSource;
     private Option<Long> fileSizeOpt = Option.empty();
+    private Option<String> cacheKeyOpt = Option.empty();
 
     public Builder withStorage(HoodieStorage storage) {
       this.storage = storage;
@@ -155,11 +162,20 @@ public class HFileReaderFactory {
       return this;
     }
 
+    /**
+     * Sets the identifier the block cache keys this file's blocks by, for content that has a stable unique name
+     * (such as the inline path of a log block). By default, content is keyed by its hash.
+     */
+    public Builder withCacheKey(String cacheKey) {
+      this.cacheKeyOpt = Option.of(cacheKey);
+      return this;
+    }
+
     public HFileReaderFactory build() {
       ValidationUtils.checkArgument(storage != null, "Storage cannot be null");
       ValidationUtils.checkArgument(fileSource != null, "HFile source cannot be null");
       TypedProperties props = properties.isPresent() ? properties.get() : new TypedProperties();
-      return new HFileReaderFactory(storage, props, fileSource, fileSizeOpt);
+      return new HFileReaderFactory(storage, props, fileSource, fileSizeOpt, cacheKeyOpt);
     }
   }
 }

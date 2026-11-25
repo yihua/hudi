@@ -25,7 +25,9 @@ import org.apache.hudi.common.schema.internal.InternalSchema;
 import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.log.block.HoodieLogBlock;
+import org.apache.hudi.common.util.CustomizedThreadFactory;
 import org.apache.hudi.common.util.HoodieRecordUtils;
+import org.apache.hudi.common.util.Option;
 import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.exception.HoodieNotSupportedException;
 import org.apache.hudi.storage.HoodieStorage;
@@ -34,7 +36,14 @@ import org.apache.hudi.storage.StoragePath;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
+import java.io.InterruptedIOException;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
  * Hoodie log format reader.
@@ -52,6 +61,9 @@ public class HoodieLogFormatReader implements HoodieLogFormat.Reader {
   private final String recordKeyField;
   private final boolean enableInlineReading;
   private final int bufferSize;
+  // Whole-file fetches of the log files still to be read, in reading order; empty when not prefetching
+  private final Deque<Future<Option<byte[]>>> prefetchedLogFiles = new ArrayDeque<>();
+  private ExecutorService prefetchPool;
 
   HoodieLogFormatReader(HoodieStorage storage, HoodieTableMetaClient metaClient, List<HoodieLogFile> logFiles,
                         HoodieSchema readerSchema, boolean reverseLogReader, int bufferSize, boolean enableRecordLookups,
@@ -63,6 +75,20 @@ public class HoodieLogFormatReader implements HoodieLogFormat.Reader {
   HoodieLogFormatReader(HoodieStorage storage, HoodieTableConfig tableConfig, StoragePath basePath, List<HoodieLogFile> logFiles,
                         HoodieSchema readerSchema, boolean reverseLogReader, int bufferSize, boolean enableRecordLookups,
                         String recordKeyField, InternalSchema internalSchema) throws IOException {
+    this(storage, tableConfig, basePath, logFiles, readerSchema, reverseLogReader, bufferSize, enableRecordLookups,
+        recordKeyField, internalSchema, 0, 0L);
+  }
+
+  /**
+   * @param fetchParallelism   when positive, and the log files total at most {@code maxFetchTotalBytes}, every log
+   *                           file is fetched whole with a single read, up to this many at once, and parsed from
+   *                           memory. Otherwise the log files are streamed one after another.
+   * @param maxFetchTotalBytes upper bound on the summed size of the log files fetched into memory.
+   */
+  HoodieLogFormatReader(HoodieStorage storage, HoodieTableConfig tableConfig, StoragePath basePath, List<HoodieLogFile> logFiles,
+                        HoodieSchema readerSchema, boolean reverseLogReader, int bufferSize, boolean enableRecordLookups,
+                        String recordKeyField, InternalSchema internalSchema, int fetchParallelism,
+                        long maxFetchTotalBytes) throws IOException {
     this.logFiles = logFiles;
     this.storage = storage;
     this.tableConfig = tableConfig;
@@ -72,10 +98,41 @@ public class HoodieLogFormatReader implements HoodieLogFormat.Reader {
     this.recordKeyField = recordKeyField;
     this.enableInlineReading = enableRecordLookups;
     this.internalSchema = internalSchema == null ? InternalSchema.getEmptyInternalSchema() : internalSchema;
+    if (!reverseLogReader && shouldFetchWholeFiles(logFiles, fetchParallelism, maxFetchTotalBytes)) {
+      startWholeFileFetches(fetchParallelism);
+    }
     if (!logFiles.isEmpty()) {
       HoodieLogFile nextLogFile = logFiles.remove(0);
       this.currentReader = createReader(nextLogFile, reverseLogReader);
     }
+  }
+
+  private static boolean shouldFetchWholeFiles(List<HoodieLogFile> logFiles, int fetchParallelism, long maxFetchTotalBytes) {
+    if (fetchParallelism <= 0 || logFiles.isEmpty()) {
+      return false;
+    }
+    long totalBytes = 0;
+    for (HoodieLogFile logFile : logFiles) {
+      long size = logFile.getFileSize();
+      if (size <= 0 || FSUtils.isNativeLogFile(logFile.getFileName())) {
+        return false;
+      }
+      totalBytes += size;
+      if (totalBytes > maxFetchTotalBytes) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private void startWholeFileFetches(int fetchParallelism) {
+    int threads = Math.min(fetchParallelism, logFiles.size());
+    prefetchPool = Executors.newFixedThreadPool(threads, new CustomizedThreadFactory("hudi-log-file-fetch", true));
+    for (HoodieLogFile logFile : logFiles) {
+      long size = logFile.getFileSize();
+      prefetchedLogFiles.addLast(prefetchPool.submit(() -> HoodieLogFileReader.readWholeFile(storage, logFile, size)));
+    }
+    log.debug("Fetching {} log files whole with {} threads", logFiles.size(), threads);
   }
 
   /**
@@ -83,9 +140,17 @@ public class HoodieLogFormatReader implements HoodieLogFormat.Reader {
    */
   @Override
   public void close() throws IOException {
-    if (currentReader != null) {
-      currentReader.close();
-      currentReader = null;
+    try {
+      if (currentReader != null) {
+        currentReader.close();
+        currentReader = null;
+      }
+    } finally {
+      prefetchedLogFiles.clear();
+      if (prefetchPool != null) {
+        prefetchPool.shutdownNow();
+        prefetchPool = null;
+      }
     }
   }
 
@@ -135,6 +200,19 @@ public class HoodieLogFormatReader implements HoodieLogFormat.Reader {
   }
 
   private HoodieLogFormat.Reader createReader(HoodieLogFile logFile, boolean reverseLogReader) throws IOException {
+    Future<Option<byte[]>> prefetched = prefetchedLogFiles.pollFirst();
+    if (prefetched != null) {
+      if (prefetchedLogFiles.isEmpty()) {
+        // Every fetch is submitted; let the threads exit once the last one completes
+        prefetchPool.shutdown();
+      }
+      Option<byte[]> content = awaitWholeFile(prefetched, logFile);
+      if (content.isPresent()) {
+        return new HoodieLogFileReader(storage, logFile, content.get(), readerSchema, bufferSize,
+            enableInlineReading, recordKeyField, internalSchema);
+      }
+      // The file changed size since it was listed: stream it as usual
+    }
     if (FSUtils.isNativeLogFile(logFile.getFileName())) {
       if (tableConfig == null) {
         throw new HoodieNotSupportedException("Native log files require the table config");
@@ -147,6 +225,21 @@ public class HoodieLogFormatReader implements HoodieLogFormat.Reader {
     }
     return new HoodieLogFileReader(storage, logFile, readerSchema, bufferSize, reverseLogReader,
         enableInlineReading, recordKeyField, internalSchema);
+  }
+
+  private static Option<byte[]> awaitWholeFile(Future<Option<byte[]>> fetch, HoodieLogFile logFile) throws IOException {
+    try {
+      return fetch.get();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new HoodieIOException("Interrupted while fetching log file " + logFile, new InterruptedIOException(e.getMessage()));
+    } catch (ExecutionException e) {
+      Throwable cause = e.getCause();
+      if (cause instanceof IOException) {
+        throw (IOException) cause;
+      }
+      throw new HoodieIOException("Failed to fetch log file " + logFile, new IOException(cause));
+    }
   }
 
   private String getRelativePartitionPath(HoodieLogFile logFile) {

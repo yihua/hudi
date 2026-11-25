@@ -19,6 +19,8 @@
 
 package org.apache.hudi.common.table.log;
 
+import org.apache.hudi.common.config.HoodieConfig;
+import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.engine.HoodieReaderContext;
 import org.apache.hudi.common.model.HoodieLogFile;
@@ -38,6 +40,7 @@ import org.apache.hudi.common.util.HoodieTimer;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
+import org.apache.hudi.metadata.HoodieTableMetadata;
 import org.apache.hudi.storage.HoodieStorage;
 
 import lombok.AccessLevel;
@@ -224,7 +227,8 @@ public abstract class BaseHoodieLogRecordReader<T> {
     try {
       // Iterate over the paths
       logFormatReaderWrapper = new HoodieLogFormatReader(storage, tableState.getTableConfig(), tableState.getBasePath(), logFiles,
-          readerSchema, reverseReader, bufferSize, shouldLookupRecords(), recordKeyField, internalSchema);
+          readerSchema, reverseReader, bufferSize, shouldLookupRecords(), recordKeyField, internalSchema,
+          getLogFileFetchParallelism(), getMaxLogFileFetchTotalBytes());
 
       /**
        * Scanning log blocks and placing the compacted blocks at the right place require two traversals.
@@ -511,6 +515,25 @@ public abstract class BaseHoodieLogRecordReader<T> {
     blockReadMetrics.put(HoodieLogBlock.HeaderMetadataType.INSTANT_TIME.toString(), blockInstantTime);
     blocksStats.add(blockReadMetrics);
     log.debug("For log block, scan metrics are {}", blockReadMetrics);
+  }
+
+  /**
+   * Metadata table lookups opt in to fetching the log files of a file slice whole and concurrently through
+   * {@link HoodieMetadataConfig#LOG_FILE_FETCH_PARALLELISM}. Data table reads always stream log files one by one.
+   */
+  private int getLogFileFetchParallelism() {
+    HoodieConfig readerConfig = readerContext.getHoodieReaderConfig();
+    if (readerConfig == null || !HoodieTableMetadata.isMetadataTable(tableState.getBasePath())) {
+      return 0;
+    }
+    Integer parallelism = readerConfig.getInt(HoodieMetadataConfig.LOG_FILE_FETCH_PARALLELISM);
+    return parallelism == null ? 0 : parallelism;
+  }
+
+  private long getMaxLogFileFetchTotalBytes() {
+    HoodieConfig readerConfig = readerContext.getHoodieReaderConfig();
+    return readerConfig == null ? 0L
+        : readerConfig.getIntOrDefault(HoodieMetadataConfig.METADATA_FILE_CACHE_MAX_SIZE_MB) * 1024L * 1024L;
   }
 
   private boolean shouldLookupRecords() {

@@ -49,6 +49,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import javax.annotation.Nullable;
 
+import java.io.ByteArrayInputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.util.Arrays;
@@ -84,6 +85,8 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
   private final boolean enableRecordLookups;
   private boolean closed = false;
   private final SeekableDataInputStream inputStream;
+  // True when the whole log file was fetched up front and is parsed from memory
+  private final boolean inMemory;
 
   public HoodieLogFileReader(HoodieStorage storage, HoodieLogFile logFile, HoodieSchema readerSchema, int bufferSize) throws IOException {
     this(storage, logFile, readerSchema, bufferSize, false);
@@ -101,6 +104,22 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
 
   public HoodieLogFileReader(HoodieStorage storage, HoodieLogFile logFile, HoodieSchema readerSchema, int bufferSize, boolean reverseReader,
                              boolean enableRecordLookups, String keyField, InternalSchema internalSchema) throws IOException {
+    this(storage, logFile, null, readerSchema, bufferSize, reverseReader, enableRecordLookups, keyField, internalSchema);
+  }
+
+  /**
+   * Creates a forward reader over the complete bytes of a log file that the caller already fetched. Blocks are
+   * parsed from memory and their content is kept with the block, so a data block's records (including HFile key
+   * lookups) are served without going back to storage.
+   */
+  public HoodieLogFileReader(HoodieStorage storage, HoodieLogFile logFile, byte[] fileContent, HoodieSchema readerSchema,
+                             int bufferSize, boolean enableRecordLookups, String keyField, InternalSchema internalSchema) throws IOException {
+    this(storage, logFile, Objects.requireNonNull(fileContent), readerSchema, bufferSize, false, enableRecordLookups, keyField, internalSchema);
+  }
+
+  private HoodieLogFileReader(HoodieStorage storage, HoodieLogFile logFile, @Nullable byte[] fileContent, HoodieSchema readerSchema,
+                              int bufferSize, boolean reverseReader, boolean enableRecordLookups, String keyField,
+                              InternalSchema internalSchema) throws IOException {
     this.storage = storage;
     // NOTE: We repackage {@code HoodieLogFile} here to make sure that the provided path
     //       is prefixed with an appropriate scheme given that we're not propagating the FS
@@ -108,7 +127,10 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
     StoragePath updatedPath = FSUtils.makeQualified(storage, logFile.getPath());
     this.logFile = updatedPath.equals(logFile.getPath()) ? logFile : new HoodieLogFile(updatedPath, logFile.getFileSize());
     this.bufferSize = bufferSize;
-    this.inputStream = getDataInputStream(this.storage, this.logFile, bufferSize);
+    this.inMemory = fileContent != null;
+    this.inputStream = inMemory
+        ? new InMemorySeekableDataInputStream(fileContent)
+        : getDataInputStream(this.storage, this.logFile, bufferSize);
     this.readerSchema = readerSchema;
     this.reverseReader = reverseReader;
     this.enableRecordLookups = enableRecordLookups;
@@ -160,7 +182,7 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
 
     // 6. Read the content or skip content based on IO vs Memory trade-off by client
     long contentPosition = inputStream.getPos();
-    boolean shouldReadLazily = nextBlockVersion.getVersion() != HoodieLogFormatVersion.DEFAULT_VERSION;
+    boolean shouldReadLazily = !inMemory && nextBlockVersion.getVersion() != HoodieLogFormatVersion.DEFAULT_VERSION;
     Option<byte[]> content = HoodieLogBlock.tryReadContent(inputStream, contentLength, shouldReadLazily);
 
     // 7. Read footer if any
@@ -451,6 +473,74 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
   @Override
   public void remove() {
     throw new UnsupportedOperationException("Remove not supported for HoodieLogFileReader");
+  }
+
+  /**
+   * Reads a whole log file with a single sequential read when its length matches {@code expectedSize}.
+   *
+   * @return the file bytes, or empty if the file is shorter or longer than expected, so the caller can fall back
+   * to the streaming reader.
+   */
+  public static Option<byte[]> readWholeFile(HoodieStorage storage, HoodieLogFile logFile, long expectedSize) throws IOException {
+    if (expectedSize <= 0 || expectedSize > Integer.MAX_VALUE) {
+      return Option.empty();
+    }
+    StoragePath path = FSUtils.makeQualified(storage, logFile.getPath());
+    byte[] content = new byte[(int) expectedSize];
+    try (SeekableDataInputStream stream = storage.openSeekable(path, false)) {
+      stream.readFully(content);
+      if (stream.read() != -1) {
+        // The file grew after it was listed
+        return Option.empty();
+      }
+    } catch (EOFException e) {
+      return Option.empty();
+    }
+    return Option.of(content);
+  }
+
+  /**
+   * In-memory stream with the end-of-file behavior of a file system stream: reads past the end return -1 (so
+   * {@code readFully} throws {@link EOFException}) and seeking past the end throws {@link EOFException}.
+   */
+  private static final class InMemorySeekableDataInputStream extends SeekableDataInputStream {
+    private final SeekableByteArrayInputStream in;
+
+    InMemorySeekableDataInputStream(byte[] content) {
+      this(new SeekableByteArrayInputStream(content));
+    }
+
+    private InMemorySeekableDataInputStream(SeekableByteArrayInputStream in) {
+      super(in);
+      this.in = in;
+    }
+
+    @Override
+    public long getPos() {
+      return in.position();
+    }
+
+    @Override
+    public void seek(long pos) throws IOException {
+      in.seekTo(pos);
+    }
+  }
+
+  private static final class SeekableByteArrayInputStream extends ByteArrayInputStream {
+    SeekableByteArrayInputStream(byte[] content) {
+      super(content);
+    }
+
+    long position() {
+      return pos;
+    }
+
+    void seekTo(long newPos) throws EOFException {
+      if (newPos < 0 || newPos > count) {
+        throw new EOFException("Cannot seek to " + newPos + " in an in-memory log file of " + count + " bytes");
+      }
+      pos = (int) newPos;
+    }
   }
 
   /**

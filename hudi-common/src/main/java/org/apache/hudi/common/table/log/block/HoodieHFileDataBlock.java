@@ -18,6 +18,8 @@
 
 package org.apache.hudi.common.table.log.block;
 
+import org.apache.hudi.common.config.HoodieConfig;
+import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.engine.HoodieReaderContext;
 import org.apache.hudi.common.model.HoodieFileFormat;
 import org.apache.hudi.common.model.HoodieLogFile;
@@ -28,9 +30,11 @@ import org.apache.hudi.common.util.ConfigUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.ClosableIterator;
 import org.apache.hudi.common.util.collection.CloseableMappingIterator;
+import org.apache.hudi.core.io.storage.HFileReaderFactory;
 import org.apache.hudi.core.io.storage.HoodieAvroHFileReaderImplBase;
 import org.apache.hudi.core.io.storage.HoodieFileReader;
 import org.apache.hudi.core.io.storage.HoodieIOFactory;
+import org.apache.hudi.core.io.storage.HoodieNativeAvroHFileReader;
 import org.apache.hudi.io.SeekableDataInputStream;
 import org.apache.hudi.storage.HoodieStorage;
 import org.apache.hudi.storage.StorageConfiguration;
@@ -164,6 +168,15 @@ public class HoodieHFileDataBlock extends HoodieDataBlock {
   @Override
   protected <T> ClosableIterator<HoodieRecord<T>> lookupRecords(List<String> sortedKeys, boolean fullKey) throws IOException {
     HoodieLogBlockContentLocation blockContentLoc = getBlockContentLocation().get();
+    Option<byte[]> content = getContent();
+    if (content.isPresent()) {
+      try (HoodieAvroHFileReaderImplBase reader = openInMemoryReader(ConfigUtils.DEFAULT_HUDI_CONFIG_FOR_READER, content.get())) {
+        final ClosableIterator<HoodieRecord<IndexedRecord>> recordIterator =
+            fullKey ? reader.getRecordsByKeysIterator(sortedKeys, readerSchema) :
+                reader.getRecordsByKeyPrefixIterator(sortedKeys, readerSchema);
+        return new CloseableMappingIterator<>(recordIterator, data -> (HoodieRecord<T>) data);
+      }
+    }
 
     // NOTE: It's important to extend Hadoop configuration here to make sure configuration
     //       is appropriately carried over
@@ -191,6 +204,13 @@ public class HoodieHFileDataBlock extends HoodieDataBlock {
   @Override
   protected <T> ClosableIterator<T> lookupEngineRecords(HoodieReaderContext<T> readerContext, List<String> sortedKeys, boolean fullKey) throws IOException {
     HoodieLogBlockContentLocation blockContentLoc = getBlockContentLocation().get();
+    Option<byte[]> content = getContent();
+    if (content.isPresent()) {
+      try (HoodieAvroHFileReaderImplBase reader = openInMemoryReader(readerContext.getHoodieReaderConfig(), content.get())) {
+        return (ClosableIterator<T>) (fullKey ? reader.getEngineRecordsByKeysIterator(sortedKeys, readerSchema) :
+            reader.getEngineRecordsByKeyPrefixIterator(sortedKeys, readerSchema));
+      }
+    }
 
     // NOTE: It's important to extend Hadoop configuration here to make sure configuration
     //       is appropriately carried over
@@ -214,6 +234,32 @@ public class HoodieHFileDataBlock extends HoodieDataBlock {
       return (ClosableIterator<T>) (fullKey ? reader.getEngineRecordsByKeysIterator(sortedKeys, readerSchema) :
               reader.getEngineRecordsByKeyPrefixIterator(sortedKeys, readerSchema));
     }
+  }
+
+  /**
+   * Opens the block's HFile over the content that the log reader already holds in memory. The reader is the one
+   * the inline file system path would build for a block that is downloaded whole, and it is keyed in the HFile
+   * block cache by the same inline path, so lookups return the same records without another read from storage.
+   */
+  private HoodieAvroHFileReaderImplBase openInMemoryReader(HoodieConfig readerConfig, byte[] content) {
+    HoodieLogBlockContentLocation blockContentLoc = getBlockContentLocation().get();
+    StoragePath inlinePath = InLineFSUtils.getInlineFilePath(
+        blockContentLoc.getLogFile().getPath(),
+        blockContentLoc.getLogFile().getPath().toUri().getScheme(),
+        blockContentLoc.getContentPositionInLogFile(),
+        blockContentLoc.getBlockSize());
+    HFileReaderFactory readerFactory = HFileReaderFactory.builder()
+        .withStorage(blockContentLoc.getStorage())
+        .withProps(readerConfig.getProps())
+        .withContent(content)
+        .withCacheKey(inlinePath.toString())
+        .build();
+    return HoodieNativeAvroHFileReader.builder()
+        .readerFactory(readerFactory)
+        .path(inlinePath)
+        .schema(Option.of(getSchemaFromHeader()))
+        .useBloomFilter(readerConfig.getBooleanOrDefault(HoodieMetadataConfig.BLOOM_FILTER_ENABLE))
+        .build();
   }
 
   private static StoragePathInfo getStoragePathInfo(StoragePath inlinePath, HoodieLogBlockContentLocation blockContentLoc) {
