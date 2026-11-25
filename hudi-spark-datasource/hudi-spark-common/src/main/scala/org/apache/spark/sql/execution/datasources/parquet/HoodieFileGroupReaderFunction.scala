@@ -275,6 +275,11 @@ private[parquet] class HoodieFileGroupReaderFunction(baseFileReader: Broadcast[S
     // The batches of the file group reader hold the requested columns followed by the partition values
     val batchesMatchOutput = state.projectionInputSchema.fieldNames.sameElements(state.requiredSchema.fieldNames) &&
       state.remainingPartitionSchema == state.partitionSchema && state.fixedPartitionIndexes.isEmpty
+    if (!batchesMatchOutput) {
+      throw new IllegalStateException("DEBUG spark fallback: projectionInput=" + state.projectionInputSchema.fieldNames.mkString(",")
+        + " required=" + state.requiredSchema.fieldNames.mkString(",") + " remainingPartition=" + state.remainingPartitionSchema.fieldNames.mkString(",")
+        + " partition=" + state.partitionSchema.fieldNames.mkString(",") + " fixed=" + state.fixedPartitionIndexes)
+    }
     if (!batchesMatchOutput || LsmReaderUtils.shouldUseLsmReader(tableConfig, mergeType)) {
       toBatches(readFileSliceRows(file, fileSlice, fileSliceMapping, state, conf), state.outputSchema)
     } else {
