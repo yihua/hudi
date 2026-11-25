@@ -106,6 +106,13 @@ private[parquet] object HoodieColumnarMorReader extends SparkAdapterSupport {
   def maxLogRecords(state: HoodieFileGroupReadState): Int =
     state.readerProps.getInteger(MAX_LOG_RECORDS_KEY, DEFAULT_MAX_LOG_RECORDS)
 
+  /** Bytes of a file slice's log files fetched concurrently before the log scan; files past it are read in turn. */
+  val LOG_PREFETCH_BYTES_KEY = "hoodie.datasource.read.mor.columnar.log.prefetch.bytes"
+  private val DEFAULT_LOG_PREFETCH_BYTES = 256L * 1024 * 1024
+
+  def logPrefetchBytes(state: HoodieFileGroupReadState): Long =
+    state.readerProps.getLong(LOG_PREFETCH_BYTES_KEY, DEFAULT_LOG_PREFETCH_BYTES)
+
   /**
    * Splits rows already in the scan's output schema into batches, for slices that cannot take the columnar
    * merge but belong to a scan that returns batches.
