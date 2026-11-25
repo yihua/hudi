@@ -21,14 +21,14 @@ import org.apache.hudi.{HoodiePartitionCDCFileGroupMapping, HoodiePartitionFileS
 import org.apache.hudi.cdc.{CDCFileGroupIterator, HoodieCDCFileGroupSplit, HoodieCDCFileIndex}
 import org.apache.hudi.common.config.{HoodieReaderConfig, RecordMergeMode, TypedProperties}
 import org.apache.hudi.common.fs.FSUtils
-import org.apache.hudi.common.model.{FileSlice, HoodieRecord}
+import org.apache.hudi.common.model.{FileSlice, HoodieLogFile, HoodieRecord}
 import org.apache.hudi.common.schema.HoodieSchema
 import org.apache.hudi.common.schema.internal.InternalSchema
 import org.apache.hudi.common.table.{ParquetTableSchemaResolver, PartialUpdateMode}
-import org.apache.hudi.common.table.log.InstantRange
+import org.apache.hudi.common.table.log.{InstantRange, PrefetchedLogFileStorage}
 import org.apache.hudi.common.table.read.{BufferedRecord, BufferedRecordMergerFactory, BufferedRecords, HoodieFileGroupReader, HoodieRecordReader, TableState}
 import org.apache.hudi.common.table.read.lsm.{HoodieLsmFileGroupReader, LsmReaderUtils}
-import org.apache.hudi.common.util.{ConfigUtils, HoodieRecordUtils, Option => HOption}
+import org.apache.hudi.common.util.{ConfigUtils, HoodieRecordUtils, HoodieStorageUtils, Option => HOption}
 import org.apache.hudi.common.util.collection.ClosableIterator
 import org.apache.hudi.data.CloseableIteratorListener
 import org.apache.hudi.exception.HoodieException
@@ -322,8 +322,14 @@ private[parquet] class HoodieFileGroupReaderFunction(baseFileReader: Broadcast[S
                              readerContext: SparkFileFormatInternalRowReaderContext,
                              props: TypedProperties): Option[HoodieColumnarMorReader.LogRecordMatcher] = {
     val baseFileLength = if (fileSlice.getBaseFile.isPresent) fileSlice.getBaseFile.get.getFileSize else 0L
+    // Fetch the slice's log files concurrently rather than one request at a time during the log scan
+    val logFiles = fileSlice.getLogFiles.collect(java.util.stream.Collectors.toList[HoodieLogFile]())
+    val storage = PrefetchedLogFileStorage.prefetch(
+      HoodieStorageUtils.getStorage(state.tableState.getBasePath, readerContext.getStorageConfiguration),
+      logFiles, HoodieColumnarMorReader.logPrefetchBytes(state))
     val logReader = HoodieFileGroupReader.builder[InternalRow]()
       .withReaderContext(readerContext)
+      .withStorage(storage)
       .withTableState(state.tableState)
       .withLatestCommitTime(state.queryTimestamp)
       .withBaseFileOption(fileSlice.getBaseFile)
@@ -364,6 +370,7 @@ private[parquet] class HoodieFileGroupReaderFunction(baseFileReader: Broadcast[S
       }
     } finally {
       logReader.close()
+      storage.close()
     }
   }
 
