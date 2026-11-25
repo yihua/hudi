@@ -29,7 +29,7 @@ import org.apache.spark.sql.{DataFrame, Row, SaveMode}
 import org.apache.spark.sql.execution.FileSourceScanExec
 import org.apache.spark.sql.functions.{col, expr, lit}
 import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertTrue}
-import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.{BeforeEach, Test}
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 
@@ -40,7 +40,15 @@ class TestColumnarMergeOnReadRead extends SparkClientFunctionalTestHarness {
 
   private val columnarKey = "hoodie.datasource.read.mor.columnar.enabled"
 
+  // The harness shares one base path across the tests of a class, so each test writes its own table under it
+  private var tablePath: String = _
+
   override def conf: SparkConf = conf(getSparkSqlConf)
+
+  @BeforeEach
+  def newTablePath(): Unit = {
+    tablePath = s"$basePath/table_${System.nanoTime()}"
+  }
 
   private def writeOptions(mergeMode: Option[String]): Map[String, String] = Map(
     DataSourceWriteOptions.RECORDKEY_FIELD.key -> "id",
@@ -66,28 +74,28 @@ class TestColumnarMergeOnReadRead extends SparkClientFunctionalTestHarness {
     val opts = writeOptions(Some(mergeMode))
     rows(100, 10L, "base").write.format("hudi").options(opts)
       .option(DataSourceWriteOptions.OPERATION.key, DataSourceWriteOptions.INSERT_OPERATION_OPT_VAL)
-      .mode(SaveMode.Overwrite).save(basePath)
+      .mode(SaveMode.Overwrite).save(tablePath)
     // Updates to keys 0..19: even keys with a higher ordering value, odd keys with a lower one
     rows(20, 0L, "upd").withColumn("ts", expr("if(v % 2 = 0, 20L, 5L)"))
       .write.format("hudi").options(opts)
       .option(DataSourceWriteOptions.OPERATION.key, DataSourceWriteOptions.UPSERT_OPERATION_OPT_VAL)
-      .mode(SaveMode.Append).save(basePath)
+      .mode(SaveMode.Append).save(tablePath)
     // Deletes of keys 30..34
     rows(35, 30L, "del").filter("v >= 30")
       .write.format("hudi").options(opts)
       .option(DataSourceWriteOptions.OPERATION.key, DataSourceWriteOptions.DELETE_OPERATION_OPT_VAL)
-      .mode(SaveMode.Append).save(basePath)
+      .mode(SaveMode.Append).save(tablePath)
     // Inserts of new keys 100..104 and a second update of keys 0..4
     rows(105, 40L, "new").filter("v >= 100 or v < 5")
       .write.format("hudi").options(opts)
       .option(DataSourceWriteOptions.OPERATION.key, DataSourceWriteOptions.UPSERT_OPERATION_OPT_VAL)
-      .mode(SaveMode.Append).save(basePath)
+      .mode(SaveMode.Append).save(tablePath)
   }
 
   private def read(columnar: Boolean, select: Seq[String], filter: Option[String]): (Array[Row], Boolean) = {
     spark.conf.set(columnarKey, columnar.toString)
     try {
-      val table = spark.read.format("hudi").load(basePath)
+      val table = spark.read.format("hudi").load(tablePath)
       val df = filter.map(f => table.where(f)).getOrElse(table).selectExpr(select: _*)
       val scan = df.queryExecution.executedPlan.collectFirst { case s: FileSourceScanExec => s }
       val sorted = df.collect().sortBy(_.toString)
@@ -120,7 +128,7 @@ class TestColumnarMergeOnReadRead extends SparkClientFunctionalTestHarness {
     spark.conf.set(columnarKey, "true")
     try {
       // 100 inserted, 5 deleted, 5 new keys
-      assertEquals(100L, spark.read.format("hudi").load(basePath).count())
+      assertEquals(100L, spark.read.format("hudi").load(tablePath).count())
     } finally {
       spark.conf.unset(columnarKey)
     }
@@ -131,7 +139,7 @@ class TestColumnarMergeOnReadRead extends SparkClientFunctionalTestHarness {
     writeTable("EVENT_TIME_ORDERING")
     spark.conf.set(columnarKey, "true")
     try {
-      val byKey = spark.read.format("hudi").load(basePath).select("id", "ts", "s").collect()
+      val byKey = spark.read.format("hudi").load(tablePath).select("id", "ts", "s").collect()
         .map(r => r.getString(0) -> (r.getLong(1), r.getString(2))).toMap
       // Odd keys 5..19 got an update with a lower ordering value, so the base row stays
       assertEquals((10L, "base7"), byKey("k7"))
@@ -155,17 +163,17 @@ class TestColumnarMergeOnReadRead extends SparkClientFunctionalTestHarness {
     rows(20, 10L, "base").select(col("id"), col("part"), col("ts"), col("v"), col("d"), nullableS)
       .write.format("hudi").options(opts)
       .option(DataSourceWriteOptions.OPERATION.key, DataSourceWriteOptions.INSERT_OPERATION_OPT_VAL)
-      .mode(SaveMode.Overwrite).save(basePath)
+      .mode(SaveMode.Overwrite).save(tablePath)
     // Keys 0..4 get a higher ordering value and a null s, which the payload fills from the base row
     rows(5, 20L, "upd").select(col("id"), col("part"), col("ts"), col("v"), col("d"),
       lit(null).cast("string").as("s"))
       .write.format("hudi").options(opts)
       .option(DataSourceWriteOptions.OPERATION.key, DataSourceWriteOptions.UPSERT_OPERATION_OPT_VAL)
-      .mode(SaveMode.Append).save(basePath)
+      .mode(SaveMode.Append).save(tablePath)
     assertSameRows(Seq("id", "ts", "s"), expectColumnar = false)
     spark.conf.set(columnarKey, "true")
     try {
-      val byKey = spark.read.format("hudi").load(basePath).select("id", "ts", "s").collect()
+      val byKey = spark.read.format("hudi").load(tablePath).select("id", "ts", "s").collect()
         .map(r => r.getString(0) -> (r.getLong(1), r.getString(2))).toMap
       assertEquals(20, byKey.size)
       assertEquals((20L, "base3"), byKey("k3"))
@@ -182,10 +190,10 @@ class TestColumnarMergeOnReadRead extends SparkClientFunctionalTestHarness {
       .withColumn("st", expr("named_struct('a', v, 'b', s)"))
     nested(20, 10L, "base").write.format("hudi").options(opts)
       .option(DataSourceWriteOptions.OPERATION.key, DataSourceWriteOptions.INSERT_OPERATION_OPT_VAL)
-      .mode(SaveMode.Overwrite).save(basePath)
+      .mode(SaveMode.Overwrite).save(tablePath)
     nested(5, 20L, "upd").write.format("hudi").options(opts)
       .option(DataSourceWriteOptions.OPERATION.key, DataSourceWriteOptions.UPSERT_OPERATION_OPT_VAL)
-      .mode(SaveMode.Append).save(basePath)
+      .mode(SaveMode.Append).save(tablePath)
     // A struct column in the projection keeps the row-based reader; without it the scan returns batches
     assertSameRows(Seq("id", "st", "s"), expectColumnar = false)
     assertSameRows(Seq("id", "ts", "d", "s"), expectColumnar = true)
@@ -196,12 +204,12 @@ class TestColumnarMergeOnReadRead extends SparkClientFunctionalTestHarness {
     val opts = writeOptions(Some("EVENT_TIME_ORDERING"))
     rows(20, 10L, "base").write.format("hudi").options(opts)
       .option(DataSourceWriteOptions.OPERATION.key, DataSourceWriteOptions.INSERT_OPERATION_OPT_VAL)
-      .mode(SaveMode.Overwrite).save(basePath)
+      .mode(SaveMode.Overwrite).save(tablePath)
     // The update adds a nullable column that the base file does not have
     rows(5, 20L, "upd").withColumn("extra", expr("cast(v * 10 as bigint)"))
       .write.format("hudi").options(opts)
       .option(DataSourceWriteOptions.OPERATION.key, DataSourceWriteOptions.UPSERT_OPERATION_OPT_VAL)
-      .mode(SaveMode.Append).save(basePath)
+      .mode(SaveMode.Append).save(tablePath)
     assertSameRows(Seq("*"), expectColumnar = true)
     assertSameRows(Seq("id", "extra"), expectColumnar = true)
   }
