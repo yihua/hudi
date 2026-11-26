@@ -51,6 +51,13 @@ public interface UpdateProcessor<T> {
    */
   BufferedRecord<T> processUpdate(String recordKey, BufferedRecord<T> previousRecord, BufferedRecord<T> mergedRecord, boolean isDelete);
 
+  /**
+   * @return whether {@link #processUpdate} uses the record key of a delete
+   */
+  default boolean readsDeleteKeys() {
+    return true;
+  }
+
   static <T> UpdateProcessor<T> create(HoodieReadStats readStats, HoodieReaderContext<T> readerContext,
                                        boolean emitDeletes, Option<BaseFileUpdateCallback<T>> updateCallback,
                                        TypedProperties properties) {
@@ -82,6 +89,11 @@ public interface UpdateProcessor<T> {
       this.readStats = readStats;
       this.readerContext = readerContext;
       this.emitDeletes = emitDeletes;
+    }
+
+    @Override
+    public boolean readsDeleteKeys() {
+      return emitDeletes;
     }
 
     @Override
